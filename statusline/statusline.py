@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""Hay status line: Hay's own state, one animated line.
+
+    ⠿ hay / 1.2k tokens saved / 8 prunes
+
+The leading glyph is daemon residency, animated (needs refreshInterval: 1):
+  -   down      gray   — server not accepting connections
+  ⠿⠶  ready     green  — server up, idle (pulse)
+  ⠋⠙⠸⠴ active   cyan   — a prune landed within the last few seconds (spin)
+
+Savings are per-session (keyed by Claude's session_id); tokens are approximated
+from saved chars (~4 chars/token).
+
+This is the ONE statusline. It is settings-level (not a plugin component) and
+reads socket/state/naming from the `pruner` package, so none of that logic is
+duplicated here. Wire it in settings.json:
+
+    "statusLine": {
+      "type": "command",
+      "command": "python3 /Users/e24z/repos/hay/statusline/statusline.py",
+      "refreshInterval": 1
+    }
+
+Width discipline (Claude counts chars for layout): the animated glyphs are all
+U+2800-28FF braille, reliably 1 cell everywhere; the separator is ASCII ' / '
+(U+00B7 MIDDLE DOT has ambiguous width and has corrupted the TUI). The line
+degrades to shorter forms rather than wrapping. Fails silent so a broken
+statusline never disrupts the session.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import socket
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+ACTIVE_SECS = 3  # a prune within this many seconds → "active"
+SEP = " / "
+
+SPIN_FRAMES = ["⠋", "⠙", "⠸", "⠴"]  # ⠋⠙⠸⠴  active
+PULSE_FRAMES = ["⠿", "⠶"]                       # ⠿⠶     ready
+
+CLR_DOWN = "38;5;240"    # gray
+CLR_READY = "38;5;35"    # green
+CLR_ACTIVE = "38;5;87"   # cyan
+
+
+def _ansi(code: str, text: str) -> str:
+    return f"\033[{code}m{text}\033[0m"
+
+
+def _fmt_tokens(n: int) -> str:
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 10_000:
+        return f"{round(n / 1_000)}k"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}k"
+    return str(n)
+
+
+def _project_dir(payload: dict) -> str | None:
+    if proj := os.environ.get("CLAUDE_PROJECT_DIR"):
+        return proj
+    ws = payload.get("workspace") or {}
+    return ws.get("project_dir") or ws.get("current_dir")
+
+
+def _resident(payload: dict) -> bool:
+    """Is the per-project pruner daemon actually serving? A connect probe, not
+    a mere file-exists check: an unclean exit leaves a stale socket behind, and
+    we must not report 'up' for a dead daemon."""
+    try:
+        from pruner import naming
+
+        if proj := _project_dir(payload):
+            os.environ.setdefault("CLAUDE_PROJECT_DIR", proj)
+        path = naming.socket_path()
+        if not path.exists():
+            return False
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        probe.settimeout(0.2)
+        try:
+            probe.connect(str(path))
+            return True
+        except OSError:
+            return False  # stale socket: file there, nothing listening
+        finally:
+            probe.close()
+    except Exception:
+        return False
+
+
+def _state(payload: dict) -> tuple[str, int, int]:
+    """Return (indicator_state, calls, tokens). States: down|ready|active."""
+    from pruner import state
+
+    s = state.read(payload.get("session_id") or None)
+    calls = int(s.get("calls", 0))
+    tokens = int(s.get("saved_chars", 0)) // 4
+    if not _resident(payload):
+        return "down", calls, tokens
+    if time.time() - float(s.get("updated_at", 0.0)) < ACTIVE_SECS:
+        return "active", calls, tokens
+    return "ready", calls, tokens
+
+
+def _indicator(state: str) -> str:
+    t = int(time.time())
+    if state == "down":
+        return _ansi(CLR_DOWN, "-")
+    if state == "active":
+        return _ansi(CLR_ACTIVE, SPIN_FRAMES[t % len(SPIN_FRAMES)])
+    return _ansi(CLR_READY, PULSE_FRAMES[t % len(PULSE_FRAMES)])
+
+
+def _render(state: str, calls: int, tokens: int) -> str | None:
+    """Build the line, degrading to shorter forms rather than wrapping. Returns
+    None if even the bare name won't fit (print nothing)."""
+    cols = int(os.environ.get("COLUMNS", "80"))
+    name = "hay"
+    plural = "s" if calls != 1 else ""
+    forms = [
+        f"{name}{SEP}{_fmt_tokens(tokens)} tokens saved{SEP}{calls} prune{plural}",
+        f"{name}{SEP}{_fmt_tokens(tokens)}t{SEP}{calls}p",
+        name,
+    ]
+    ind = _indicator(state)
+    for line in forms:
+        if 2 + len(line) <= cols - 1:  # 1 glyph + 1 space, plain-text width
+            return f"{ind} {line}"
+    return None
+
+
+def main() -> int:
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except Exception:
+        payload = {}
+    try:
+        state, calls, tokens = _state(payload)
+        line = _render(state, calls, tokens)
+        if line:
+            sys.stdout.write(line)
+    except Exception:
+        pass  # silent: never break the status line
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

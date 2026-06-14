@@ -1,0 +1,11 @@
+{
+  "name": "hay",
+  "description": "Local context-pruning for Claude Code (codename: Hay). Session-owned model daemon prunes large read-like tool outputs.",
+  "version": "0.0.0",
+  "author": {
+    "name": "e24z"
+  },
+  "experimental": {
+    "monitors": "./monitors/monitors.json"
+  }
+}

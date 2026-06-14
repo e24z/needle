@@ -1,0 +1,14 @@
+{
+  "name": "hay-local",
+  "description": "Local development marketplace for the Hay context-pruning plugin.",
+  "owner": {
+    "name": "e24z"
+  },
+  "plugins": [
+    {
+      "name": "hay",
+      "source": "./",
+      "description": "Local context-pruning for Claude Code (codename: Hay)."
+    }
+  ]
+}

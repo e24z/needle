@@ -1,0 +1,18 @@
+{
+  "description": "Hay context-pruning hooks for Claude Code.",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Read|Grep|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/post_tool_use.py\"",
+            "timeout": 120,
+            "statusMessage": "Hay: pruning output"
+          }
+        ]
+      }
+    ]
+  }
+}
