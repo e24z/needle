@@ -7,6 +7,7 @@ and CLI display all follow. Do not hardcode "hay" anywhere else.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import socket
 from pathlib import Path
@@ -45,3 +46,20 @@ def socket_is_live(path: Path) -> bool:
         return False
     finally:
         probe.close()
+
+
+def code_version() -> str:
+    """Short hash of the pruner package source. A detached manager records the
+    version it started on; a session announces its version when it leases. A
+    mismatch means the code was edited since the manager launched -- so the old
+    manager steps aside and a fresh one starts on the new code. Without this, a
+    long-lived manager would silently keep running stale code after an edit."""
+    pkg = Path(__file__).resolve().parent
+    h = hashlib.sha1()
+    for p in sorted(pkg.rglob("*.py")):
+        h.update(p.name.encode("utf-8"))
+        try:
+            h.update(p.read_bytes())
+        except OSError:
+            pass
+    return h.hexdigest()[:12]

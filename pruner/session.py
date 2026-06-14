@@ -4,6 +4,10 @@ This replaces "the session owns the daemon". The session now owns only its
 LEASE: this process makes sure the machine-wide manager is up, acquires a lease,
 heartbeats while the session is alive, and releases on exit. Model residency is
 the manager's decision, driven by whether any lease is live.
+
+The lease carries this session's code version. If the running manager started on
+older code, it steps aside and we start a fresh one (see _acquire), so an edit to
+the source actually takes effect on the next session.
 """
 
 from __future__ import annotations
@@ -49,11 +53,37 @@ def _ensure_manager(timeout: float = 10.0) -> bool:
     return False
 
 
+def _acquire(session_id: str, version: str, attempts: int = 4) -> bool:
+    """Lease, handling a stale manager: if it reports our code is newer than what
+    it started on, it steps aside -- we wait for the socket to free, start a
+    fresh manager on the current code, and retry."""
+    for _ in range(attempts):
+        try:
+            resp = client.lease(session_id, version)
+        except OSError:
+            if not _ensure_manager():
+                return False
+            continue
+        if resp.get("ok"):
+            return True
+        if resp.get("stale"):
+            sock = naming.manager_socket_path()
+            deadline = time.monotonic() + 10.0
+            while time.monotonic() < deadline and naming.socket_is_live(sock):
+                time.sleep(0.1)
+            if not _ensure_manager():
+                return False
+            continue
+        return False  # refused for some other reason
+    return False
+
+
 def run_session(
     stop_event: threading.Event | None = None,
     session_id: str | None = None,
 ) -> int:
     session_id = session_id or os.environ.get("CLAUDE_SESSION_ID") or uuid.uuid4().hex
+    version = naming.code_version()
     stop_event = stop_event or threading.Event()
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGTERM, lambda *_: stop_event.set())
@@ -61,10 +91,7 @@ def run_session(
 
     if not _ensure_manager():
         return 0  # couldn't start a manager: the hook fails open, nothing to hold
-
-    try:
-        client.lease(session_id)
-    except OSError:
+    if not _acquire(session_id, version):
         return 0
 
     last_beat = time.monotonic()
@@ -77,11 +104,7 @@ def run_session(
                 try:
                     client.heartbeat(session_id)
                 except OSError:
-                    if _ensure_manager():  # manager died; bring one back, re-lease
-                        try:
-                            client.lease(session_id)
-                        except OSError:
-                            pass
+                    _acquire(session_id, version)  # manager died/replaced; re-lease
                 last_beat = now
             stop_event.wait(1.0)  # stay responsive to SIGTERM / orphaning
     finally:

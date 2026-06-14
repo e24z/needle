@@ -11,8 +11,10 @@ next prune. When the last lease drops, an idle clock starts; if it expires the
 model is evicted. A session that crashes without releasing can't pin memory
 forever -- a lease with no heartbeat for `lease_ttl` is reaped.
 
-Deliberately NO getppid()==1 self-teardown: unlike the session-owned server, the
-manager must OUTLIVE the process that launched it.
+Because the manager OUTLIVES the sessions that use it (deliberately NO
+getppid()==1 self-teardown), editing the code would otherwise leave a stale
+manager running old code. So a lease carries the session's code version; on a
+mismatch the manager steps aside (stops) and the session starts a fresh one.
 """
 
 from __future__ import annotations
@@ -42,11 +44,15 @@ class Manager:
         self,
         backend_factory: Callable[[], PrunerBackend],
         *,
+        version: str = "",
+        stop_event: threading.Event | None = None,
         lease_ttl: float = LEASE_TTL,
         idle_timeout: float = IDLE_TIMEOUT,
     ) -> None:
         self._make = backend_factory
         self._backend: PrunerBackend | None = None  # built on first prune, dropped on evict
+        self.version = version
+        self._stop = stop_event
         self.lease_ttl = lease_ttl
         self.idle_timeout = idle_timeout
         self._beats: dict[str, float] = {}      # session id -> last heartbeat (monotonic)
@@ -77,7 +83,17 @@ class Manager:
                 "pruned_len": len(pruned),
                 "backend": getattr(backend, "name", "unknown"),
             }
-        if op in ("lease", "heartbeat"):
+        if op == "lease":
+            ver = req.get("version", "")
+            if ver and self.version and ver != self.version:
+                # The leasing session runs different code than we started on.
+                # Step aside so a fresh manager spawns on the current code.
+                if self._stop is not None:
+                    self._stop.set()
+                return {"ok": False, "stale": True, "version": self.version}
+            self._beats[req.get("session", "")] = now
+            return {"ok": True}
+        if op == "heartbeat":
             self._beats[req.get("session", "")] = now
             return {"ok": True}
         if op == "release":
@@ -89,6 +105,7 @@ class Manager:
                 "resident": self.resident,
                 "sessions": len(self._beats),
                 "backend": getattr(self._backend, "name", None),
+                "version": self.version,
             }
         return {"ok": False, "error": f"unknown op: {op!r}"}
 
@@ -141,6 +158,7 @@ def serve_manager(
     ready_cb: Callable[[Path], None] | None = None,
     stop_event: threading.Event | None = None,
     *,
+    version: str | None = None,
     lease_ttl: float = LEASE_TTL,
     idle_timeout: float = IDLE_TIMEOUT,
     poll_interval: float = 0.5,
@@ -148,6 +166,7 @@ def serve_manager(
     """Bind the machine-wide socket and serve until stopped. First writer wins:
     if a manager is already live on the socket, defer to it and return."""
     backend_factory = backend_factory or get_backend
+    version = naming.code_version() if version is None else version
     sock_path = Path(socket_path) if socket_path else naming.manager_socket_path()
     sock_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -169,12 +188,18 @@ def serve_manager(
     srv.listen(16)
     srv.settimeout(poll_interval)  # wake periodically to maintain + check stop
 
-    mgr = Manager(backend_factory, lease_ttl=lease_ttl, idle_timeout=idle_timeout)
+    stop_event = stop_event or threading.Event()
+    mgr = Manager(
+        backend_factory,
+        version=version,
+        stop_event=stop_event,
+        lease_ttl=lease_ttl,
+        idle_timeout=idle_timeout,
+    )
 
     if ready_cb:
         ready_cb(sock_path)
 
-    stop_event = stop_event or threading.Event()
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGTERM, lambda *_: stop_event.set())
         signal.signal(signal.SIGINT, lambda *_: stop_event.set())
