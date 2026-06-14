@@ -9,6 +9,7 @@ import sys
 
 from . import client, naming
 from .backends import get_backend
+from .manager import serve_manager
 from .server import serve_forever
 
 
@@ -28,6 +29,23 @@ def _serve(args: argparse.Namespace) -> int:
         serve_forever(backend=backend, ready_cb=ready)
     except KeyboardInterrupt:
         print(f"\n{naming.APP_NAME}: stopped", file=sys.stderr)
+    return 0
+
+
+def _manage(args: argparse.Namespace) -> int:
+    backend = get_backend()
+
+    def ready(path) -> None:
+        print(
+            f"{naming.APP_NAME}: manager listening on {path} (backend={backend.name})",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    try:
+        serve_manager(backend=backend, ready_cb=ready)
+    except KeyboardInterrupt:
+        print(f"\n{naming.APP_NAME}: manager stopped", file=sys.stderr)
     return 0
 
 
@@ -56,6 +74,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sp = sub.add_parser("serve", help="run the pruning server in the foreground")
     sp.set_defaults(func=_serve)
+
+    mp = sub.add_parser("manage", help="run the machine-wide model residency manager")
+    mp.set_defaults(func=_manage)
 
     pp = sub.add_parser("prune", help="send stdin to the server, print the result")
     pp.add_argument("--query", "-q", default="", help="relevance query / goal")

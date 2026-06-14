@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import socket
 from pathlib import Path
 
 # Codename. The ONLY place the product name appears in code.
@@ -38,3 +39,27 @@ def socket_path() -> Path:
         key = hashlib.sha1(project.encode("utf-8")).hexdigest()[:12]
         return app_home() / "sockets" / f"{APP_NAME}-{key}.sock"
     return app_home() / f"{APP_NAME}.sock"
+
+
+def manager_socket_path() -> Path:
+    """The machine-wide manager socket. One per machine (per HAY_HOME), NOT keyed
+    by project: the whole point of the manager is a single resident model shared
+    by every session. HAY_MANAGER_SOCKET overrides (tests, manual runs)."""
+    env = os.environ.get("HAY_MANAGER_SOCKET")
+    if env:
+        return Path(env).expanduser()
+    return app_home() / "manager.sock"
+
+
+def socket_is_live(path: Path) -> bool:
+    """True if something is already accepting connections on this unix socket.
+    The basis for first-writer-wins binding: a later starter defers to it."""
+    probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    probe.settimeout(0.5)
+    try:
+        probe.connect(str(path))
+        return True
+    except OSError:
+        return False
+    finally:
+        probe.close()
