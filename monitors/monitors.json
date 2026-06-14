@@ -1,7 +1,7 @@
 [
   {
-    "name": "pruner-server",
-    "command": "cd \"${CLAUDE_PLUGIN_ROOT}\" && { [ -x .venv/bin/python ] && PY=.venv/bin/python || PY=python3; } && HAY_BACKEND=\"${HAY_BACKEND:-mlx}\" \"$PY\" -m pruner serve",
-    "description": "Hay pruning server (session-owned)"
+    "name": "hay-session",
+    "command": "cd \"${CLAUDE_PLUGIN_ROOT}\" && { [ -x .venv/bin/python ] && PY=.venv/bin/python || PY=python3; } && HAY_BACKEND=\"${HAY_BACKEND:-mlx}\" \"$PY\" -m pruner session",
+    "description": "Hay session lease — ensures the machine-wide manager is up and keeps it warm while this session is alive"
   }
 ]

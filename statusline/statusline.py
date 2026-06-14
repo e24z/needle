@@ -3,16 +3,16 @@
 
     ⠿ hay / 1.2k tokens saved / 8 prunes
 
-The leading glyph is daemon residency, animated (needs refreshInterval: 1):
-  -   down      gray   — server not accepting connections
-  ⠿⠶  ready     green  — server up, idle (pulse)
+The leading glyph is manager residency, animated (needs refreshInterval: 1):
+  -   down      gray   — manager not accepting connections
+  ⠿⠶  ready     green  — manager up, idle (pulse)
   ⠋⠙⠸⠴ active   cyan   — a prune landed within the last few seconds (spin)
 
 Savings are per-session (keyed by Claude's session_id); tokens are approximated
 from saved chars (~4 chars/token).
 
 This is the ONE statusline. It is settings-level (not a plugin component) and
-reads socket/state/naming from the `pruner` package, so none of that logic is
+reads state/naming from the `pruner` package, so none of that logic is
 duplicated here. Wire it in settings.json:
 
     "statusLine": {
@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import sys
 import time
 from pathlib import Path
@@ -64,34 +63,14 @@ def _fmt_tokens(n: int) -> str:
     return str(n)
 
 
-def _project_dir(payload: dict) -> str | None:
-    if proj := os.environ.get("CLAUDE_PROJECT_DIR"):
-        return proj
-    ws = payload.get("workspace") or {}
-    return ws.get("project_dir") or ws.get("current_dir")
-
-
-def _resident(payload: dict) -> bool:
-    """Is the per-project pruner daemon actually serving? A connect probe, not
-    a mere file-exists check: an unclean exit leaves a stale socket behind, and
-    we must not report 'up' for a dead daemon."""
+def _resident() -> bool:
+    """Is the machine-wide manager actually serving? A connect probe (via
+    naming.socket_is_live), not a mere file-exists check: an unclean exit leaves
+    a stale socket behind, and we must not report 'up' for a dead manager."""
     try:
         from pruner import naming
 
-        if proj := _project_dir(payload):
-            os.environ.setdefault("CLAUDE_PROJECT_DIR", proj)
-        path = naming.socket_path()
-        if not path.exists():
-            return False
-        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        probe.settimeout(0.2)
-        try:
-            probe.connect(str(path))
-            return True
-        except OSError:
-            return False  # stale socket: file there, nothing listening
-        finally:
-            probe.close()
+        return naming.socket_is_live(naming.manager_socket_path())
     except Exception:
         return False
 
@@ -103,7 +82,7 @@ def _state(payload: dict) -> tuple[str, int, int]:
     s = state.read(payload.get("session_id") or None)
     calls = int(s.get("calls", 0))
     tokens = int(s.get("saved_chars", 0)) // 4
-    if not _resident(payload):
+    if not _resident():
         return "down", calls, tokens
     if time.time() - float(s.get("updated_at", 0.0)) < ACTIVE_SECS:
         return "active", calls, tokens

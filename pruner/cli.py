@@ -1,6 +1,11 @@
-"""Command line. `serve` runs the server in the foreground; `prune` pipes
-stdin through it. This is where `hay serve` will come from once we add a
-console-script alias; for now it is `python3 -m pruner serve`."""
+"""Command line for the pruner.
+
+  manage   run the machine-wide model residency manager (one per machine)
+  session  hold a session lease against the manager (what the monitor runs)
+  prune    pipe stdin through the manager, print the result
+
+For now invoked as `python3 -m pruner <cmd>`; a `hay` console-script alias can
+come later."""
 
 from __future__ import annotations
 
@@ -9,32 +14,14 @@ import os
 import sys
 
 from . import client, naming
-from .backends import get_backend
 from .manager import serve_manager
-from .server import serve_forever
-
-
-def _serve(args: argparse.Namespace) -> int:
-    backend = get_backend()
-
-    def ready(path) -> None:
-        # stderr only: a monitor surfaces STDOUT lines to the agent as
-        # notifications, and we don't want the agent narrating routine startup.
-        print(
-            f"{naming.APP_NAME}: listening on {path} (backend={backend.name})",
-            file=sys.stderr,
-            flush=True,
-        )
-
-    try:
-        serve_forever(backend=backend, ready_cb=ready)
-    except KeyboardInterrupt:
-        print(f"\n{naming.APP_NAME}: stopped", file=sys.stderr)
-    return 0
+from .session import run_session
 
 
 def _manage(args: argparse.Namespace) -> int:
     def ready(path) -> None:
+        # stderr only: a monitor surfaces STDOUT lines to the agent as
+        # notifications, and we don't want it narrating routine startup.
         print(
             f"{naming.APP_NAME}: manager listening on {path} "
             f"(backend={os.environ.get('HAY_BACKEND', 'fake')}, lazy-load on first prune)",
@@ -47,6 +34,10 @@ def _manage(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         print(f"\n{naming.APP_NAME}: manager stopped", file=sys.stderr)
     return 0
+
+
+def _session(args: argparse.Namespace) -> int:
+    return run_session()
 
 
 def _prune(args: argparse.Namespace) -> int:
@@ -68,17 +59,17 @@ def _prune(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog=naming.APP_NAME,
-        description=f"context-pruning server (codename: {naming.APP_NAME})",
+        description=f"context-pruning manager (codename: {naming.APP_NAME})",
     )
     sub = p.add_subparsers(dest="cmd", required=True)
-
-    sp = sub.add_parser("serve", help="run the pruning server in the foreground")
-    sp.set_defaults(func=_serve)
 
     mp = sub.add_parser("manage", help="run the machine-wide model residency manager")
     mp.set_defaults(func=_manage)
 
-    pp = sub.add_parser("prune", help="send stdin to the server, print the result")
+    ssp = sub.add_parser("session", help="hold a session lease against the manager")
+    ssp.set_defaults(func=_session)
+
+    pp = sub.add_parser("prune", help="send stdin to the manager, print the result")
     pp.add_argument("--query", "-q", default="", help="relevance query / goal")
     pp.set_defaults(func=_prune)
 
