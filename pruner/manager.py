@@ -3,15 +3,16 @@
 One per machine, not per session. Like the per-project server it answers prune
 requests, but its lifetime is decoupled from any single session: sessions hold
 *leases* (acquire -> heartbeat... -> release) and the manager keeps the model
-resident only while at least one lease is live. When the last lease drops, an
-idle clock starts; if it expires the model is evicted to free memory. A session
-that crashes without releasing can't pin memory forever -- a lease with no
-heartbeat for `lease_ttl` is reaped.
+resident only while at least one lease is live.
 
-Slice 1: the manager runs in isolation. Nothing is wired to it yet; the monitor
-and hook are pointed at it in a later slice. Deliberately NO getppid()==1
-self-teardown -- unlike the session-owned server, the manager must OUTLIVE the
-process that launched it.
+The backend (the model) is built LAZILY on the first prune and DROPPED on idle
+eviction, so an idle machine actually gives the memory back; it reloads on the
+next prune. When the last lease drops, an idle clock starts; if it expires the
+model is evicted. A session that crashes without releasing can't pin memory
+forever -- a lease with no heartbeat for `lease_ttl` is reaped.
+
+Deliberately NO getppid()==1 self-teardown: unlike the session-owned server, the
+manager must OUTLIVE the process that launched it.
 """
 
 from __future__ import annotations
@@ -33,37 +34,48 @@ IDLE_TIMEOUT = float(os.environ.get("HAY_IDLE_TIMEOUT", "300"))
 
 
 class Manager:
-    """Lease bookkeeping + the prune backend. Single-threaded: every method here
-    runs on the serve loop's thread (MLX inference is thread-bound), so no locks."""
+    """Lease bookkeeping + lazy model lifecycle. Single-threaded: every method
+    here runs on the serve loop's thread (MLX inference is thread-bound), so no
+    locks are needed."""
 
     def __init__(
         self,
-        backend: PrunerBackend,
+        backend_factory: Callable[[], PrunerBackend],
         *,
         lease_ttl: float = LEASE_TTL,
         idle_timeout: float = IDLE_TIMEOUT,
     ) -> None:
-        self.backend = backend
+        self._make = backend_factory
+        self._backend: PrunerBackend | None = None  # built on first prune, dropped on evict
         self.lease_ttl = lease_ttl
         self.idle_timeout = idle_timeout
         self._beats: dict[str, float] = {}      # session id -> last heartbeat (monotonic)
         self._empty_since: float | None = None  # when leases last fell to zero
-        self.resident = False                   # is the model loaded / warm?
+
+    @property
+    def resident(self) -> bool:
+        """True iff the model is currently loaded in memory."""
+        return self._backend is not None
+
+    def _ensure_backend(self) -> PrunerBackend:
+        if self._backend is None:
+            self._backend = self._make()  # cold load (blocks this prune; serial by design)
+        return self._backend
 
     # -- request handling -------------------------------------------------
     def handle(self, req: dict[str, Any]) -> dict[str, Any]:
         op = req.get("op", "prune")
         now = time.monotonic()
         if op == "prune":
+            backend = self._ensure_backend()
             text = req.get("text", "")
-            pruned = self.backend.prune(text=text, query=req.get("query", ""))
-            self.resident = True  # a served prune means the model is loaded
+            pruned = backend.prune(text=text, query=req.get("query", ""))
             return {
                 "ok": True,
                 "text": pruned,
                 "original_len": len(text),
                 "pruned_len": len(pruned),
-                "backend": getattr(self.backend, "name", "unknown"),
+                "backend": getattr(backend, "name", "unknown"),
             }
         if op in ("lease", "heartbeat"):
             self._beats[req.get("session", "")] = now
@@ -76,7 +88,7 @@ class Manager:
                 "ok": True,
                 "resident": self.resident,
                 "sessions": len(self._beats),
-                "backend": getattr(self.backend, "name", "unknown"),
+                "backend": getattr(self._backend, "name", None),
             }
         return {"ok": False, "error": f"unknown op: {op!r}"}
 
@@ -96,10 +108,10 @@ class Manager:
             self._evict()
 
     def _evict(self) -> None:
-        evict = getattr(self.backend, "evict", None)
+        backend, self._backend = self._backend, None  # drop the ref -> model memory freed
+        evict = getattr(backend, "evict", None)
         if callable(evict):
-            evict()
-        self.resident = False
+            evict()  # let the backend release device caches too
         self._empty_since = None  # evicted; don't fire again until reloaded
 
 
@@ -124,7 +136,7 @@ def _serve_conn(conn: socket.socket, mgr: Manager) -> None:
 
 
 def serve_manager(
-    backend: PrunerBackend | None = None,
+    backend_factory: Callable[[], PrunerBackend] | None = None,
     socket_path: str | Path | None = None,
     ready_cb: Callable[[Path], None] | None = None,
     stop_event: threading.Event | None = None,
@@ -135,7 +147,7 @@ def serve_manager(
 ) -> None:
     """Bind the machine-wide socket and serve until stopped. First writer wins:
     if a manager is already live on the socket, defer to it and return."""
-    backend = backend or get_backend()
+    backend_factory = backend_factory or get_backend
     sock_path = Path(socket_path) if socket_path else naming.manager_socket_path()
     sock_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -157,7 +169,7 @@ def serve_manager(
     srv.listen(16)
     srv.settimeout(poll_interval)  # wake periodically to maintain + check stop
 
-    mgr = Manager(backend, lease_ttl=lease_ttl, idle_timeout=idle_timeout)
+    mgr = Manager(backend_factory, lease_ttl=lease_ttl, idle_timeout=idle_timeout)
 
     if ready_cb:
         ready_cb(sock_path)

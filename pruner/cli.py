@@ -5,6 +5,7 @@ console-script alias; for now it is `python3 -m pruner serve`."""
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from . import client, naming
@@ -33,17 +34,16 @@ def _serve(args: argparse.Namespace) -> int:
 
 
 def _manage(args: argparse.Namespace) -> int:
-    backend = get_backend()
-
     def ready(path) -> None:
         print(
-            f"{naming.APP_NAME}: manager listening on {path} (backend={backend.name})",
+            f"{naming.APP_NAME}: manager listening on {path} "
+            f"(backend={os.environ.get('HAY_BACKEND', 'fake')}, lazy-load on first prune)",
             file=sys.stderr,
             flush=True,
         )
 
     try:
-        serve_manager(backend=backend, ready_cb=ready)
+        serve_manager(ready_cb=ready)
     except KeyboardInterrupt:
         print(f"\n{naming.APP_NAME}: manager stopped", file=sys.stderr)
     return 0

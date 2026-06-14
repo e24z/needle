@@ -1,7 +1,7 @@
-"""Slice-1 manager: leases, idle eviction, and first-writer-wins binding.
+"""Manager: lazy model lifecycle, leases, idle eviction, first-writer-wins bind.
 
-Runs entirely on a fake spy backend with tiny timeouts -- no real model, no
-Claude. Run: PYTHONPATH=. python3 tests/test_manager.py
+Fake spy backends + tiny timeouts -- no real model, no Claude.
+Run: PYTHONPATH=. python3 tests/test_manager.py
 """
 
 from __future__ import annotations
@@ -52,14 +52,19 @@ def _wait_until(pred, timeout: float = 2.0, interval: float = 0.02) -> bool:
 
 def main() -> int:
     tmp = Path(tempfile.mkdtemp()) / "manager.sock"
-    spy = SpyBackend()
+    builds: list[SpyBackend] = []
+
+    def factory() -> SpyBackend:
+        b = SpyBackend()
+        builds.append(b)
+        return b
+
     ready = threading.Event()
     stop = threading.Event()
-
     t = threading.Thread(
         target=serve_manager,
         kwargs=dict(
-            backend=spy,
+            backend_factory=factory,
             socket_path=tmp,
             ready_cb=lambda _p: ready.set(),
             stop_event=stop,
@@ -73,43 +78,49 @@ def main() -> int:
     assert ready.wait(2), "manager never signalled ready"
 
     try:
-        # Lease first so the idle clock can't start mid-test.
+        # Leasing does NOT load the model (lazy): nothing built yet.
         assert _call(tmp, {"op": "lease", "session": "s1"})["ok"]
-        assert _call(tmp, {"op": "stats"})["sessions"] == 1
+        s = _call(tmp, {"op": "stats"})
+        assert s["sessions"] == 1 and s["resident"] is False, s
+        assert builds == [], "model loaded before any prune"
 
-        # Prune works and marks the model resident.
+        # First prune loads the model.
         r = _call(tmp, {"op": "prune", "text": "abcdefghij", "query": "x"})
         assert r["ok"] and r["pruned_len"] < r["original_len"], r
+        assert len(builds) == 1, builds
         assert _call(tmp, {"op": "stats"})["resident"] is True
 
-        # Heartbeat keeps the lease alive; no eviction while leased.
+        # Heartbeat holds the lease; no eviction while leased.
         time.sleep(0.12)
         assert _call(tmp, {"op": "heartbeat", "session": "s1"})["ok"]
         assert _call(tmp, {"op": "stats"})["sessions"] == 1
-        assert spy.evicted == 0
+        assert builds[0].evicted == 0
 
-        # Release -> idle clock starts -> the model is evicted.
+        # Release -> idle -> model evicted AND dropped (memory freed).
         assert _call(tmp, {"op": "release", "session": "s1"})["ok"]
-        assert _wait_until(lambda: spy.evicted >= 1), "model was not evicted when idle"
+        assert _wait_until(lambda: builds[0].evicted >= 1), "model not evicted when idle"
         assert _call(tmp, {"op": "stats"})["resident"] is False
+
+        # Next prune reloads (a fresh backend is built).
+        assert _call(tmp, {"op": "prune", "text": "abcdefghij", "query": "x"})["ok"]
+        assert len(builds) == 2, "model did not reload after eviction"
 
         # A crashed session (leases, never heartbeats) is reaped after lease_ttl.
         assert _call(tmp, {"op": "lease", "session": "s2"})["ok"]
-        assert _call(tmp, {"op": "stats"})["sessions"] == 1
         assert _wait_until(
             lambda: _call(tmp, {"op": "stats"})["sessions"] == 0
         ), "stale lease was not reaped"
 
         # First-writer-wins: a second manager on the same socket defers and returns.
-        second_returned = threading.Event()
+        second = threading.Event()
         threading.Thread(
             target=lambda: (
-                serve_manager(backend=SpyBackend(), socket_path=tmp, ready_cb=lambda _p: None),
-                second_returned.set(),
+                serve_manager(backend_factory=factory, socket_path=tmp, ready_cb=lambda _p: None),
+                second.set(),
             ),
             daemon=True,
         ).start()
-        assert second_returned.wait(2), "second manager did not defer to the first"
+        assert second.wait(2), "second manager did not defer to the first"
         assert _call(tmp, {"op": "stats"})["ok"], "first manager stopped serving"
 
         print("test_manager OK")
