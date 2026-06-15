@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Hay status line: Hay's own state, one animated line.
 
-    ⠿ hay · 1.2k tokens saved · 8 prunes
+    ⠿ hay / 1.2k tokens saved / 8 prunes
 
 The leading glyph is the manager's REAL residency, queried from `stats` (not just
 "is the socket up?"). Everything animates (needs refreshInterval: 1) — no glyph
 is ever frozen:
   -    down      gray   — no manager (brightness breathe)
-  ·    cold      blue   — manager up, model NOT loaded (brightness breathe)
+  ⠂    cold      blue   — manager up, model NOT loaded (brightness breathe)
   ⠋⠙… loading   amber  — manager busy/unresponsive: cold-loading or mid-prune (spin)
   ⠤⠶⠿ ready      green  — model resident, idle (fill breathe)
   ⠋⠙… active     cyan   — a prune landed within the last few seconds (spin)
@@ -15,11 +15,12 @@ is ever frozen:
 Glyphs/colours are constants below; behavior thresholds are env vars in the
 manager. Savings are per-session (Claude's session_id); tokens ≈ saved chars / 4.
 
-Width note: the separator and cold glyph are U+00B7 MIDDLE DOT (·). It is
-East-Asian-*Ambiguous* width — in some terminals/locales it renders 2 cells and
-can mis-size the line (this bit the TUI before). If the bar wraps or garbles,
-that's the cause: revert SEP to " / " and COLD_GLYPH to a braille dot. All
-animated glyphs are U+2800-28FF braille, reliably 1 cell. Fails silent.
+WIDTH RULE — ASCII separator + braille glyphs ONLY. U+00B7 MIDDLE DOT (·) was
+tried for the separator and cold dot and CONFIRMED to corrupt the TUI on
+2026-06-15: it is East-Asian-*Ambiguous* width, so the terminal renders it a
+different number of cells than the layout counts, the statusline desyncs, and
+the whole window tears. Braille (U+2800-28FF) is reliably 1 cell; ' / ' is ASCII.
+Do not reintroduce ambiguous-width characters. Fails silent.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 ACTIVE_SECS = 3        # a prune within this many seconds → "active"
 STATS_TIMEOUT = 0.25   # short: a blocked (loading) manager shows as "loading", not a hang
-SEP = " · "
+SEP = " / "
 
 # Full braille rotation (includes the left-vertical ⠇⠏ so it doesn't teleport).
 SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
@@ -44,7 +45,7 @@ PULSE_FRAMES = ["⠤", "⠶", "⠿", "⠶"]
 # Brightness breathe for single-char glyphs (faint → normal → bold → normal),
 # so a static dot still reads as "alive, just idle".
 INTENSITY_FRAMES = ["2", "", "1", ""]
-COLD_GLYPH = "·"       # U+00B7 middle dot: model not in memory
+COLD_GLYPH = "⠂"       # braille mid dot (1 cell, safe): model not in memory
 
 CLR_DOWN = "38;5;240"     # gray
 CLR_COLD = "38;5;67"      # steel blue
