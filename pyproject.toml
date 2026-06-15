@@ -1,0 +1,22 @@
+# uv-native provisioning. The manager (and the session monitor that spawns it)
+# run via `uv run -m pruner ...`, so uv guarantees this exact environment or
+# fails loudly. The model backend (code_pruner) imports these; the stdlib
+# clients (hook, statusline) never need them.
+#
+# package = false: Hay is run as `-m pruner` from the repo, not installed, so uv
+# provisions the dependencies without trying to build the project itself.
+[project]
+name = "hay"
+version = "0.1.0"
+description = "Local context-pruning for Claude Code (codename Hay)."
+requires-python = ">=3.13"
+dependencies = [
+    "mlx",
+    "mlx-lm",
+    "numpy",
+    "huggingface-hub",
+    "transformers",
+]
+
+[tool.uv]
+package = false
