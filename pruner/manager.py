@@ -220,7 +220,10 @@ def serve_manager(
     version = naming.code_version() if version is None else version
     # Only the heavy model needs memory gating; a free backend (fake/halve) does not.
     if heavy is None:
-        heavy = os.environ.get("HAY_BACKEND", "fake").lower() == "mlx"
+        heavy = os.environ.get("HAY_BACKEND", "fake").lower() in {
+            "code-pruner",
+            "code_pruner",
+        }
     sock_path = Path(socket_path) if socket_path else naming.manager_socket_path()
     sock_path.parent.mkdir(parents=True, exist_ok=True)
 

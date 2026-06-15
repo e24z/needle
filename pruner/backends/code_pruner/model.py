@@ -1,17 +1,16 @@
-import os
 import json
-import numpy as np
+import os
+
 import mlx.core as mx
 import mlx.nn as nn
+import numpy as np
 from mlx_lm import load
 
-from pruner.pruning.ast_repair import repair_python_mask
-from pruner.pruning.lines import aggregate_token_scores_to_lines, prune_code_lines
+from .lines import aggregate_token_scores_to_lines, prune_code_lines
 
-try:
-    from pruner.pruning import viterbi_cpp
-except ImportError:
-    viterbi_cpp = None
+# The optional C++ Viterbi extension never shipped to Hay; the numpy decoder
+# below is the only path. (Original lives in ~/repos/needle if ever worth porting.)
+viterbi_cpp = None
 
 
 def _viterbi_decode_numpy(
@@ -34,7 +33,9 @@ def _viterbi_decode_numpy(
         history = np.zeros((active_len, num_tags), dtype=np.int64)
 
         for step in range(1, active_len):
-            next_score = score[:, None] + transitions + emissions[batch_idx, step][None, :]
+            next_score = (
+                score[:, None] + transitions + emissions[batch_idx, step][None, :]
+            )
             history[step] = np.argmax(next_score, axis=0)
             score = np.max(next_score, axis=0)
 
@@ -132,8 +133,7 @@ class MLXTokenScorer(nn.Module):
             for _ in range(num_fusion_layers)
         ]
         self.fusion_norms = [
-            nn.LayerNorm(self.fused_hidden_size)
-            for _ in range(num_fusion_layers)
+            nn.LayerNorm(self.fused_hidden_size) for _ in range(num_fusion_layers)
         ]
 
         if compression_head_type == "crf":
@@ -212,7 +212,9 @@ class MLXTokenScorer(nn.Module):
             last_token_indices = mx.array([h_for_scoring.shape[1] - 1] * batch_size)
 
         # Gather the final active token representations
-        last_hidden_for_scoring = h_for_scoring[mx.arange(batch_size), last_token_indices]
+        last_hidden_for_scoring = h_for_scoring[
+            mx.arange(batch_size), last_token_indices
+        ]
 
         # Multiply by vocabulary embeddings
         if self.embedding_weight is None:
@@ -236,7 +238,9 @@ class MLXTokenScorer(nn.Module):
             outputs["token_emissions"] = token_emissions
         return outputs
 
-    def decode_outputs(self, outputs: dict[str, mx.array], mask: mx.array = None) -> mx.array:
+    def decode_outputs(
+        self, outputs: dict[str, mx.array], mask: mx.array = None
+    ) -> mx.array:
         if self.compression_head_type == "crf":
             return self.compression_head.crf.decode(outputs["token_emissions"], mask)
         return outputs["token_logits"] > 0
@@ -270,10 +274,15 @@ class MLXTokenScorer(nn.Module):
 
 
 class MLXSwePrunerBackend:
-    def __init__(self, *, model_name: str, device: str = "cpu") -> None:
+    def __init__(
+        self, *, model_name: str, device: str = "cpu", repair: bool = False
+    ) -> None:
         self.model_name = model_name
         self.device = device
-        self.instruction = "Given a query, judge if the document(code) is related to query."
+        self.repair = repair  # apply AST structural repair when rendering the mask
+        self.instruction = (
+            "Given a query, judge if the document(code) is related to query."
+        )
 
         if os.path.isdir(model_name):
             self.model_dir = model_name
@@ -288,7 +297,9 @@ class MLXSwePrunerBackend:
         with open(config_path, "r") as f:
             config = json.load(f)
 
-        backbone_name = config.get("backbone_model_name_or_path", "Qwen/Qwen3-Reranker-0.6B")
+        backbone_name = config.get(
+            "backbone_model_name_or_path", "Qwen/Qwen3-Reranker-0.6B"
+        )
 
         # 2. Get the backbone architecture + tokenizer.
         if os.environ.get("HAY_MLX_LIGHT", "1").lower() in {"1", "true", "yes"}:
@@ -329,7 +340,11 @@ class MLXSwePrunerBackend:
         self._load_and_transpose_weights(self.model_dir)
 
         # 5. Read whether to default to Viterbi decoding (C++ implementation)
-        self.use_viterbi = os.environ.get("NEEDLE_USE_VITERBI", "").lower() in {"1", "true", "yes"}
+        self.use_viterbi = os.environ.get("NEEDLE_USE_VITERBI", "").lower() in {
+            "1",
+            "true",
+            "yes",
+        }
 
     def _build_backbone_light(self, backbone_name: str):
         """Build the Qwen3 backbone architecture from its config (no Qwen
@@ -357,23 +372,23 @@ class MLXSwePrunerBackend:
         for k, v in weights_dict.items():
             if k.startswith("model.backbone."):
                 # Strip "model.backbone." and prepend "model." to match MLX Qwen3 structure
-                name = "model." + k[len("model.backbone."):]
+                name = "model." + k[len("model.backbone.") :]
                 backbone_weights[name] = v
             elif k.startswith("model."):
-                name = k[len("model."):]
-                
+                name = k[len("model.") :]
+
                 # Split PyTorch's combined in_proj_weight and in_proj_bias for MLX MultiHeadAttention
                 if "in_proj_weight" in name:
                     # Shape: [3 * embed_dim, embed_dim]
                     q_w, k_w, v_w = mx.split(v, 3, axis=0)
-                    prefix = name[:-len("in_proj_weight")]
+                    prefix = name[: -len("in_proj_weight")]
                     scorer_weights[prefix + "query_proj.weight"] = q_w
                     scorer_weights[prefix + "key_proj.weight"] = k_w
                     scorer_weights[prefix + "value_proj.weight"] = v_w
                 elif "in_proj_bias" in name:
                     # Shape: [3 * embed_dim]
                     q_b, k_b, v_b = mx.split(v, 3, axis=0)
-                    prefix = name[:-len("in_proj_bias")]
+                    prefix = name[: -len("in_proj_bias")]
                     scorer_weights[prefix + "query_proj.bias"] = q_b
                     scorer_weights[prefix + "key_proj.bias"] = k_b
                     scorer_weights[prefix + "value_proj.bias"] = v_b
@@ -381,12 +396,19 @@ class MLXSwePrunerBackend:
                     # Fix PyTorch Sequential vs MLX Sequential naming mismatch
                     # PyTorch: compression_head.feature_extractor.0.weight
                     # MLX:     compression_head.feature_extractor.layers.0.weight
-                    name = re.sub(r'feature_extractor\.(\d+)', r'feature_extractor.layers.\1', name)
-                    name = re.sub(r'compression_head\.(\d+)', r'compression_head.layers.\1', name)
+                    name = re.sub(
+                        r"feature_extractor\.(\d+)",
+                        r"feature_extractor.layers.\1",
+                        name,
+                    )
+                    name = re.sub(
+                        r"compression_head\.(\d+)", r"compression_head.layers.\1", name
+                    )
                     scorer_weights[name] = v
 
         # Convert flat dotted dictionaries to MLX nested dictionaries
         from mlx.utils import tree_unflatten
+
         nested_backbone_weights = tree_unflatten(list(backbone_weights.items()))
         nested_scorer_weights = tree_unflatten(list(scorer_weights.items()))
 
@@ -404,7 +426,9 @@ class MLXSwePrunerBackend:
         # Format instruction prompt
         prefix = '<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n'
         suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
-        formatted_query = f"<Instruct>: {self.instruction}\n<Query>: {query}\n<Document>: "
+        formatted_query = (
+            f"<Instruct>: {self.instruction}\n<Query>: {query}\n<Document>: "
+        )
 
         # Tokenize
         prefix_ids = self.tokenizer.encode(prefix, add_special_tokens=False)
@@ -444,7 +468,7 @@ class MLXSwePrunerBackend:
 
         # Run Backbone to collect hidden states
         hidden_states = []
-        
+
         # We hook into layers output by running the layers sequentially
         # First, run the embedding layer
         h = self.backbone.model.embed_tokens(input_ids_mx)
@@ -452,6 +476,7 @@ class MLXSwePrunerBackend:
 
         # Get the appropriate create_attention_mask helper for the loaded model architecture
         import sys
+
         model_module_name = self.backbone.model.__class__.__module__
         model_module = sys.modules[model_module_name]
         create_attention_mask = getattr(model_module, "create_attention_mask")
@@ -512,13 +537,20 @@ class MLXSwePrunerBackend:
         )
 
         # Map token-level scores back to line numbers
-        line_scores = aggregate_token_scores_to_lines(text, code_token_scores, code_offsets)
+        line_scores = aggregate_token_scores_to_lines(
+            text, code_token_scores, code_offsets
+        )
         pruned, kept_lines = prune_code_lines(text, line_scores, threshold, False)
 
-        # Optional AST structural repair for Python files
+        # Optional AST structural repair (off by default): an alternative render
+        # of the kept-line mask that pulls in enclosing scopes/imports so the
+        # output still parses. Gated so the model stands on its own; flip on for
+        # evals via the backend's `repair` flag (HAY_REPAIR).
         result = pruned
-        if _looks_like_python(text):
+        if self.repair and _looks_like_python(text):
             try:
+                from .repair import repair_python_mask
+
                 result = repair_python_mask(text, kept_lines).repaired_code
             except SyntaxError:
                 result = pruned
@@ -528,6 +560,7 @@ class MLXSwePrunerBackend:
 
 def _looks_like_python(text: str) -> bool:
     import ast
+
     if "def " in text or "class " in text or "import " in text:
         try:
             ast.parse(_without_filter_markers(text))
@@ -540,7 +573,8 @@ def _looks_like_python(text: str) -> bool:
 def _real_content_chars(pruned: str) -> int:
     """Chars of actual kept code, ignoring the [pruned ...] placeholder lines."""
     return sum(
-        len(line) for line in pruned.splitlines()
+        len(line)
+        for line in pruned.splitlines()
         if line.strip() and not line.strip().startswith("[pruned")
     )
 
@@ -601,14 +635,18 @@ def _resolve_model_dir() -> str:
     return snapshot_download(repo)
 
 
-class MLXBackend:
+class CodePrunerBackend:
     """The real SWE-pruner / code-pruner relevance model on MLX. Sealed: the
-    rest of Hay only sees prune(text, query) -> str."""
+    rest of Hay only sees prune(text, query) -> str. The MLX classes above are
+    the *implementation*; the backend's identity is the model (code-pruner)."""
 
-    name = "mlx"
+    name = "code-pruner"
 
     def __init__(self, model_dir: str | None = None) -> None:
-        self._impl = MLXSwePrunerBackend(model_name=model_dir or _resolve_model_dir())
+        repair = os.environ.get("HAY_REPAIR", "").lower() in {"1", "true", "yes"}
+        self._impl = MLXSwePrunerBackend(
+            model_name=model_dir or _resolve_model_dir(), repair=repair
+        )
         self._threshold = float(os.environ.get("HAY_THRESHOLD", "0.5"))
         self._max_length = int(os.environ.get("HAY_MAX_LENGTH", "4096"))
 

@@ -1,11 +1,11 @@
-"""The only backend that exists today. Returns text unchanged: proves the pipe
-works before any model or heuristic exists.
+"""The pass-through backend: returns text unchanged. Proves the pipe works
+without a model, and is the fail-open fallback (see backends.get_backend ->
+_degraded) when the real model can't load.
 
-Planned siblings in this package:
-  ast.py  -- model-free heuristic: query-driven line selection repaired to be
-             AST-valid (the structural axis of LAMR; reuses needle's
-             pruning/ast_repair.py). Real enough to ship, no ML.
-  mlx.py  -- the SWE-pruner / code-pruner model on MLX. Sealed black box.
+Siblings: debug.py (halve — the debug shrinker) and code_pruner/ (the real
+SWE-pruner / code-pruner model, sealed behind prune(text, query) -> str, with
+optional structural repair under code_pruner/repair/). Selected by name via
+get_backend / HAY_BACKEND.
 """
 
 from __future__ import annotations

@@ -17,16 +17,27 @@ def get_backend(name: str | None = None) -> PrunerBackend:
         from .debug import HalvePruner
 
         return HalvePruner()
-    if name == "mlx":
+    if name in {"code-pruner", "code_pruner"}:
         try:
-            from .mlx import MLXBackend
+            from .code_pruner.model import CodePrunerBackend
 
-            return MLXBackend()
-        except Exception as exc:  # mlx not installed / model unavailable
-            import sys
-
-            from ..naming import APP_NAME
-
-            print(f"{APP_NAME}: mlx backend unavailable ({exc}); using fake", file=sys.stderr)
-            return FakePruner()
+            return CodePrunerBackend()
+        except Exception as exc:  # deps/model unavailable: degrade, but LOUDLY
+            return _degraded(exc)
     return FakePruner()
+
+
+def _degraded(exc: Exception) -> PrunerBackend:
+    """Pass-through fallback when the real model can't load. Unlike a plain fake,
+    it REPORTS why: the reason rides in `.name`, so stats/statusline/logs show a
+    distinct degraded state instead of a healthy-looking 'fake'. Fail-open for
+    the agent (text passes through), fail-loud for the operator."""
+    import sys
+
+    from ..naming import APP_NAME
+
+    reason = str(exc).strip().splitlines()[0][:120] or exc.__class__.__name__
+    print(f"{APP_NAME}: code-pruner unavailable ({reason}); using fake", file=sys.stderr)
+    fb = FakePruner()
+    fb.name = f"fake (code-pruner unavailable: {reason})"  # honest, not just 'fake'
+    return fb
