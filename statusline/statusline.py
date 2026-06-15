@@ -1,31 +1,25 @@
 #!/usr/bin/env python3
 """Hay status line: Hay's own state, one animated line.
 
-    ⠿ hay / 1.2k tokens saved / 8 prunes
+    ⠿ hay · 1.2k tokens saved · 8 prunes
 
 The leading glyph is the manager's REAL residency, queried from `stats` (not just
-"is the socket up?"), animated (needs refreshInterval: 1):
-  -    down      gray   — no manager
-  ⠂    cold      blue   — manager up, model NOT loaded (next prune cold-loads / may pass through)
-  ⠋⠙… loading   amber  — manager busy/unresponsive (cold-loading or mid-prune)
-  ⠤⠶⠿ ready      green  — model resident, idle (breathing pulse)
+"is the socket up?"). Everything animates (needs refreshInterval: 1) — no glyph
+is ever frozen:
+  -    down      gray   — no manager (brightness breathe)
+  ·    cold      blue   — manager up, model NOT loaded (brightness breathe)
+  ⠋⠙… loading   amber  — manager busy/unresponsive: cold-loading or mid-prune (spin)
+  ⠤⠶⠿ ready      green  — model resident, idle (fill breathe)
   ⠋⠙… active     cyan   — a prune landed within the last few seconds (spin)
 
 Glyphs/colours are constants below; behavior thresholds are env vars in the
 manager. Savings are per-session (Claude's session_id); tokens ≈ saved chars / 4.
 
-Settings-level (not a plugin component); reads naming/state/client from the
-`pruner` package so nothing is duplicated. Wire it in settings.json:
-
-    "statusLine": {
-      "type": "command",
-      "command": "python3 /Users/e24z/repos/hay/statusline/statusline.py",
-      "refreshInterval": 1
-    }
-
-Width discipline: all glyphs are U+2800-28FF braille (reliably 1 cell); the
-separator is ASCII ' / ' (U+00B7 has ambiguous width and has corrupted the TUI).
-Degrades to shorter forms rather than wrapping; fails silent.
+Width note: the separator and cold glyph are U+00B7 MIDDLE DOT (·). It is
+East-Asian-*Ambiguous* width — in some terminals/locales it renders 2 cells and
+can mis-size the line (this bit the TUI before). If the bar wraps or garbles,
+that's the cause: revert SEP to " / " and COLD_GLYPH to a braille dot. All
+animated glyphs are U+2800-28FF braille, reliably 1 cell. Fails silent.
 """
 
 from __future__ import annotations
@@ -41,13 +35,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 ACTIVE_SECS = 3        # a prune within this many seconds → "active"
 STATS_TIMEOUT = 0.25   # short: a blocked (loading) manager shows as "loading", not a hang
-SEP = " / "
+SEP = " · "
 
 # Full braille rotation (includes the left-vertical ⠇⠏ so it doesn't teleport).
 SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 # "ready" breathes: bottom-2 → bottom-4 → all-6 → bottom-4 → (loop).
 PULSE_FRAMES = ["⠤", "⠶", "⠿", "⠶"]
-COLD_GLYPH = "⠂"       # low, faint: model not in memory
+# Brightness breathe for single-char glyphs (faint → normal → bold → normal),
+# so a static dot still reads as "alive, just idle".
+INTENSITY_FRAMES = ["2", "", "1", ""]
+COLD_GLYPH = "·"       # U+00B7 middle dot: model not in memory
 
 CLR_DOWN = "38;5;240"     # gray
 CLR_COLD = "38;5;67"      # steel blue
@@ -58,6 +55,12 @@ CLR_ACTIVE = "38;5;87"    # cyan
 
 def _ansi(code: str, text: str) -> str:
     return f"\033[{code}m{text}\033[0m"
+
+
+def _breathe(color: str, glyph: str) -> str:
+    """A single glyph pulsing via SGR intensity, so it's never frozen."""
+    i = INTENSITY_FRAMES[int(time.time()) % len(INTENSITY_FRAMES)]
+    return _ansi(f"{color};{i}" if i else color, glyph)
 
 
 def _fmt_tokens(n: int) -> str:
@@ -111,9 +114,9 @@ def _state(payload: dict) -> tuple[str, int, int]:
 def _indicator(state: str) -> str:
     t = int(time.time())
     if state == "down":
-        return _ansi(CLR_DOWN, "-")
+        return _breathe(CLR_DOWN, "-")
     if state == "cold":
-        return _ansi(CLR_COLD, COLD_GLYPH)
+        return _breathe(CLR_COLD, COLD_GLYPH)
     if state == "loading":
         return _ansi(CLR_LOADING, SPIN_FRAMES[t % len(SPIN_FRAMES)])
     if state == "active":
