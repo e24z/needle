@@ -7,6 +7,8 @@ lifetime running total. Both the hook and the statusline see the same
 session_id in their payloads, so they agree. HAY_STATE overrides everything
 (tests, manual runs)."""
 
+# TODO: this file is claude-specific. worth thinking about both naming and position in the boundary.
+
 from __future__ import annotations
 
 import json

@@ -22,6 +22,8 @@ width; if the bar ever tears, suspect that and fall back to ' / ' — but it tes
 clean here.) Fails silent.
 """
 
+# TODO: this should be an actual saving metric if not already
+
 from __future__ import annotations
 
 import json
@@ -33,8 +35,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-ACTIVE_SECS = 3        # a prune within this many seconds → "active"
-STATS_TIMEOUT = 0.25   # short: a blocked (loading) manager shows as "loading", not a hang
+ACTIVE_SECS = 3  # a prune within this many seconds → "active"
+STATS_TIMEOUT = (
+    0.25  # short: a blocked (loading) manager shows as "loading", not a hang
+)
 SEP = " · "
 
 # Full braille rotation (includes the left-vertical ⠇⠏ so it doesn't teleport).
@@ -44,13 +48,13 @@ PULSE_FRAMES = ["⠤", "⠶", "⠿", "⠶"]
 # Brightness breathe for single-char glyphs (faint → normal → bold → normal),
 # so a static dot still reads as "alive, just idle".
 INTENSITY_FRAMES = ["2", "", "1", ""]
-COLD_GLYPH = "·"       # U+00B7 middle dot: model not in memory
+COLD_GLYPH = "·"  # U+00B7 middle dot: model not in memory
 
-CLR_DOWN = "38;5;240"     # gray
-CLR_COLD = "38;5;67"      # steel blue
+CLR_DOWN = "38;5;240"  # gray
+CLR_COLD = "38;5;67"  # steel blue
 CLR_LOADING = "38;5;179"  # amber
-CLR_READY = "38;5;35"     # green
-CLR_ACTIVE = "38;5;87"    # cyan
+CLR_READY = "38;5;35"  # green
+CLR_ACTIVE = "38;5;87"  # cyan
 
 
 def _ansi(code: str, text: str) -> str:
