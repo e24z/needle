@@ -2,10 +2,10 @@
 """PostToolUse adapter: prune large read-like tool outputs.
 
 A thin shim. Reads the hook payload, extracts a query (see extractors), asks the
-pruner server to prune the tool result, and returns `updatedToolOutput` when the
-savings clear a threshold.
+manager (via client) to prune the tool result, and returns `updatedToolOutput`
+when the savings clear a threshold.
 
-Fails OPEN by design: any error -- malformed payload, server down, unknown
+Fails OPEN by design: any error -- malformed payload, manager down, unknown
 output shape -- results in the original output passing through unchanged. A
 pruner that's off must never break the agent.
 """
