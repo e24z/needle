@@ -3,17 +3,19 @@
 
     ⠿ hay / 1.2k tokens saved / 8 prunes
 
-The leading glyph is manager residency, animated (needs refreshInterval: 1):
-  -   down      gray   — manager not accepting connections
-  ⠿⠶  ready     green  — manager up, idle (pulse)
-  ⠋⠙⠸⠴ active   cyan   — a prune landed within the last few seconds (spin)
+The leading glyph is the manager's REAL residency, queried from `stats` (not just
+"is the socket up?"), animated (needs refreshInterval: 1):
+  -    down      gray   — no manager
+  ⠂    cold      blue   — manager up, model NOT loaded (next prune cold-loads / may pass through)
+  ⠋⠙… loading   amber  — manager busy/unresponsive (cold-loading or mid-prune)
+  ⠤⠶⠿ ready      green  — model resident, idle (breathing pulse)
+  ⠋⠙… active     cyan   — a prune landed within the last few seconds (spin)
 
-Savings are per-session (keyed by Claude's session_id); tokens are approximated
-from saved chars (~4 chars/token).
+Glyphs/colours are constants below; behavior thresholds are env vars in the
+manager. Savings are per-session (Claude's session_id); tokens ≈ saved chars / 4.
 
-This is the ONE statusline. It is settings-level (not a plugin component) and
-reads state/naming from the `pruner` package, so none of that logic is
-duplicated here. Wire it in settings.json:
+Settings-level (not a plugin component); reads naming/state/client from the
+`pruner` package so nothing is duplicated. Wire it in settings.json:
 
     "statusLine": {
       "type": "command",
@@ -21,32 +23,37 @@ duplicated here. Wire it in settings.json:
       "refreshInterval": 1
     }
 
-Width discipline (Claude counts chars for layout): the animated glyphs are all
-U+2800-28FF braille, reliably 1 cell everywhere; the separator is ASCII ' / '
-(U+00B7 MIDDLE DOT has ambiguous width and has corrupted the TUI). The line
-degrades to shorter forms rather than wrapping. Fails silent so a broken
-statusline never disrupts the session.
+Width discipline: all glyphs are U+2800-28FF braille (reliably 1 cell); the
+separator is ASCII ' / ' (U+00B7 has ambiguous width and has corrupted the TUI).
+Degrades to shorter forms rather than wrapping; fails silent.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-ACTIVE_SECS = 3  # a prune within this many seconds → "active"
+ACTIVE_SECS = 3        # a prune within this many seconds → "active"
+STATS_TIMEOUT = 0.25   # short: a blocked (loading) manager shows as "loading", not a hang
 SEP = " / "
 
-SPIN_FRAMES = ["⠋", "⠙", "⠸", "⠴"]  # ⠋⠙⠸⠴  active
-PULSE_FRAMES = ["⠿", "⠶"]                       # ⠿⠶     ready
+# Full braille rotation (includes the left-vertical ⠇⠏ so it doesn't teleport).
+SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+# "ready" breathes: bottom-2 → bottom-4 → all-6 → bottom-4 → (loop).
+PULSE_FRAMES = ["⠤", "⠶", "⠿", "⠶"]
+COLD_GLYPH = "⠂"       # low, faint: model not in memory
 
-CLR_DOWN = "38;5;240"    # gray
-CLR_READY = "38;5;35"    # green
-CLR_ACTIVE = "38;5;87"   # cyan
+CLR_DOWN = "38;5;240"     # gray
+CLR_COLD = "38;5;67"      # steel blue
+CLR_LOADING = "38;5;179"  # amber
+CLR_READY = "38;5;35"     # green
+CLR_ACTIVE = "38;5;87"    # cyan
 
 
 def _ansi(code: str, text: str) -> str:
@@ -63,39 +70,55 @@ def _fmt_tokens(n: int) -> str:
     return str(n)
 
 
-def _resident() -> bool:
-    """Is the machine-wide manager actually serving? A connect probe (via
-    naming.socket_is_live), not a mere file-exists check: an unclean exit leaves
-    a stale socket behind, and we must not report 'up' for a dead manager."""
+def _query():
+    """Ask the manager for stats. Returns the dict, the sentinel "loading" if the
+    manager is up but unresponsive (blocked cold-loading or mid-prune — it can't
+    answer while it's busy), or None if there's no manager at all."""
     try:
-        from pruner import naming
+        from pruner import client
 
-        return naming.socket_is_live(naming.manager_socket_path())
-    except Exception:
-        return False
+        return client.stats(timeout=STATS_TIMEOUT)
+    except socket.timeout:
+        return "loading"
+    except OSError:
+        return None  # no socket / refused / unclean
+
+
+def _decide(stats, recent: bool) -> str:
+    """Pure: map (stats, recent-prune?) → indicator state. Testable offline."""
+    if stats is None:
+        return "down"
+    if stats == "loading":
+        return "loading"
+    if not isinstance(stats, dict) or not stats.get("ok"):
+        return "down"
+    if not stats.get("resident"):
+        return "cold"
+    return "active" if recent else "ready"
 
 
 def _state(payload: dict) -> tuple[str, int, int]:
-    """Return (indicator_state, calls, tokens). States: down|ready|active."""
+    """Return (indicator_state, calls, tokens)."""
     from pruner import state
 
     s = state.read(payload.get("session_id") or None)
     calls = int(s.get("calls", 0))
     tokens = int(s.get("saved_chars", 0)) // 4
-    if not _resident():
-        return "down", calls, tokens
-    if time.time() - float(s.get("updated_at", 0.0)) < ACTIVE_SECS:
-        return "active", calls, tokens
-    return "ready", calls, tokens
+    recent = time.time() - float(s.get("updated_at", 0.0)) < ACTIVE_SECS
+    return _decide(_query(), recent), calls, tokens
 
 
 def _indicator(state: str) -> str:
     t = int(time.time())
     if state == "down":
         return _ansi(CLR_DOWN, "-")
+    if state == "cold":
+        return _ansi(CLR_COLD, COLD_GLYPH)
+    if state == "loading":
+        return _ansi(CLR_LOADING, SPIN_FRAMES[t % len(SPIN_FRAMES)])
     if state == "active":
         return _ansi(CLR_ACTIVE, SPIN_FRAMES[t % len(SPIN_FRAMES)])
-    return _ansi(CLR_READY, PULSE_FRAMES[t % len(PULSE_FRAMES)])
+    return _ansi(CLR_READY, PULSE_FRAMES[t % len(PULSE_FRAMES)])  # ready
 
 
 def _render(state: str, calls: int, tokens: int) -> str | None:
