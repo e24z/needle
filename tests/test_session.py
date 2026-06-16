@@ -19,6 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+os.environ["HAY_NO_EVENTS"] = "1"  # in-thread/spawned managers here must not write the real ~/.hay log
+
 from pruner import client, naming  # noqa: E402
 from pruner.backends import FakePruner  # noqa: E402
 from pruner.manager import serve_manager  # noqa: E402
@@ -37,7 +39,13 @@ def _wait(pred, timeout: float = 8.0, interval: float = 0.05) -> bool:
 
 
 def test_manage_subprocess_serves(tmp_sock: Path) -> None:
-    env = dict(os.environ, HAY_MANAGER_SOCKET=str(tmp_sock), HAY_BACKEND="fake", PYTHONPATH=_ROOT)
+    env = dict(
+        os.environ,
+        HAY_MANAGER_SOCKET=str(tmp_sock),
+        HAY_BACKEND="fake",
+        HAY_NO_EVENTS="1",  # don't write the real ~/.hay event log from tests
+        PYTHONPATH=_ROOT,
+    )
     proc = subprocess.Popen(
         [sys.executable, "-m", "pruner", "manage"],
         cwd=_ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,

@@ -1,0 +1,83 @@
+"""events.py round-trip + kill-switch, and the manager emitting the lifecycle
+events the status surface relies on. The manager test injects a capturing emit,
+so it never touches disk.
+
+Run: PYTHONPATH=. python3 tests/test_events.py
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from pruner import events  # noqa: E402
+from pruner.manager import Manager  # noqa: E402
+
+
+def test_emit_tail_roundtrip() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["HAY_HOME"] = d
+        os.environ.pop("HAY_NO_EVENTS", None)
+        events.emit("alpha", n=1)
+        events.emit("beta", reason="x")
+        got = events.tail(10)
+        assert [e["event"] for e in got] == ["alpha", "beta"], got
+        assert got[0]["n"] == 1 and got[1]["reason"] == "x"
+        assert all("ts" in e for e in got)
+    os.environ.pop("HAY_HOME", None)
+
+
+def test_kill_switch() -> None:
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["HAY_HOME"] = d
+        os.environ["HAY_NO_EVENTS"] = "1"
+        events.emit("should_not_write")
+        assert events.tail(10) == [], "HAY_NO_EVENTS=1 must suppress the local log"
+    os.environ.pop("HAY_NO_EVENTS", None)
+    os.environ.pop("HAY_HOME", None)
+
+
+class _Spy:
+    name = "spy"
+
+    def prune(self, *, text: str, query: str) -> str:
+        return text[:1]
+
+    def evict(self) -> None:
+        pass
+
+
+def test_manager_emits_lifecycle() -> None:
+    seen: list[tuple[str, dict]] = []
+    cap = lambda event, **f: seen.append((event, f))  # noqa: E731
+
+    m = Manager(lambda: _Spy(), emit=cap, heavy=False, idle_timeout=0.0)
+    m.handle({"op": "lease", "session": "s1"})
+    m.handle({"op": "prune", "text": "hello", "query": "q"})  # cold load -> model_load
+    m.handle({"op": "release", "session": "s1"})
+    m.maintain()  # records empty-since
+    m.maintain()  # idle + resident -> evict
+    names = [e for e, _ in seen]
+    for expected in ("lease", "model_load", "release", "model_evict"):
+        assert expected in names, (expected, names)
+
+    seen.clear()
+    m2 = Manager(lambda: _Spy(), emit=cap, heavy=False, max_prune_chars=3)
+    m2.handle({"op": "prune", "text": "toolong", "query": "q"})  # 7 > 3 -> oversize
+    assert ("passthrough", {"reason": "oversize", "chars": 7}) in seen, seen
+
+
+def main() -> int:
+    test_emit_tail_roundtrip()
+    test_kill_switch()
+    test_manager_emits_lifecycle()
+    print("test_events OK")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

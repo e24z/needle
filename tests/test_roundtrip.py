@@ -6,10 +6,14 @@ get a response back. No pytest required:
 
 from __future__ import annotations
 
-import sys
-import tempfile
-import threading
-from pathlib import Path
+import os
+
+os.environ["HAY_NO_EVENTS"] = "1"  # serve_manager builds a real Manager; don't write ~/.hay log
+
+import sys  # noqa: E402
+import tempfile  # noqa: E402
+import threading  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

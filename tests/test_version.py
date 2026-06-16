@@ -7,12 +7,16 @@ Run: PYTHONPATH=. python3 tests/test_version.py
 
 from __future__ import annotations
 
-import socket
-import sys
-import tempfile
-import threading
-import time
-from pathlib import Path
+import os
+
+os.environ["HAY_NO_EVENTS"] = "1"  # serve_manager builds a real Manager; don't write ~/.hay log
+
+import socket  # noqa: E402
+import sys  # noqa: E402
+import tempfile  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

@@ -6,14 +6,18 @@ Run: PYTHONPATH=. python3 tests/test_manager.py
 
 from __future__ import annotations
 
-import socket
-import tempfile
-import threading
-import time
-from pathlib import Path
+import os
 
-from pruner.manager import serve_manager
-from pruner.protocol import decode, encode
+os.environ["HAY_NO_EVENTS"] = "1"  # serve_manager builds a real Manager; don't write ~/.hay log
+
+import socket  # noqa: E402
+import tempfile  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from pruner.manager import serve_manager  # noqa: E402
+from pruner.protocol import decode, encode  # noqa: E402
 
 
 class SpyBackend:

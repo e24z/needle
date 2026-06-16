@@ -32,7 +32,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from . import naming, sysmem
+from . import events, naming, sysmem
 from .backends import PrunerBackend, get_backend
 from .protocol import decode, encode
 
@@ -61,8 +61,10 @@ class Manager:
         max_prune_chars: int = MAX_PRUNE_CHARS,
         mem_poll: float = MEM_POLL,
         memstat: Callable[[], tuple[int, int]] = sysmem.memstat,
+        emit: Callable[..., None] = events.emit,
     ) -> None:
         self._make = backend_factory
+        self._emit = emit  # structured event log (injected so tests can capture)
         self._backend: PrunerBackend | None = None  # built on first prune, dropped on evict
         self.version = version
         self._stop = stop_event
@@ -87,11 +89,14 @@ class Manager:
     def _ensure_backend(self) -> PrunerBackend:
         if self._backend is None:
             self._backend = self._make()  # cold load (blocks this prune; serial by design)
+            # name reveals a degraded fallback ("fake (code-pruner unavailable: ...)").
+            self._emit("model_load", backend=getattr(self._backend, "name", "unknown"))
         return self._backend
 
     def _passthrough(self, text: str, reason: str) -> dict[str, Any]:
         """Return the text unchanged (Hay does nothing). saved==0, so the hook
         won't count it as a prune; the agent just gets the original."""
+        self._emit("passthrough", reason=reason, chars=len(text))
         return {
             "ok": True,
             "text": text,
@@ -128,16 +133,22 @@ class Manager:
             ver = req.get("version", "")
             if ver and self.version and ver != self.version:
                 # Different code than we started on: step aside for a fresh manager.
+                self._emit("stale_stepaside", their_version=ver, our_version=self.version)
                 if self._stop is not None:
                     self._stop.set()
                 return {"ok": False, "stale": True, "version": self.version}
-            self._beats[req.get("session", "")] = now
+            session = req.get("session", "")
+            if session not in self._beats:
+                self._emit("lease", session=session)  # new lease (re-leases stay quiet)
+            self._beats[session] = now
             return {"ok": True}
         if op == "heartbeat":
-            self._beats[req.get("session", "")] = now
+            self._beats[req.get("session", "")] = now  # heartbeats are too frequent to log
             return {"ok": True}
         if op == "release":
-            self._beats.pop(req.get("session", ""), None)
+            session = req.get("session", "")
+            if self._beats.pop(session, None) is not None:
+                self._emit("release", session=session)
             return {"ok": True}
         if op == "stats":
             return {
@@ -164,7 +175,7 @@ class Manager:
             self._pressure, self._avail = self.memstat()
         # Pressure eviction: free the model under critical pressure, even if leased.
         if self.heavy and self.resident and self._pressure >= sysmem.PRESSURE_CRITICAL:
-            self._evict()
+            self._evict("pressure")
             return
         # Idle eviction: no live leases for idle_timeout -> drop the model.
         if self._beats:
@@ -172,10 +183,11 @@ class Manager:
         elif self._empty_since is None:
             self._empty_since = now
         elif self.resident and now - self._empty_since >= self.idle_timeout:
-            self._evict()
+            self._evict("idle")
 
-    def _evict(self) -> None:
+    def _evict(self, reason: str) -> None:
         backend, self._backend = self._backend, None  # drop the ref -> model memory freed
+        self._emit("model_evict", reason=reason, backend=getattr(backend, "name", None))
         evict = getattr(backend, "evict", None)
         if callable(evict):
             evict()  # let the backend release device caches too

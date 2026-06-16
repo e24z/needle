@@ -35,6 +35,7 @@ def _mgr(builds: list, mem, **kw):
         builds.append(b)
         return b
 
+    kw.setdefault("emit", lambda *a, **k: None)  # don't write the real event log in tests
     return Manager(factory, heavy=True, memstat=lambda: mem, min_free_mb=3072, **kw)
 
 
