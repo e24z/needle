@@ -3,6 +3,7 @@
   manage   run the machine-wide model residency manager (one per machine)
   session  hold a session lease against the manager (what the monitor runs)
   prune    pipe stdin through the manager, print the result
+  status   operator snapshot: live residency + recent events (stdlib; works broken)
 
 For now invoked as `python3 -m pruner <cmd>`; a `hay` console-script alias can
 come later."""
@@ -10,10 +11,11 @@ come later."""
 from __future__ import annotations
 
 import argparse
+import datetime
 import os
 import sys
 
-from . import client, naming
+from . import client, events, naming
 from .manager import serve_manager
 from .session import run_session
 
@@ -56,6 +58,57 @@ def _prune(args: argparse.Namespace) -> int:
     return 0
 
 
+_PRESSURE = {1: "normal", 2: "warning", 4: "critical"}
+
+
+def _fmt_ts(ts: object) -> str:
+    try:
+        return datetime.datetime.fromtimestamp(float(ts)).strftime("%H:%M:%S")
+    except (TypeError, ValueError, OSError):
+        return "--:--:--"
+
+
+def _render_status(stats: dict | None, recent: list[dict]) -> str:
+    """Pure: render an operator snapshot from (live stats, recent events).
+    Honest about a degraded backend -- never prints 'ready' for a fake."""
+    lines: list[str] = []
+    if not stats or not stats.get("ok"):
+        lines.append(f"{naming.APP_NAME} manager: down (not running)")
+    else:
+        backend = stats.get("backend")
+        if not stats.get("resident"):
+            state = "cold (model not loaded)"
+        elif isinstance(backend, str) and backend.startswith("fake ("):
+            state = f"DEGRADED ({backend})"
+        else:
+            state = f"ready ({backend} resident)"
+        avail = stats.get("available_mb")
+        free = f"{avail / 1024:.1f} GB" if isinstance(avail, (int, float)) else "?"
+        lines.append(f"{naming.APP_NAME} manager: {state}")
+        lines.append(
+            f"  sessions {stats.get('sessions', 0)}"
+            f"  ·  version {str(stats.get('version', ''))[:12]}"
+            f"  ·  pressure {_PRESSURE.get(stats.get('pressure'), '?')}"
+            f"  ·  free {free}"
+        )
+    if recent:
+        lines.append("")
+        lines.append("recent events:")
+        for e in recent:
+            extra = " ".join(f"{k}={v}" for k, v in e.items() if k not in {"ts", "event"})
+            lines.append(f"  {_fmt_ts(e.get('ts'))}  {str(e.get('event', '?')):<16} {extra}")
+    return "\n".join(lines)
+
+
+def _status(args: argparse.Namespace) -> int:
+    try:
+        stats = client.stats(timeout=0.5)
+    except OSError:
+        stats = None  # no manager / unreachable -> "down", still show recent events
+    print(_render_status(stats, events.tail(args.events)))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog=naming.APP_NAME,
@@ -72,6 +125,10 @@ def main(argv: list[str] | None = None) -> int:
     pp = sub.add_parser("prune", help="send stdin to the manager, print the result")
     pp.add_argument("--query", "-q", default="", help="relevance query / goal")
     pp.set_defaults(func=_prune)
+
+    stp = sub.add_parser("status", help="operator snapshot: residency + recent events")
+    stp.add_argument("--events", "-n", type=int, default=12, help="recent events to show")
+    stp.set_defaults(func=_status)
 
     args = p.parse_args(argv)
     return args.func(args)
