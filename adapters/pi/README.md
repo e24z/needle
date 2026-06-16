@@ -26,8 +26,9 @@ pi --extension adapters/pi/extension.mjs --no-session --offline
 
 Once loaded, `/hay` shows the operator snapshot: manager residency, memory
 pressure, lease count, current Pi-session savings, socket/home paths, and recent
-local events. `/hay doctor` shows more events; `/hay events 30` changes the event
-count.
+local events. `/hay doctor` also shows the exact extension path, package version,
+pyproject version, Git branch/commit, and dirty/clean state. `/hay events 30`
+changes the event count.
 
 Install from this repo as a Pi package:
 
@@ -40,6 +41,8 @@ The root `package.json` is the Pi package manifest. It points Pi at
 extension can start the manager with `uv run -m pruner manage`. For pre-1.0
 distribution, prefer local or git installs pinned to a commit/tag. Keep
 `package.json` and `pyproject.toml` versions aligned when cutting a release.
+During local development, prefer `pi -e .` for the active working tree and
+`/hay doctor` to confirm which checkout/ref Pi is actually running.
 
 The adapter intentionally leaves `bash` alone for now. Shell output is high
 variance and is the path that previously exposed memory-residency problems.

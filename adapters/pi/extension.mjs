@@ -5,9 +5,11 @@ import {
 	ensureManager,
 	heartbeat,
 	managerSocketPath,
+	pathFromModuleUrl,
 	prune,
 	release,
 	repoRootFromModuleUrl,
+	sourceIdentity,
 	stats,
 	tailEvents,
 } from "./client.mjs";
@@ -26,12 +28,13 @@ const PRESSURE = new Map([
 
 export default function hayPiExtension(pi) {
 	const repoRoot = repoRootFromModuleUrl(import.meta.url);
+	const extensionPath = pathFromModuleUrl(import.meta.url);
 	const counters = emptyCounters();
 	let sessionId = "";
 	let heartbeatTimer;
 	let statusTimer;
 
-	registerHayCommand(pi, counters);
+	registerHayCommand(pi, counters, { repoRoot, extensionPath });
 
 	pi.on("session_start", async (_event, ctx) => {
 		sessionId = ctx.sessionManager?.getSessionId?.() || `pi-${Date.now()}`;
@@ -171,7 +174,7 @@ export function formatStatus(snapshot, counters = {}, theme) {
 	return color(theme, "success", `hay ready ${suffix}`);
 }
 
-function registerHayCommand(pi, counters) {
+function registerHayCommand(pi, counters, runtime) {
 	pi.registerCommand?.("hay", {
 		description: "Show Hay manager status",
 		getArgumentCompletions: (prefix) => {
@@ -184,13 +187,17 @@ function registerHayCommand(pi, counters) {
 				ctx.ui?.notify?.("Usage: /hay [status|doctor|events] [count]", "warning");
 				return;
 			}
-			const content = await buildOperatorStatus(counters, { events: parsed.events });
+			const content = await buildOperatorStatus(counters, {
+				events: parsed.events,
+				includeSource: parsed.mode === "doctor",
+				...runtime,
+			});
 			if (typeof pi.sendMessage === "function") {
 				pi.sendMessage({
 					customType: "hay-status",
 					content,
 					display: true,
-					details: { events: parsed.events },
+					details: { events: parsed.events, mode: parsed.mode },
 				});
 			} else {
 				ctx.ui?.notify?.(content, "info");
@@ -206,7 +213,7 @@ function parseHayArgs(args) {
 	const fallback = sub === "doctor" ? 20 : 12;
 	const rawCount = parts[1];
 	const events = rawCount === undefined ? fallback : Number.parseInt(rawCount, 10);
-	return { ok: true, events: Number.isFinite(events) && events >= 0 ? events : fallback };
+	return { ok: true, mode: sub, events: Number.isFinite(events) && events >= 0 ? events : fallback };
 }
 
 export async function buildOperatorStatus(counters = {}, options = {}) {
@@ -217,9 +224,14 @@ export async function buildOperatorStatus(counters = {}, options = {}) {
 		snapshot = err?.message === "timeout" ? "loading" : null;
 	}
 	const recent = await tailEvents(options.events ?? 12);
+	const source = options.includeSource
+		? await sourceIdentity(options.repoRoot || repoRootFromModuleUrl(import.meta.url))
+		: null;
 	return renderOperatorStatus(snapshot, recent, counters, {
 		appHome: appHome(),
+		extensionPath: options.extensionPath,
 		socketPath: managerSocketPath(),
+		source,
 	});
 }
 
@@ -254,6 +266,13 @@ export function renderOperatorStatus(snapshot, recent = [], counters = {}, optio
 			`  |  ${counters.calls || 0} prunes` +
 			(counters.lastTool ? `  |  last tool ${counters.lastTool}` : ""),
 	);
+	if (options.source || options.extensionPath) {
+		lines.push("");
+		lines.push("source:");
+		for (const line of renderSource(options.source, options.extensionPath)) {
+			lines.push(`  ${line}`);
+		}
+	}
 	lines.push("");
 	lines.push("why running:");
 	lines.push(`  ${whyRunning(snapshot)}`);
@@ -265,6 +284,27 @@ export function renderOperatorStatus(snapshot, recent = [], counters = {}, optio
 		}
 	}
 	return lines.join("\n");
+}
+
+function renderSource(source, extensionPath) {
+	const lines = [];
+	if (extensionPath) lines.push(`extension ${extensionPath}`);
+	if (!source) return lines;
+	lines.push(`package root ${source.repoRoot}`);
+	const versions = [
+		source.packageVersion ? `package ${source.packageName || "package"}@${source.packageVersion}` : null,
+		source.pyprojectVersion ? `pyproject ${source.pyprojectVersion}` : null,
+	].filter(Boolean);
+	if (versions.length) lines.push(`version ${versions.join(" | ")}`);
+	if (source.git?.available) {
+		lines.push(
+			`git ${source.git.branch || "unknown"}@${source.git.commit || "unknown"}` +
+				` (${source.git.dirty ? `dirty, ${source.git.dirtyFiles} files` : "clean"})`,
+		);
+	} else {
+		lines.push(`git ${source.git?.reason || "not available"}`);
+	}
+	return lines;
 }
 
 function whyRunning(snapshot) {

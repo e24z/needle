@@ -1,11 +1,13 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createConnection } from "node:net";
 import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { promisify } from "node:util";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const execFileAsync = promisify(execFile);
 
 export function appName() {
 	return process.env.HAY_APP_NAME || "hay";
@@ -25,6 +27,10 @@ export function eventsPath() {
 
 export function repoRootFromModuleUrl(moduleUrl) {
 	return join(dirname(fileURLToPath(moduleUrl)), "..", "..");
+}
+
+export function pathFromModuleUrl(moduleUrl) {
+	return fileURLToPath(moduleUrl);
 }
 
 export async function request(req, options = {}) {
@@ -104,6 +110,69 @@ export async function tailEvents(count = 20, options = {}) {
 		}
 	}
 	return out;
+}
+
+export async function sourceIdentity(repoRoot, options = {}) {
+	const identity = {
+		repoRoot,
+		packagePath: join(repoRoot, "package.json"),
+		packageName: null,
+		packageVersion: null,
+		pyprojectVersion: null,
+		git: { available: false, reason: "not checked" },
+	};
+	try {
+		const pkg = JSON.parse(await readFile(identity.packagePath, "utf8"));
+		identity.packageName = typeof pkg.name === "string" ? pkg.name : null;
+		identity.packageVersion = typeof pkg.version === "string" ? pkg.version : null;
+	} catch {
+		// The extension can be loaded as a single file; package metadata is optional.
+	}
+	try {
+		const pyproject = await readFile(join(repoRoot, "pyproject.toml"), "utf8");
+		const match = pyproject.match(/^\s*version\s*=\s*"([^"]+)"/m);
+		identity.pyprojectVersion = match?.[1] || null;
+	} catch {
+		// Optional outside a source checkout.
+	}
+	identity.git = await gitIdentity(repoRoot, options);
+	return identity;
+}
+
+async function gitIdentity(repoRoot, options = {}) {
+	const timeout = options.timeoutMs ?? 500;
+	try {
+		const inside = await runGit(repoRoot, ["rev-parse", "--is-inside-work-tree"], timeout);
+		if (inside.trim() !== "true") return { available: false, reason: "not a git checkout" };
+	} catch {
+		return { available: false, reason: "not a git checkout" };
+	}
+	try {
+		const [branchRaw, commitRaw, statusRaw] = await Promise.all([
+			runGit(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"], timeout),
+			runGit(repoRoot, ["rev-parse", "--short=12", "HEAD"], timeout),
+			runGit(repoRoot, ["status", "--porcelain"], timeout),
+		]);
+		const dirtyFiles = statusRaw.split(/\r?\n/).filter(Boolean).length;
+		return {
+			available: true,
+			branch: branchRaw.trim() || "unknown",
+			commit: commitRaw.trim() || "unknown",
+			dirty: dirtyFiles > 0,
+			dirtyFiles,
+		};
+	} catch (err) {
+		return { available: false, reason: err?.message || "git probe failed" };
+	}
+}
+
+async function runGit(repoRoot, args, timeoutMs) {
+	const { stdout } = await execFileAsync("git", ["-C", repoRoot, ...args], {
+		encoding: "utf8",
+		timeout: timeoutMs,
+		maxBuffer: 64 * 1024,
+	});
+	return stdout;
 }
 
 export async function socketIsLive(socketPath = managerSocketPath()) {

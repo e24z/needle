@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { codeVersion, prune, socketIsLive, tailEvents } from "../adapters/pi/client.mjs";
+import { codeVersion, prune, socketIsLive, sourceIdentity, tailEvents } from "../adapters/pi/client.mjs";
 import hayPiExtension, {
 	buildToolResultPatch,
 	extractQuery,
@@ -177,16 +177,38 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 		},
 		[{ ts: 1710000000, event: "passthrough", reason: "low-memory", chars: 1200 }],
 		{ calls: 3, savedChars: 4096, lastTool: "grep" },
-		{ appHome: "/tmp/hay", socketPath: "/tmp/hay/manager.sock" },
+		{
+			appHome: "/tmp/hay",
+			extensionPath: "/tmp/hay/adapters/pi/extension.mjs",
+			socketPath: "/tmp/hay/manager.sock",
+			source: {
+				repoRoot: "/tmp/hay",
+				packageName: "hay",
+				packageVersion: "0.1.0",
+				pyprojectVersion: "0.1.0",
+				git: { available: true, branch: "pi-adapter", commit: "abcdef123456", dirty: true, dirtyFiles: 2 },
+			},
+		},
 	);
 	assert.match(rendered, /DEGRADED \(fake \(code-pruner unavailable: no mlx\)\)/);
 	assert.match(rendered, /sessions 2  \|  version abcdef123456/);
 	assert.match(rendered, /pressure warning  \|  free 2.0 GB/);
 	assert.match(rendered, /this Pi session 1.0k tokens saved  \|  3 prunes  \|  last tool grep/);
+	assert.match(rendered, /extension \/tmp\/hay\/adapters\/pi\/extension\.mjs/);
+	assert.match(rendered, /version package hay@0\.1\.0 \| pyproject 0\.1\.0/);
+	assert.match(rendered, /git pi-adapter@abcdef123456 \(dirty, 2 files\)/);
 	assert.match(rendered, /passthrough\s+reason=low-memory chars=1200/);
 	assert.match(renderOperatorStatus("loading", [], {}), /loading or pruning/);
 	assert.match(renderOperatorStatus(null, [], {}), /fails open/);
 	assert.match(formatStatus("loading", { savedChars: 0, calls: 0 }), /hay loading 0t 0p/);
+});
+
+test("Pi source identity reads package, pyproject, and git state", async () => {
+	const identity = await sourceIdentity(process.cwd(), { timeoutMs: 1_000 });
+	assert.equal(identity.packageName, "hay");
+	assert.equal(identity.packageVersion, "0.1.0");
+	assert.equal(identity.pyprojectVersion, "0.1.0");
+	assert.equal(typeof identity.git.available, "boolean");
 });
 
 test("Pi client reads the local Hay event log", async () => {
