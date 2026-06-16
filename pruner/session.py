@@ -70,6 +70,12 @@ def _acquire(session_id: str, version: str, attempts: int = 4) -> bool:
         if resp.get("ok"):
             return True
         if resp.get("stale"):
+            # TODO(takeover-race): we wait for the old manager to free the socket,
+            # then _ensure_manager() — but if it's stuck in a long prune past this
+            # 10s window, socket_is_live() stays true, _ensure_manager() declines to
+            # spawn, and we can burn the retry budget re-hitting the stale manager
+            # (ending leaseless). Fix: force a respawn here rather than trusting
+            # socket_is_live (or have the stepped-aside manager unlink before draining).
             sock = naming.manager_socket_path()
             deadline = time.monotonic() + 10.0
             while time.monotonic() < deadline and naming.socket_is_live(sock):

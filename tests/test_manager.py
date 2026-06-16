@@ -11,10 +11,13 @@ import os
 os.environ["HAY_NO_EVENTS"] = "1"  # serve_manager builds a real Manager; don't write ~/.hay log
 
 import socket  # noqa: E402
+import sys  # noqa: E402
 import tempfile  # noqa: E402
 import threading  # noqa: E402
 import time  # noqa: E402
 from pathlib import Path  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # runnable bare, like its siblings
 
 from pruner.manager import serve_manager  # noqa: E402
 from pruner.protocol import decode, encode  # noqa: E402

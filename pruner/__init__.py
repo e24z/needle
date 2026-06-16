@@ -6,4 +6,4 @@ client to talk to it. The model and the lifecycle owner are bolted on later,
 each behind its own wall.
 """
 
-__version__ = "0.0.0"
+__version__ = "0.1.0"  # keep in step with pyproject.toml

@@ -167,7 +167,11 @@ def main() -> int:
     except Exception:
         return 0  # server down / any error -> fail open
     if result:
-        json.dump(result, sys.stdout)
+        try:
+            out = json.dumps(result)  # serialize fully before writing: never emit partial JSON
+        except Exception:
+            return 0  # fail open: a garbled rewrite is worse than none
+        sys.stdout.write(out)
     return 0
 
 
