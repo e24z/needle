@@ -10,7 +10,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_ROOT = Path(__file__).resolve().parent.parent
+sys.path[0:0] = [str(_ROOT), str(_ROOT / "adapters" / "claude")]  # engine, Claude adapter
 
 # Keep state writes out of the real ~/.hay during tests.
 _TMP = tempfile.mkdtemp()
