@@ -39,7 +39,7 @@ def _manage(args: argparse.Namespace) -> int:
 
 
 def _session(args: argparse.Namespace) -> int:
-    return run_session()
+    return run_session(session_id=args.session or None)
 
 
 def _prune(args: argparse.Namespace) -> int:
@@ -120,6 +120,10 @@ def main(argv: list[str] | None = None) -> int:
     mp.set_defaults(func=_manage)
 
     ssp = sub.add_parser("session", help="hold a session lease against the manager")
+    ssp.add_argument(
+        "--session", default="",
+        help="host session id to lease under (an adapter passes its agent's id)",
+    )
     ssp.set_defaults(func=_session)
 
     pp = sub.add_parser("prune", help="send stdin to the manager, print the result")

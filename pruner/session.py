@@ -85,7 +85,11 @@ def run_session(
     stop_event: threading.Event | None = None,
     session_id: str | None = None,
 ) -> int:
-    session_id = session_id or os.environ.get("CLAUDE_SESSION_ID") or uuid.uuid4().hex
+    # The engine is agent-agnostic: it never reads CLAUDE_* itself. A caller
+    # (the CLI's --session, set by an adapter) may pass the host's session id so
+    # leases/logs correlate; absent that, a uuid is fine -- the lease only needs
+    # a unique id for presence-counting, not the host's identity.
+    session_id = session_id or uuid.uuid4().hex
     version = naming.code_version()
     stop_event = stop_event or threading.Event()
     if threading.current_thread() is threading.main_thread():
