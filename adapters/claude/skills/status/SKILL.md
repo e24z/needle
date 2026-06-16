@@ -28,3 +28,18 @@ How to read the first line for the user:
   open (harmless), but nothing is being pruned.
 
 Surface the output as-is; don't embellish or invent fields.
+
+## The status line glyph
+
+If the user is asking what the small animated glyph in their status line means,
+map it for them (it's the same residency state, one character):
+
+- **`-` gray** — down (no manager).
+- **`·` blue** — cold: manager up, model not loaded (lazy / evicted). The usual
+  resting state.
+- **`⠋` amber spinning** — loading the model or mid-prune.
+- **`✗` red** — degraded: model couldn't load, passing text through unchanged.
+- **`⠿` green pulsing** — ready: model resident and idle.
+- **`⠋` cyan spinning** — active: a prune landed in the last few seconds.
+
+If they don't have a status line at all, send them to `/hay setup`.
