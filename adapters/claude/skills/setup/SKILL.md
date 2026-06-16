@@ -10,20 +10,34 @@ this skill wires it up, checks the prerequisites, and explains what you'll see.
 
 Work through these steps and report what you did to the user.
 
-## 1. Find the Hay repo
+## 1. Find the Hay plugin root
 
-The status line needs an **absolute** path (Claude's `statusLine` does not expand
-variables). Find where Hay is installed:
+Find where Hay is installed. Prefer `CLAUDE_PLUGIN_ROOT`, because it points at
+the active plugin for this skill. Fall back to Claude's marketplace registry for
+local development installs.
 
 ```bash
 python3 - <<'PY'
 import json, os
-p = os.path.expanduser("~/.claude/plugins/known_marketplaces.json")
-data = json.load(open(p))
-for name, m in (data.items() if isinstance(data, dict) else []):
-    src = m.get("source", {})
-    root = m.get("installLocation") or src.get("path")
-    if root and os.path.exists(os.path.join(root, "adapters/claude/statusline.py")):
+from pathlib import Path
+
+def candidates():
+    root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if root:
+        yield root
+    p = Path.home() / ".claude/plugins/known_marketplaces.json"
+    try:
+        data = json.loads(p.read_text())
+    except Exception:
+        data = {}
+    for m in (data.values() if isinstance(data, dict) else []):
+        src = m.get("source", {}) if isinstance(m, dict) else {}
+        root = m.get("installLocation") or src.get("path")
+        if root:
+            yield root
+
+for root in candidates():
+    if os.path.exists(os.path.join(root, "adapters/claude/statusline.py")):
         print(root)
         break
 PY
@@ -32,15 +46,32 @@ PY
 If that prints nothing, ask the user for the path to their `hay` clone and verify
 `adapters/claude/statusline.py` exists under it. Call the result `<HAY>`.
 
-## 2. Wire the status line
+## 2. Install the stable statusline launcher
 
-Read `~/.claude/settings.json` and set (or replace) the `statusLine` key, using the
-absolute `<HAY>` path. Show the user the change before writing it:
+The status line needs an **absolute** path, and Git-based plugin updates can move
+the installed plugin cache path. Do not point `statusLine` directly at
+`<HAY>/adapters/claude/statusline.py`. Instead, install Hay's stable launcher:
+
+```bash
+mkdir -p ~/.hay
+cp <HAY>/adapters/claude/skills/setup/statusline_shim.py ~/.hay/statusline.py
+chmod +x ~/.hay/statusline.py
+```
+
+The launcher stays at `~/.hay/statusline.py` and finds the currently installed
+Hay plugin each time it renders, so plugin updates don't strand the status line
+on an old commit cache.
+
+## 3. Wire the status line
+
+Read `~/.claude/settings.json` and set (or replace) the `statusLine` key, using
+the absolute home path to the stable launcher. Show the user the change before
+writing it:
 
 ```json
 "statusLine": {
   "type": "command",
-  "command": "python3 <HAY>/adapters/claude/statusline.py",
+  "command": "python3 <HOME>/.hay/statusline.py",
   "refreshInterval": 1
 }
 ```
@@ -50,7 +81,7 @@ the line looks frozen. If a `statusLine` already points at a `hay` path, just
 update the path (idempotent); don't clobber an unrelated status line without
 asking.
 
-## 3. Check prerequisites
+## 4. Check prerequisites
 
 ```bash
 uv --version || echo "MISSING: install uv (https://docs.astral.sh/uv/) — the model manager runs under it"
@@ -60,16 +91,16 @@ Note for the user: the **first** prune triggers a one-time model download (sever
 hundred MB) and env build under `uv`, so the first session is slow to go green.
 After that it's warm.
 
-## 4. Verify
+## 5. Verify
 
 ```bash
-echo '{"session_id":"setup-check"}' | COLUMNS=100 python3 <HAY>/adapters/claude/statusline.py
+echo '{"session_id":"setup-check"}' | COLUMNS=100 python3 ~/.hay/statusline.py
 ```
 
 A line like `· hay · 0 tokens saved · 0 prunes` means it works. The status line
 appears in their UI on the next render (may need a new session).
 
-## 5. Explain the glyph (always do this)
+## 6. Explain the glyph (always do this)
 
 The leading glyph is Hay's real state, and it always animates. Tell the user what
 theirs currently means:
