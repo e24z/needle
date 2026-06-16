@@ -9,6 +9,8 @@ is ever frozen:
   -    down      gray   — no manager (brightness breathe)
   ·    cold      blue   — manager up, model NOT loaded (brightness breathe)
   ⠋⠙… loading   amber  — manager busy/unresponsive: cold-loading or mid-prune (spin)
+  ✗    degraded  red    — manager up but the model couldn't load; passing through
+                         unchanged (a "fake (…)" backend) (brightness breathe)
   ⠤⠶⠿ ready      green  — model resident, idle (fill breathe)
   ⠋⠙… active     cyan   — a prune landed within the last few seconds (spin)
 
@@ -49,10 +51,12 @@ PULSE_FRAMES = ["⠤", "⠶", "⠿", "⠶"]
 # so a static dot still reads as "alive, just idle".
 INTENSITY_FRAMES = ["2", "", "1", ""]
 COLD_GLYPH = "·"  # U+00B7 middle dot: model not in memory
+DEGRADED_GLYPH = "✗"  # U+2717: model meant to be loaded but isn't (running fake)
 
 CLR_DOWN = "38;5;240"  # gray
 CLR_COLD = "38;5;67"  # steel blue
 CLR_LOADING = "38;5;179"  # amber
+CLR_DEGRADED = "38;5;196"  # red
 CLR_READY = "38;5;35"  # green
 CLR_ACTIVE = "38;5;87"  # cyan
 
@@ -101,6 +105,9 @@ def _decide(stats, recent: bool) -> str:
         return "down"
     if not stats.get("resident"):
         return "cold"
+    backend = stats.get("backend")
+    if isinstance(backend, str) and backend.startswith("fake ("):
+        return "degraded"  # resident, but it's the named fake — don't show green
     return "active" if recent else "ready"
 
 
@@ -121,6 +128,8 @@ def _indicator(state: str) -> str:
         return _breathe(CLR_DOWN, "-")
     if state == "cold":
         return _breathe(CLR_COLD, COLD_GLYPH)
+    if state == "degraded":
+        return _breathe(CLR_DEGRADED, DEGRADED_GLYPH)
     if state == "loading":
         return _ansi(CLR_LOADING, SPIN_FRAMES[t % len(SPIN_FRAMES)])
     if state == "active":
