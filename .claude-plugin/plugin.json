@@ -5,7 +5,9 @@
   "author": {
     "name": "e24z"
   },
+  "hooks": "./adapters/claude/hooks/hooks.json",
+  "skills": "./adapters/claude/skills",
   "experimental": {
-    "monitors": "./monitors/monitors.json"
+    "monitors": "./adapters/claude/monitors/monitors.json"
   }
 }
