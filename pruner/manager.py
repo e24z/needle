@@ -232,7 +232,7 @@ def serve_manager(
     version = naming.code_version() if version is None else version
     # Only the heavy model needs memory gating; a free backend (fake/halve) does not.
     if heavy is None:
-        heavy = os.environ.get("HAY_BACKEND", "fake").lower() in {
+        heavy = os.environ.get("HAY_BACKEND", "code-pruner").lower() in {
             "code-pruner",
             "code_pruner",
         }

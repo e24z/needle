@@ -643,7 +643,7 @@ class CodePrunerBackend:
     name = "code-pruner"
 
     def __init__(self, model_dir: str | None = None) -> None:
-        repair = os.environ.get("HAY_REPAIR", "").lower() in {"1", "true", "yes"}
+        repair = os.environ.get("HAY_REPAIR", "1").lower() not in {"0", "false", "no"}
         self._impl = MLXSwePrunerBackend(
             model_name=model_dir or _resolve_model_dir(), repair=repair
         )

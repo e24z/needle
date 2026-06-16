@@ -11,8 +11,8 @@ __all__ = ["PrunerBackend", "FakePruner", "get_backend"]
 
 
 def get_backend(name: str | None = None) -> PrunerBackend:
-    """Resolve a backend by name (or HAY_BACKEND env, default 'fake')."""
-    name = (name or os.environ.get("HAY_BACKEND") or "fake").lower()
+    """Resolve a backend by name (or HAY_BACKEND env, default 'code-pruner')."""
+    name = (name or os.environ.get("HAY_BACKEND") or "code-pruner").lower()
     if name == "halve":
         from .debug import HalvePruner
 
