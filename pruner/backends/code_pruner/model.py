@@ -13,6 +13,49 @@ from .lines import aggregate_token_scores_to_lines, prune_code_lines
 viterbi_cpp = None
 
 
+def _mlx_func(name: str):
+    fn = getattr(mx, name, None)
+    if fn is not None:
+        return fn
+    metal = getattr(mx, "metal", None)
+    return getattr(metal, name, None) if metal is not None else None
+
+
+def _env_flag(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.lower() not in {"0", "false", "no", "off"}
+
+
+def _env_mb(name: str) -> int | None:
+    value = os.environ.get(name)
+    if not value:
+        return None
+    try:
+        mb = int(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer number of MB") from exc
+    if mb < 0:
+        raise ValueError(f"{name} must be non-negative")
+    return mb
+
+
+def _set_mlx_limit(name: str, limit_mb: int | None) -> None:
+    if limit_mb is None:
+        return
+    fn = _mlx_func(name)
+    if fn is None:
+        return
+    fn(limit_mb * 1024 * 1024)
+
+
+def _clear_mlx_cache() -> None:
+    fn = _mlx_func("clear_cache")
+    if fn is not None:
+        fn()
+
+
 def _viterbi_decode_numpy(
     emissions: np.ndarray,
     transitions: np.ndarray,
@@ -515,7 +558,7 @@ class MLXSwePrunerBackend:
     def evict(self) -> None:
         """Release any cached device memory held by the backend. Idempotent."""
         try:
-            mx.clear_cache()
+            _clear_mlx_cache()
         except Exception:  # noqa: BLE001
             pass
 
@@ -644,6 +687,11 @@ class CodePrunerBackend:
 
     def __init__(self, model_dir: str | None = None) -> None:
         repair = os.environ.get("HAY_REPAIR", "1").lower() not in {"0", "false", "no"}
+        _set_mlx_limit("set_cache_limit", _env_mb("HAY_MLX_CACHE_LIMIT_MB"))
+        _set_mlx_limit("set_wired_limit", _env_mb("HAY_MLX_WIRED_LIMIT_MB"))
+        self._clear_cache_after_prune = _env_flag(
+            "HAY_MLX_CLEAR_CACHE_AFTER_PRUNE", True
+        )
         self._impl = MLXSwePrunerBackend(
             model_name=model_dir or _resolve_model_dir(), repair=repair
         )
@@ -651,12 +699,16 @@ class CodePrunerBackend:
         self._max_length = int(os.environ.get("HAY_MAX_LENGTH", "4096"))
 
     def prune(self, *, text: str, query: str) -> str:
-        return self._impl.prune_text(
-            text=text,
-            query=query,
-            threshold=self._threshold,
-            max_length=self._max_length,
-        )
+        try:
+            return self._impl.prune_text(
+                text=text,
+                query=query,
+                threshold=self._threshold,
+                max_length=self._max_length,
+            )
+        finally:
+            if self._clear_cache_after_prune:
+                _clear_mlx_cache()
 
     def evict(self) -> None:
         self._impl.evict()
