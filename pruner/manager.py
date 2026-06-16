@@ -228,11 +228,16 @@ def serve_manager(
 ) -> None:
     """Bind the machine-wide socket and serve until stopped. First writer wins:
     if a manager is already live on the socket, defer to it and return."""
+    explicit_backend = backend_factory is not None
     backend_factory = backend_factory or get_backend
     version = naming.code_version() if version is None else version
-    # Only the heavy model needs memory gating; a free backend (fake/halve) does not.
+    # Only the heavy model needs memory gating; a free backend (fake/halve) does
+    # not. An explicitly injected backend (tests, custom hosts) is presumed light
+    # unless the caller passes heavy=True; only the default path reads HAY_BACKEND.
     if heavy is None:
-        heavy = os.environ.get("HAY_BACKEND", "code-pruner").lower() in {
+        heavy = (not explicit_backend) and os.environ.get(
+            "HAY_BACKEND", "code-pruner"
+        ).lower() in {
             "code-pruner",
             "code_pruner",
         }
