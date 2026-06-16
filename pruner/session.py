@@ -38,13 +38,16 @@ def _ensure_manager(timeout: float = 10.0) -> bool:
     home = naming.app_home()
     home.mkdir(parents=True, exist_ok=True)
     log = open(home / "manager.log", "a")
-    subprocess.Popen(
-        [sys.executable, "-m", "pruner", "manage"],
-        start_new_session=True,
-        stdout=log,
-        stderr=log,
-        cwd=_REPO_ROOT,
-    )
+    try:
+        subprocess.Popen(
+            [sys.executable, "-m", "pruner", "manage"],
+            start_new_session=True,
+            stdout=log,
+            stderr=log,
+            cwd=_REPO_ROOT,
+        )
+    finally:
+        log.close()  # the child inherited its own fd; the parent holds nothing open
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if naming.socket_is_live(sock):
