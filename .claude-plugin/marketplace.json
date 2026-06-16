@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "hay",
-      "source": "./",
+      "source": "./adapters/claude",
       "description": "Local context-pruning for Claude Code (codename: Hay)."
     }
   ]

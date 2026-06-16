@@ -35,7 +35,10 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# adapters/claude/statusline.py: put the repo root on the path (engine package
+# `pruner`) and this adapter dir (for the adapter-local `state`).
+_HERE = Path(__file__).resolve()
+sys.path[0:0] = [str(_HERE.parents[2]), str(_HERE.parent)]  # repo root, adapters/claude
 
 ACTIVE_SECS = 3  # a prune within this many seconds → "active"
 STATS_TIMEOUT = (
@@ -113,7 +116,7 @@ def _decide(stats, recent: bool) -> str:
 
 def _state(payload: dict) -> tuple[str, int, int]:
     """Return (indicator_state, calls, tokens)."""
-    from pruner import state
+    import state
 
     s = state.read(payload.get("session_id") or None)
     calls = int(s.get("calls", 0))

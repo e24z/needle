@@ -1,13 +1,11 @@
-"""Per-session savings, written by the hook and read by the statusline. Plain
-and portable, so it lives in the core. Char-based for now; the statusline can
-approximate tokens (~chars/4) at display time.
+"""Per-session savings, written by the hook and read by the statusline.
 
-Keyed by Claude's session_id so the count reflects *this* session, not a
-lifetime running total. Both the hook and the statusline see the same
-session_id in their payloads, so they agree. HAY_STATE overrides everything
-(tests, manual runs)."""
-
-# TODO: this file is claude-specific. worth thinking about both naming and position in the boundary.
+This is Claude-specific presentation state -- keyed by Claude's session_id so the
+count reflects *this* session, not a lifetime running total -- so it lives in the
+Claude adapter, not the agent-agnostic engine. Both the hook and the statusline
+see the same session_id in their payloads, so they agree. Char-based for now; the
+statusline approximates tokens (~chars/4) at display time. HAY_STATE overrides
+everything (tests, manual runs)."""
 
 from __future__ import annotations
 
@@ -16,7 +14,7 @@ import os
 import time
 from pathlib import Path
 
-from . import naming
+from pruner import naming
 
 _EMPTY = {"calls": 0, "original_chars": 0, "pruned_chars": 0, "saved_chars": 0}
 

@@ -17,11 +17,15 @@ import os
 import sys
 from pathlib import Path
 
-# This runs as a standalone script, so make the repo root importable.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Standalone script under adapters/claude/hooks/. Put the repo root on the path
+# (for the engine package `pruner`) and the adapter root (for `hooks.extractors`
+# and the adapter-local `state`).
+_HERE = Path(__file__).resolve()
+sys.path[0:0] = [str(_HERE.parents[3]), str(_HERE.parents[1])]  # repo root, adapters/claude
 
+import state  # noqa: E402
 from hooks.extractors import extract_query  # noqa: E402
-from pruner import client, naming, state  # noqa: E402
+from pruner import client, naming  # noqa: E402
 
 
 def _breadcrumb(note: str) -> None:
