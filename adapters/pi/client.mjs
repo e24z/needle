@@ -19,6 +19,10 @@ export function managerSocketPath() {
 	return process.env.HAY_MANAGER_SOCKET || join(appHome(), "manager.sock");
 }
 
+export function eventsPath() {
+	return process.env.HAY_EVENTS || join(appHome(), "events.jsonl");
+}
+
 export function repoRootFromModuleUrl(moduleUrl) {
 	return join(dirname(fileURLToPath(moduleUrl)), "..", "..");
 }
@@ -79,6 +83,27 @@ export async function release(session, options = {}) {
 
 export async function stats(options = {}) {
 	return request({ op: "stats" }, { timeoutMs: 5_000, ...options });
+}
+
+export async function tailEvents(count = 20, options = {}) {
+	const n = Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 20;
+	if (n === 0) return [];
+	let text;
+	try {
+		text = await readFile(options.path || eventsPath(), "utf8");
+	} catch {
+		return [];
+	}
+	const lines = text.split(/\r?\n/).filter(Boolean).slice(-n);
+	const out = [];
+	for (const line of lines) {
+		try {
+			out.push(JSON.parse(line));
+		} catch {
+			// ignore corrupt partial lines
+		}
+	}
+	return out;
 }
 
 export async function socketIsLive(socketPath = managerSocketPath()) {

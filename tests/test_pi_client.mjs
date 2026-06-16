@@ -1,17 +1,18 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { codeVersion, prune, request, socketIsLive } from "../adapters/pi/client.mjs";
+import { codeVersion, prune, socketIsLive, tailEvents } from "../adapters/pi/client.mjs";
 import hayPiExtension, {
 	buildToolResultPatch,
 	extractQuery,
 	extractText,
 	formatStatus,
+	renderOperatorStatus,
 } from "../adapters/pi/extension.mjs";
 
 test("Pi client speaks Hay newline JSON protocol", async () => {
@@ -104,11 +105,15 @@ test("Pi extension lifecycle leases, prunes, updates status, and releases", asyn
 	process.env.HAY_MANAGER_SOCKET = socketPath;
 	try {
 		const handlers = new Map();
+		const commands = new Map();
 		const customEntries = [];
+		const messages = [];
 		const statuses = [];
 		const pi = {
 			appendEntry: (customType, data) => customEntries.push({ type: "custom", customType, data }),
 			on: (event, handler) => handlers.set(event, handler),
+			registerCommand: (name, options) => commands.set(name, options),
+			sendMessage: (message) => messages.push(message),
 		};
 		hayPiExtension(pi);
 		const ctx = {
@@ -133,11 +138,17 @@ test("Pi extension lifecycle leases, prunes, updates status, and releases", asyn
 			{ toolName: "read", content: [{ type: "text", text: "x".repeat(1000) }] },
 			ctx,
 		);
+		await commands.get("hay").handler("status", ctx);
 		await handlers.get("session_shutdown")({}, ctx);
 
 		assert.deepEqual(patch, { content: [{ type: "text", text: "x".repeat(300) }] });
 		assert.equal(customEntries.length, 1);
 		assert.deepEqual(customEntries[0].data.calls, 1);
+		assert.equal(messages.length, 1);
+		assert.equal(messages[0].customType, "hay-status");
+		assert.match(messages[0].content, /hay manager: ready \(mock resident\)/);
+		assert.match(messages[0].content, /why running:/);
+		assert.match(messages[0].content, /this Pi session 175 tokens saved  \|  1 prunes/);
 		assert.equal(statuses.at(-1)[0], "hay");
 		assert.match(statuses.at(-1)[1], /hay ready 175t 1p/);
 		assert.ok(ops.includes("lease"), ops);
@@ -151,6 +162,50 @@ test("Pi extension lifecycle leases, prunes, updates status, and releases", asyn
 		}
 		await new Promise((resolve) => server.close(resolve));
 	}
+});
+
+test("Pi operator status renders loading, degraded, memory, and local events", async () => {
+	const rendered = renderOperatorStatus(
+		{
+			ok: true,
+			resident: true,
+			backend: "fake (code-pruner unavailable: no mlx)",
+			sessions: 2,
+			version: "abcdef123456789",
+			pressure: 2,
+			available_mb: 2048,
+		},
+		[{ ts: 1710000000, event: "passthrough", reason: "low-memory", chars: 1200 }],
+		{ calls: 3, savedChars: 4096, lastTool: "grep" },
+		{ appHome: "/tmp/hay", socketPath: "/tmp/hay/manager.sock" },
+	);
+	assert.match(rendered, /DEGRADED \(fake \(code-pruner unavailable: no mlx\)\)/);
+	assert.match(rendered, /sessions 2  \|  version abcdef123456/);
+	assert.match(rendered, /pressure warning  \|  free 2.0 GB/);
+	assert.match(rendered, /this Pi session 1.0k tokens saved  \|  3 prunes  \|  last tool grep/);
+	assert.match(rendered, /passthrough\s+reason=low-memory chars=1200/);
+	assert.match(renderOperatorStatus("loading", [], {}), /loading or pruning/);
+	assert.match(renderOperatorStatus(null, [], {}), /fails open/);
+	assert.match(formatStatus("loading", { savedChars: 0, calls: 0 }), /hay loading 0t 0p/);
+});
+
+test("Pi client reads the local Hay event log", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "hay-pi-events-"));
+	const path = join(dir, "events.jsonl");
+	await writeFile(
+		path,
+		[
+			JSON.stringify({ ts: 1, event: "lease", session: "a" }),
+			"not-json",
+			JSON.stringify({ ts: 2, event: "model_load", backend: "mock" }),
+			JSON.stringify({ ts: 3, event: "release", session: "a" }),
+			"",
+		].join("\n"),
+	);
+	assert.deepEqual(await tailEvents(2, { path }), [
+		{ ts: 2, event: "model_load", backend: "mock" },
+		{ ts: 3, event: "release", session: "a" },
+	]);
 });
 
 test("Pi adapter ignores tiny, non-target, and unchanged results", async () => {
