@@ -1,14 +1,21 @@
-# monitors/ — Claude plugin component (lifecycle owner)
+# monitors/ — Claude plugin component (session lease)
 
-`monitors.json` (Ring 3) declares one monitor that `cd`s into
-`${CLAUDE_PLUGIN_ROOT}`, picks `.venv/bin/python` if present (else `python3`),
-and runs `HAY_BACKEND=${HAY_BACKEND:-mlx} <py> -m pruner serve`. The monitor
-runs the server for the session's lifetime and tears it down on session end —
-this is the "session owns the daemon" mechanism.
+`monitors.json` declares one monitor that `cd`s into `${CLAUDE_PLUGIN_ROOT}` and
+runs:
+
+```bash
+HAY_BACKEND="${HAY_BACKEND:-code-pruner}" uv run -m pruner session --session "$CLAUDE_SESSION_ID"
+```
+
+The monitor does **not** own the model process. It owns this Claude session's
+lease: it ensures the machine-wide manager is running, acquires a lease,
+heartbeats while the session is alive, and releases on exit. The manager
+outlives individual sessions and decides when to load or evict the model.
 
 Gotchas:
 - Requires Claude Code >= 2.1.105 (have 2.1.177).
 - Monitors do NOT load for project-scope plugins. Hay must be installed
   personal-scope for the monitor to fire.
-- The monitor is just a caller of `python3 -m pruner serve`; launchd or a manual
-  run are interchangeable owners of the same command.
+- `uv` must be installed. If the `code-pruner` dependencies are unavailable, the
+  manager degrades loudly to pass-through instead of silently pretending to be
+  healthy.
