@@ -1,0 +1,204 @@
+{
+  "backend": "modal",
+  "generated_at": "2026-06-20T08:26:18Z",
+  "git": {
+    "branch": "codex/chunked-pruner-parity",
+    "commit": "e365040ea318b759f779e2411a51bb1e883ea9a8",
+    "dirty": true,
+    "short_commit": "e365040",
+    "status": [
+      "?? benchmarks/slices/lite-test-mixed12-a.json"
+    ]
+  },
+  "instances": [
+    {
+      "api_calls": 10,
+      "cost": 0.32646600000000003,
+      "exit_status": "Submitted",
+      "instance_id": "astropy__astropy-12907",
+      "patch_chars": 504
+    },
+    {
+      "api_calls": 16,
+      "cost": 0.566745,
+      "exit_status": "Submitted",
+      "instance_id": "django__django-10914",
+      "patch_chars": 2320
+    },
+    {
+      "api_calls": 12,
+      "cost": 0.438757,
+      "exit_status": "Submitted",
+      "instance_id": "matplotlib__matplotlib-18869",
+      "patch_chars": 2190
+    },
+    {
+      "api_calls": 19,
+      "cost": 1.02713,
+      "exit_status": "Submitted",
+      "instance_id": "mwaskom__seaborn-2848",
+      "patch_chars": 1871
+    },
+    {
+      "api_calls": 12,
+      "cost": 0.439917,
+      "exit_status": "Submitted",
+      "instance_id": "pallets__flask-4045",
+      "patch_chars": 500
+    },
+    {
+      "api_calls": 14,
+      "cost": 0.468316,
+      "exit_status": "Submitted",
+      "instance_id": "psf__requests-1963",
+      "patch_chars": 363
+    },
+    {
+      "api_calls": 22,
+      "cost": 1.5879459999999999,
+      "exit_status": "Submitted",
+      "instance_id": "pydata__xarray-3364",
+      "patch_chars": 8714
+    },
+    {
+      "api_calls": 11,
+      "cost": 0.37075800000000003,
+      "exit_status": "Submitted",
+      "instance_id": "pylint-dev__pylint-5859",
+      "patch_chars": 656
+    },
+    {
+      "api_calls": 10,
+      "cost": 0.395964,
+      "exit_status": "Submitted",
+      "instance_id": "pytest-dev__pytest-11143",
+      "patch_chars": 994
+    },
+    {
+      "api_calls": 11,
+      "cost": 0.380644,
+      "exit_status": "Submitted",
+      "instance_id": "scikit-learn__scikit-learn-10297",
+      "patch_chars": 1551
+    },
+    {
+      "api_calls": 23,
+      "cost": 0.9957390000000002,
+      "exit_status": "Submitted",
+      "instance_id": "sphinx-doc__sphinx-10325",
+      "patch_chars": 2465
+    },
+    {
+      "api_calls": 15,
+      "cost": 0.741171,
+      "exit_status": "Submitted",
+      "instance_id": "sympy__sympy-11400",
+      "patch_chars": 971
+    }
+  ],
+  "local_validation": {
+    "completed_ids": [
+      "astropy__astropy-12907",
+      "django__django-10914",
+      "matplotlib__matplotlib-18869",
+      "mwaskom__seaborn-2848",
+      "pallets__flask-4045",
+      "psf__requests-1963",
+      "pydata__xarray-3364",
+      "pylint-dev__pylint-5859",
+      "pytest-dev__pytest-11143",
+      "scikit-learn__scikit-learn-10297",
+      "sphinx-doc__sphinx-10325"
+    ],
+    "completed_instances": 11,
+    "error_ids": [
+      "sympy__sympy-11400"
+    ],
+    "error_instances": 1,
+    "resolved_ids": [
+      "astropy__astropy-12907",
+      "django__django-10914",
+      "pylint-dev__pylint-5859",
+      "scikit-learn__scikit-learn-10297",
+      "sphinx-doc__sphinx-10325"
+    ],
+    "resolved_instances": 5,
+    "submitted_ids": [
+      "astropy__astropy-12907",
+      "django__django-10914",
+      "matplotlib__matplotlib-18869",
+      "mwaskom__seaborn-2848",
+      "pallets__flask-4045",
+      "psf__requests-1963",
+      "pydata__xarray-3364",
+      "pylint-dev__pylint-5859",
+      "pytest-dev__pytest-11143",
+      "scikit-learn__scikit-learn-10297",
+      "sphinx-doc__sphinx-10325",
+      "sympy__sympy-11400"
+    ],
+    "submitted_instances": 12,
+    "unresolved_ids": [
+      "matplotlib__matplotlib-18869",
+      "mwaskom__seaborn-2848",
+      "pallets__flask-4045",
+      "psf__requests-1963",
+      "pydata__xarray-3364",
+      "pytest-dev__pytest-11143"
+    ],
+    "unresolved_instances": 6
+  },
+  "mode": "baseline",
+  "model": "openai/gpt-5.5",
+  "policy": {
+    "env": {},
+    "id": "baseline",
+    "known": true
+  },
+  "result_id": "baseline__modal__gpt-5-5__lite-test-mixed12-a-paired-hay-2048-chunked-modal-gpt-5-5-20260620-083343",
+  "run_dir": "/Users/enoch/repos/hay/benchmarks/runs/lite-test-mixed12-a__paired-hay-2048-chunked__modal__gpt-5-5__20260620-083343",
+  "run_id": "lite-test-mixed12-a__paired-hay-2048-chunked__modal__gpt-5-5__20260620-083343",
+  "slice": {
+    "description": "Twelve SWE-bench lite/test instances, one from each repository family, for a mixed-repo policy smoke.",
+    "id": "lite-test-mixed12-a",
+    "instance_ids": [
+      "astropy__astropy-12907",
+      "django__django-10914",
+      "matplotlib__matplotlib-18869",
+      "mwaskom__seaborn-2848",
+      "pallets__flask-4045",
+      "psf__requests-1963",
+      "pydata__xarray-3364",
+      "pylint-dev__pylint-5859",
+      "pytest-dev__pytest-11143",
+      "scikit-learn__scikit-learn-10297",
+      "sphinx-doc__sphinx-10325",
+      "sympy__sympy-11400"
+    ],
+    "notes": [
+      "One early-index instance per SWE-bench Lite repository family.",
+      "Designed as a mixed smoke slice for baseline vs hay-2048-chunked parity, not as a publishable benchmark claim."
+    ],
+    "path": "/Users/enoch/repos/hay/benchmarks/slices/lite-test-mixed12-a.json",
+    "split": "test",
+    "subset": "lite"
+  },
+  "slice_id": "lite-test-mixed12-a",
+  "telemetry": {
+    "accepted": 0,
+    "accepted_saved_tokens": 0,
+    "chunked": 0,
+    "low_memory_passthrough": 0,
+    "max_chunks": 0,
+    "model_input_tokens": 0,
+    "passthrough": 0,
+    "rows": 0,
+    "saved_tokens": 0
+  },
+  "totals": {
+    "api_calls": 175,
+    "cost": 7.739553,
+    "predictions": 12
+  },
+  "version": 1
+}
