@@ -1,0 +1,142 @@
+{
+  "backend": "modal",
+  "generated_at": "2026-06-19T21:58:29Z",
+  "git": {
+    "branch": "codex/chunked-pruner-parity",
+    "commit": "8540abdbab3f74eee8b5c883902a0a6abfe04fc1",
+    "dirty": true,
+    "short_commit": "8540abd",
+    "status": [
+      "M .gitignore",
+      " M pruner/backends/code_pruner/lines.py",
+      " M pruner/backends/code_pruner/model.py",
+      " M pruner/backends/code_pruner/repair/python.py",
+      " M pruner/cli.py",
+      " M pruner/manager.py",
+      " M pruner/session.py",
+      " M pyproject.toml",
+      " M tests/test_backends.py",
+      " M tests/test_manager.py",
+      " M tests/test_session.py",
+      " M tests/test_status.py",
+      " M uv.lock",
+      "?? benchmarks/README.md",
+      "?? benchmarks/__init__.py",
+      "?? benchmarks/apple-core-ai-backend-notes.md",
+      "?? benchmarks/dashboard.py",
+      "?? benchmarks/monitor.sh",
+      "?? benchmarks/results/README.md",
+      "?? benchmarks/results/lite-test-django3-a/README.md",
+      "?? benchmarks/results/lite-test-django3-a/baseline__modal__gpt-5-5__20260619-01.json",
+      "?? benchmarks/results/lite-test-django3-a/hay-2048-chunked__modal__gpt-5-5__20260619-01.json",
+      "?? benchmarks/results/lite-test-django3-a/hay-8192-floorless__modal__gpt-5-5__20260619-01.json",
+      "?? benchmarks/slices/lite-test-django3-a.json",
+      "?? benchmarks/swebench/__init__.py",
+      "?? benchmarks/swebench/hay_environment.py",
+      "?? benchmarks/swebench/run.py",
+      "?? benchmarks/swebench/vibeproxy.yaml",
+      "?? benchmarks/watch.py",
+      "?? pruner/backends/code_pruner/chunking.py",
+      "?? tests/test_benchmark_modal_environment.py",
+      "?? tests/test_benchmark_validation.py",
+      "?? tests/test_code_pruner_chunking.py"
+    ]
+  },
+  "instances": [
+    {
+      "api_calls": 12,
+      "cost": 0.23865000000000003,
+      "exit_status": "Submitted",
+      "instance_id": "django__django-11039",
+      "patch_chars": 826
+    },
+    {
+      "api_calls": 13,
+      "cost": 0.5409830000000001,
+      "exit_status": "Submitted",
+      "instance_id": "django__django-11049",
+      "patch_chars": 1499
+    },
+    {
+      "api_calls": 8,
+      "cost": 0.134371,
+      "exit_status": "Submitted",
+      "instance_id": "django__django-11099",
+      "patch_chars": 901
+    }
+  ],
+  "local_validation": {
+    "completed_ids": [
+      "django__django-11039",
+      "django__django-11049",
+      "django__django-11099"
+    ],
+    "completed_instances": 3,
+    "error_ids": [],
+    "error_instances": 0,
+    "resolved_ids": [
+      "django__django-11039",
+      "django__django-11049",
+      "django__django-11099"
+    ],
+    "resolved_instances": 3,
+    "submitted_ids": [
+      "django__django-11039",
+      "django__django-11049",
+      "django__django-11099"
+    ],
+    "submitted_instances": 3,
+    "unresolved_ids": [],
+    "unresolved_instances": 0
+  },
+  "mode": "hay",
+  "model": "openai/gpt-5.5",
+  "policy": {
+    "env": {
+      "HAY_BENCH_ABORT_ON_LOW_MEMORY": "1",
+      "HAY_CHUNK_OVERLAP_TOKENS": "50",
+      "HAY_MAX_LENGTH": "2048",
+      "HAY_MIN_FREE_MB": "0",
+      "HAY_PRUNE_FLOOR": "0"
+    },
+    "id": "hay-2048-chunked",
+    "known": true
+  },
+  "result_id": "hay-2048-chunked__modal__gpt-5-5__lite-test-django3-a-paired-hay-2048-chunked-modal-gpt-5-5-20260619-224333",
+  "run_dir": "/Users/enoch/repos/hay/benchmarks/runs/lite-test-django3-a__paired-hay-2048-chunked__modal__gpt-5-5__20260619-224333",
+  "run_id": "lite-test-django3-a__paired-hay-2048-chunked__modal__gpt-5-5__20260619-224333",
+  "slice": {
+    "description": "Three Django SWE-bench lite/test instances used for the first policy-parity smoke.",
+    "id": "lite-test-django3-a",
+    "instance_ids": [
+      "django__django-11039",
+      "django__django-11049",
+      "django__django-11099"
+    ],
+    "notes": [
+      "Small smoke slice only; useful for plumbing and policy comparisons, not publishable benchmark claims.",
+      "Chosen because all three instances resolved under baseline, hay-8192-floorless, and hay-2048-chunked in the 2026-06-19 local-validation runs."
+    ],
+    "path": "/Users/enoch/repos/hay/benchmarks/slices/lite-test-django3-a.json",
+    "split": "test",
+    "subset": "lite"
+  },
+  "slice_id": "lite-test-django3-a",
+  "telemetry": {
+    "accepted": 7,
+    "accepted_saved_tokens": 5655,
+    "chunked": 2,
+    "low_memory_passthrough": 0,
+    "max_chunks": 2,
+    "model_input_tokens": 10712,
+    "passthrough": 0,
+    "rows": 32,
+    "saved_tokens": 5655
+  },
+  "totals": {
+    "api_calls": 33,
+    "cost": 0.914004,
+    "predictions": 3
+  },
+  "version": 1
+}

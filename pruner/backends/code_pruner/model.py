@@ -6,11 +6,20 @@ import mlx.nn as nn
 import numpy as np
 from mlx_lm import load
 
-from .lines import aggregate_token_scores_to_lines, prune_code_lines
+from .chunking import (
+    estimate_token_count,
+    merge_token_scores_from_chunks,
+    split_text_into_token_chunks,
+)
+from .lines import _silent_prune, aggregate_token_scores_to_lines, prune_code_lines
 
 # The optional C++ Viterbi extension never shipped to Hay; the numpy decoder
 # below is the only path. (Original lives in ~/repos/needle if ever worth porting.)
 viterbi_cpp = None
+
+_PROMPT_PREFIX = '<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n'
+_PROMPT_SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+_MIN_CODE_TOKENS = 100
 
 
 def _mlx_func(name: str):
@@ -326,6 +335,7 @@ class MLXSwePrunerBackend:
         self.instruction = (
             "Given a query, judge if the document(code) is related to query."
         )
+        self.last_stats: dict[str, int | float | bool | str] = {}
 
         if os.path.isdir(model_name):
             self.model_dir = model_name
@@ -459,6 +469,15 @@ class MLXSwePrunerBackend:
         self.backbone.update(nested_backbone_weights)
         self.scorer.update(nested_scorer_weights)
 
+    def _prompt_token_ids(self, query: str) -> tuple[list[int], list[int], list[int]]:
+        formatted_query = (
+            f"<Instruct>: {self.instruction}\n<Query>: {query}\n<Document>: "
+        )
+        prefix_ids = self.tokenizer.encode(_PROMPT_PREFIX, add_special_tokens=False)
+        suffix_ids = self.tokenizer.encode(_PROMPT_SUFFIX, add_special_tokens=False)
+        query_ids = self.tokenizer.encode(formatted_query, add_special_tokens=False)
+        return prefix_ids, query_ids, suffix_ids
+
     def _process_single_chunk(
         self,
         query: str,
@@ -467,16 +486,7 @@ class MLXSwePrunerBackend:
         use_viterbi: bool = False,
     ):
         # Format instruction prompt
-        prefix = '<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n'
-        suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
-        formatted_query = (
-            f"<Instruct>: {self.instruction}\n<Query>: {query}\n<Document>: "
-        )
-
-        # Tokenize
-        prefix_ids = self.tokenizer.encode(prefix, add_special_tokens=False)
-        suffix_ids = self.tokenizer.encode(suffix, add_special_tokens=False)
-        query_ids = self.tokenizer.encode(formatted_query, add_special_tokens=False)
+        prefix_ids, query_ids, suffix_ids = self._prompt_token_ids(query)
 
         code_enc = self.tokenizer(
             code_chunk,
@@ -574,10 +584,53 @@ class MLXSwePrunerBackend:
         if use_viterbi is None:
             use_viterbi = self.use_viterbi
 
-        # Process single code chunk
-        chunk_score, code_token_scores, code_offsets = self._process_single_chunk(
-            query, text, max_length=max_length, use_viterbi=use_viterbi
+        prefix_ids, query_ids, suffix_ids = self._prompt_token_ids(query)
+        prompt_tokens = len(prefix_ids) + len(query_ids) + len(suffix_ids)
+        code_token_budget = max_length - prompt_tokens
+        original_tokens = estimate_token_count(text, self.tokenizer)
+        self.last_stats = {
+            "original_tokens": original_tokens,
+            "pruned_tokens": original_tokens,
+            "saved_tokens": 0,
+            "model_input_tokens": 0,
+            "chunks": 0,
+            "scored_tokens": 0,
+            "code_token_budget": code_token_budget,
+            "chunk_overlap_tokens": 0,
+            "chunked": False,
+            "repair": bool(self.repair),
+            "floor_applied": False,
+        }
+        if code_token_budget < _MIN_CODE_TOKENS:
+            self.last_stats["passthrough_reason"] = "query-too-long"
+            return text
+
+        overlap_tokens = int(os.environ.get("HAY_CHUNK_OVERLAP_TOKENS", "50"))
+        chunks = split_text_into_token_chunks(
+            text,
+            self.tokenizer,
+            chunk_max_tokens=code_token_budget,
+            overlap_tokens=overlap_tokens,
         )
+        if not chunks:
+            return text
+
+        chunk_scores: list[float] = []
+        chunk_results: list[tuple[list[tuple[str, float]], list[tuple[int, int]], int]] = []
+        for chunk in chunks:
+            chunk_score, token_scores, offsets = self._process_single_chunk(
+                query,
+                chunk.text,
+                max_length=max_length,
+                use_viterbi=use_viterbi,
+            )
+            chunk_scores.append(chunk_score)
+            chunk_results.append((token_scores, offsets, chunk.start_char))
+
+        code_token_scores, code_offsets = merge_token_scores_from_chunks(
+            text, chunk_results
+        )
+        model_input_tokens = sum(prompt_tokens + chunk.token_count for chunk in chunks)
 
         # Map token-level scores back to line numbers
         line_scores = aggregate_token_scores_to_lines(
@@ -598,7 +651,27 @@ class MLXSwePrunerBackend:
             except SyntaxError:
                 result = pruned
 
-        return _apply_floor(text, result)
+        floor_enabled = _env_flag("HAY_PRUNE_FLOOR", False)
+        final = _apply_floor(text, result) if floor_enabled else result
+        pruned_tokens = estimate_token_count(final, self.tokenizer)
+        self.last_stats = {
+            "original_tokens": original_tokens,
+            "raw_pruned_tokens": estimate_token_count(pruned, self.tokenizer),
+            "pruned_tokens": pruned_tokens,
+            "saved_tokens": original_tokens - pruned_tokens,
+            "model_input_tokens": model_input_tokens,
+            "chunks": len(chunks),
+            "scored_tokens": len(code_token_scores),
+            "kept_lines": len(kept_lines),
+            "code_token_budget": code_token_budget,
+            "chunk_overlap_tokens": overlap_tokens,
+            "chunked": len(chunks) > 1,
+            "max_chunk_score": max(chunk_scores) if chunk_scores else 0.0,
+            "repair": bool(self.repair),
+            "floor_enabled": floor_enabled,
+            "floor_applied": floor_enabled and final != result,
+        }
+        return final
 
 
 def _looks_like_python(text: str) -> bool:
@@ -629,20 +702,25 @@ def _python_skeleton(text: str) -> str:
     keep = ("import ", "from ", "def ", "async def ", "class ", "@")
     out: list[str] = []
     gap = False
+    silent = _silent_prune()
     for line in text.splitlines():
         if line.strip().startswith(keep):
             out.append(line)
             gap = False
         elif out and not gap:
-            out.append("[pruned]")
+            if not silent:
+                out.append("[pruned]")
             gap = True
     return "\n".join(out)
 
 
 def _apply_floor(text: str, pruned: str) -> str:
-    """Don't return near-nothing. If pruning collapsed the file (<5% real content
-    kept), fall back to a signatures skeleton (Python) or pass the original
-    through, so a deliberate read never comes back empty."""
+    """Optional product safety net.
+
+    The SWE-Pruner benchmark path returns the model's pruned text directly,
+    even when that is only a filtered-span marker. Hay can restore the older
+    "never return near-nothing" behavior by setting HAY_PRUNE_FLOOR=1.
+    """
     if _real_content_chars(pruned) >= 0.05 * len(text):
         return pruned
     if _looks_like_python(text):
@@ -696,16 +774,19 @@ class CodePrunerBackend:
             model_name=model_dir or _resolve_model_dir(), repair=repair
         )
         self._threshold = float(os.environ.get("HAY_THRESHOLD", "0.5"))
-        self._max_length = int(os.environ.get("HAY_MAX_LENGTH", "4096"))
+        self._max_length = int(os.environ.get("HAY_MAX_LENGTH", "8192"))
+        self.last_stats: dict[str, int | float | bool | str] = {}
 
     def prune(self, *, text: str, query: str) -> str:
         try:
-            return self._impl.prune_text(
+            pruned = self._impl.prune_text(
                 text=text,
                 query=query,
                 threshold=self._threshold,
                 max_length=self._max_length,
             )
+            self.last_stats = dict(getattr(self._impl, "last_stats", {}) or {})
+            return pruned
         finally:
             if self._clear_cache_after_prune:
                 _clear_mlx_cache()

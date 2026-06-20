@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pruner.cli import _render_status  # noqa: E402
+from pruner.cli import _render_status, _status_payload  # noqa: E402
 
 
 def _stats(**kw) -> dict:
@@ -38,6 +38,18 @@ def main() -> int:
 
     ev = _render_status(None, [{"ts": 0, "event": "model_load", "backend": "code-pruner"}])
     assert "recent events" in ev and "model_load" in ev and "backend=code-pruner" in ev
+
+    payload = _status_payload(None, [{"event": "release"}])
+    assert payload["ok"] is False
+    assert payload["manager"] == {"ok": False, "state": "down"}
+    assert payload["events"] == [{"event": "release"}]
+    assert payload["app"] == "hay"
+    assert isinstance(payload["generated_at"], float)
+    assert payload["socket"].endswith(".sock")
+
+    live = _status_payload(_stats(sessions=2), [])
+    assert live["ok"] is True
+    assert live["manager"]["sessions"] == 2
 
     print("test_status OK")
     return 0

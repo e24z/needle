@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
+import os
 from bisect import bisect_right
 from typing import Iterable
+
+
+def _silent_prune() -> bool:
+    """When set, drop filtered spans entirely instead of leaving a
+    ``[pruned N lines]`` breadcrumb. Experiment toggle (default off): the
+    visible marker makes the agent re-read, taxing end-to-end savings."""
+    return os.environ.get("HAY_SILENT_PRUNE", "").strip().lower() in {"1", "true", "yes"}
 
 
 def aggregate_token_scores_to_lines(
@@ -77,12 +85,15 @@ def prune_code_lines(
     filtered_count = 0
     filtered_chars = 0
     placeholder = "[pruned {} lines]"
+    silent = _silent_prune()
 
     def flush_filtered() -> None:
         nonlocal filtered_count, filtered_chars, filtered_buffer
         if filtered_count <= 0:
             return
-        if filtered_chars >= len(placeholder.format(filtered_count)):
+        if silent:
+            pass  # drop the span silently; no breadcrumb for the agent to react to
+        elif filtered_chars >= len(placeholder.format(filtered_count)):
             pruned_lines.append(placeholder.format(filtered_count))
         else:
             pruned_lines.extend(filtered_buffer)
@@ -103,7 +114,7 @@ def prune_code_lines(
         flush_filtered()
         pruned_lines.append(line)
 
-    if filtered_count:
+    if filtered_count and not silent:
         pruned_lines.append(placeholder.format(filtered_count))
 
     return "\n".join(pruned_lines), kept_lines

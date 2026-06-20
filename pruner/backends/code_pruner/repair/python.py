@@ -15,6 +15,8 @@ import re
 from dataclasses import dataclass
 from typing import Iterable
 
+from ..lines import _silent_prune
+
 
 @dataclass(frozen=True)
 class RepairResult:
@@ -227,6 +229,7 @@ def _expand_imports(
 def render_filtered(lines: list[str], kept: set[int]) -> str:
     output: list[str] = []
     previous = 0
+    silent = _silent_prune()
     for line_no in sorted(kept):
         if line_no < 1 or line_no > len(lines):
             continue
@@ -235,7 +238,9 @@ def render_filtered(lines: list[str], kept: set[int]) -> str:
             gap_lines = lines[previous : line_no - 1]
             gap_chars = sum(len(l) for l in gap_lines) + gap
             marker = f"{_marker_indent(lines, previous, line_no)}[pruned]"
-            if gap_chars >= len(marker):
+            if silent:
+                pass
+            elif gap_chars >= len(marker):
                 output.append(marker)
             else:
                 output.extend(gap_lines)
@@ -247,7 +252,9 @@ def render_filtered(lines: list[str], kept: set[int]) -> str:
         gap_chars = sum(len(l) for l in gap_lines) + trailing
         indent = _marker_indent(lines, previous, None)
         marker = f"{indent}[pruned]"
-        if gap_chars >= len(marker):
+        if silent:
+            pass
+        elif gap_chars >= len(marker):
             output.append(marker)
         else:
             output.extend(gap_lines)

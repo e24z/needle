@@ -18,5 +18,17 @@ dependencies = [
     "transformers",
 ]
 
+[project.optional-dependencies]
+bench = [
+    "mini-swe-agent[modal]>=2.3",
+    "sb-cli",
+    "streamlit>=1.44",
+    "swe-rex[modal]",
+    "typing-extensions",
+]
+
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

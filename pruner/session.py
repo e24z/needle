@@ -27,11 +27,21 @@ HEARTBEAT_INTERVAL = float(os.environ.get("HAY_HEARTBEAT_INTERVAL", "30"))
 _REPO_ROOT = str(Path(__file__).resolve().parent.parent)
 
 
+def _detach_manager() -> bool:
+    return os.environ.get("HAY_MANAGER_DETACH", "1").lower() not in {
+        "0",
+        "false",
+        "no",
+    }
+
+
 def _ensure_manager(timeout: float = 10.0) -> bool:
     """Make sure a manager is accepting connections, spawning a DETACHED one if
-    not. start_new_session puts it in its own session/process group so it
-    OUTLIVES this session -- the monitor kills our group when the session ends,
-    and the manager must survive that to serve the next session."""
+    not. By default, start_new_session puts it in its own session/process group
+    so it OUTLIVES this session -- the monitor kills our group when the session
+    ends, and the manager must survive that to serve the next session. Benchmark
+    harnesses can set HAY_MANAGER_DETACH=0 to keep the manager in the session's
+    process group for clean teardown."""
     sock = naming.manager_socket_path()
     if naming.socket_is_live(sock):
         return True
@@ -41,7 +51,7 @@ def _ensure_manager(timeout: float = 10.0) -> bool:
     try:
         subprocess.Popen(
             [sys.executable, "-m", "pruner", "manage"],
-            start_new_session=True,
+            start_new_session=_detach_manager(),
             stdout=log,
             stderr=log,
             cwd=_REPO_ROOT,

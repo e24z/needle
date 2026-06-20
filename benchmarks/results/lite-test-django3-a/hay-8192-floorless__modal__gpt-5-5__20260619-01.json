@@ -1,0 +1,79 @@
+{
+  "backend": "modal",
+  "generated_at": "2026-06-19T21:34:11Z",
+  "git": {
+    "caveat": "Backfilled from a raw run that predated manifest Git stamping."
+  },
+  "instances": [
+    {
+      "api_calls": 23,
+      "cost": 0.558156,
+      "exit_status": "Submitted",
+      "instance_id": "django__django-11039"
+    },
+    {
+      "api_calls": 19,
+      "cost": 0.647519,
+      "exit_status": "Submitted",
+      "instance_id": "django__django-11049"
+    },
+    {
+      "api_calls": 9,
+      "cost": 0.1617,
+      "exit_status": "Submitted",
+      "instance_id": "django__django-11099"
+    }
+  ],
+  "local_validation": {
+    "completed_instances": 3,
+    "error_instances": 0,
+    "resolved_instances": 3,
+    "submitted_instances": 3,
+    "unresolved_instances": 0
+  },
+  "mode": "hay",
+  "model": "openai/gpt-5.5",
+  "notes": [
+    "Raw run: benchmarks/runs/modal-paired-floorless-8192-django-3-20260619-2",
+    "Acceptance source: local-validation.json, not sb-cli aggregate status."
+  ],
+  "policy": {
+    "env": {
+      "HAY_CHUNK_OVERLAP_TOKENS": "50",
+      "HAY_MAX_LENGTH": "8192",
+      "HAY_PRUNE_FLOOR": "0"
+    },
+    "id": "hay-8192-floorless",
+    "known": true
+  },
+  "result_id": "hay-8192-floorless__modal__gpt-5-5__20260619-01",
+  "run_dir": "benchmarks/runs/modal-paired-floorless-8192-django-3-20260619-2",
+  "run_id": "modal-paired-floorless-8192-django-3-20260619-2",
+  "slice": {
+    "instance_ids": [
+      "django__django-11039",
+      "django__django-11049",
+      "django__django-11099"
+    ],
+    "split": "test",
+    "subset": "lite"
+  },
+  "slice_id": "lite-test-django3-a",
+  "telemetry": {
+    "accepted": 11,
+    "accepted_saved_tokens": 9351,
+    "chunked": 0,
+    "low_memory_passthrough": 0,
+    "max_chunks": 1,
+    "model_input_tokens": 13709,
+    "passthrough": 0,
+    "rows": 56,
+    "saved_tokens": 9351
+  },
+  "totals": {
+    "api_calls": 51,
+    "cost": 1.367375,
+    "predictions": 3
+  },
+  "version": 1
+}

@@ -1,0 +1,75 @@
+{
+  "backend": "modal",
+  "generated_at": "2026-06-19T21:34:11Z",
+  "git": {
+    "caveat": "Backfilled from a raw run that predated manifest Git stamping."
+  },
+  "instances": [
+    {
+      "api_calls": 15,
+      "cost": 0.397156,
+      "exit_status": "Submitted",
+      "instance_id": "django__django-11039"
+    },
+    {
+      "api_calls": 16,
+      "cost": 0.667572,
+      "exit_status": "Submitted",
+      "instance_id": "django__django-11049"
+    },
+    {
+      "api_calls": 8,
+      "cost": 0.2417,
+      "exit_status": "Submitted",
+      "instance_id": "django__django-11099"
+    }
+  ],
+  "local_validation": {
+    "completed_instances": 3,
+    "error_instances": 0,
+    "resolved_instances": 3,
+    "submitted_instances": 3,
+    "unresolved_instances": 0
+  },
+  "mode": "baseline",
+  "model": "openai/gpt-5.5",
+  "notes": [
+    "Raw run: benchmarks/runs/modal-paired-floorless-8192-django-3-20260619-2",
+    "Acceptance source: local-validation.json, not sb-cli aggregate status."
+  ],
+  "policy": {
+    "env": {},
+    "id": "baseline",
+    "known": true
+  },
+  "result_id": "baseline__modal__gpt-5-5__20260619-01",
+  "run_dir": "benchmarks/runs/modal-paired-floorless-8192-django-3-20260619-2",
+  "run_id": "modal-paired-floorless-8192-django-3-20260619-2",
+  "slice": {
+    "instance_ids": [
+      "django__django-11039",
+      "django__django-11049",
+      "django__django-11099"
+    ],
+    "split": "test",
+    "subset": "lite"
+  },
+  "slice_id": "lite-test-django3-a",
+  "telemetry": {
+    "accepted": 0,
+    "accepted_saved_tokens": 0,
+    "chunked": 0,
+    "low_memory_passthrough": 0,
+    "max_chunks": 0,
+    "model_input_tokens": 0,
+    "passthrough": 0,
+    "rows": 0,
+    "saved_tokens": 0
+  },
+  "totals": {
+    "api_calls": 39,
+    "cost": 1.306428,
+    "predictions": 3
+  },
+  "version": 1
+}

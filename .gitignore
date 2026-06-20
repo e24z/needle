@@ -1,6 +1,9 @@
 .venv/
 __pycache__/
 *.pyc
+.DS_Store
+.claude/
 eval/
 evals/
 docs
+benchmarks/runs/

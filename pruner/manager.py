@@ -103,6 +103,12 @@ class Manager:
             "original_len": len(text),
             "pruned_len": len(text),
             "backend": f"passthrough:{reason}",
+            "stats": {
+                "passthrough_reason": reason,
+                "original_chars": len(text),
+                "pruned_chars": len(text),
+                "saved_chars": 0,
+            },
         }
 
     # -- request handling -------------------------------------------------
@@ -122,13 +128,17 @@ class Manager:
                     return self._passthrough(text, "low-memory")
             backend = self._ensure_backend()
             pruned = backend.prune(text=text, query=req.get("query", ""))
-            return {
+            resp = {
                 "ok": True,
                 "text": pruned,
                 "original_len": len(text),
                 "pruned_len": len(pruned),
                 "backend": getattr(backend, "name", "unknown"),
             }
+            backend_stats = getattr(backend, "last_stats", None)
+            if isinstance(backend_stats, dict):
+                resp["stats"] = backend_stats
+            return resp
         if op == "lease":
             ver = req.get("version", "")
             if ver and self.version and ver != self.version:
@@ -254,12 +264,20 @@ def serve_manager(
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         srv.bind(str(sock_path))
-    except OSError:  # lost the bind race to another manager; defer to it
+    except OSError:  # lost the bind race to another manager, or bind failed
         srv.close()
-        if ready_cb:
-            ready_cb(sock_path)
-        return
+        if naming.socket_is_live(sock_path):
+            if ready_cb:
+                ready_cb(sock_path)
+            return
+        raise
     srv.listen(16)
+    if not naming.socket_is_live(sock_path):
+        srv.close()
+        if sock_path.exists():
+            sock_path.unlink()
+        raise OSError(f"manager socket is not connectable: {sock_path}")
+
     srv.settimeout(poll_interval)  # wake periodically to maintain + check stop
 
     stop_event = stop_event or threading.Event()

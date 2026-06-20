@@ -1,0 +1,14 @@
+{
+  "description": "Three Django SWE-bench lite/test instances used for the first policy-parity smoke.",
+  "instance_ids": [
+    "django__django-11039",
+    "django__django-11049",
+    "django__django-11099"
+  ],
+  "notes": [
+    "Small smoke slice only; useful for plumbing and policy comparisons, not publishable benchmark claims.",
+    "Chosen because all three instances resolved under baseline, hay-8192-floorless, and hay-2048-chunked in the 2026-06-19 local-validation runs."
+  ],
+  "split": "test",
+  "subset": "lite"
+}

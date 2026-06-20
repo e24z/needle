@@ -9,12 +9,14 @@ Run: PYTHONPATH=. python3 tests/test_backends.py
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pruner.backends import FakePruner, _degraded, get_backend  # noqa: E402
+from pruner.backends.code_pruner.lines import prune_code_lines  # noqa: E402
 from pruner.backends.code_pruner.repair import repair_python_mask  # noqa: E402
 
 
@@ -43,10 +45,46 @@ def test_repair_expands_enclosing_scope() -> None:
     assert "y = x + 1" in repaired
 
 
+def test_silent_prune_removes_line_renderer_markers() -> None:
+    old = os.environ.get("HAY_SILENT_PRUNE")
+    os.environ["HAY_SILENT_PRUNE"] = "1"
+    try:
+        code = "keep_one()\ndrop_one()\ndrop_two()\nkeep_two()\n"
+        pruned, _kept = prune_code_lines(code, {1: 1.0, 4: 1.0}, 0.5)
+    finally:
+        if old is None:
+            os.environ.pop("HAY_SILENT_PRUNE", None)
+        else:
+            os.environ["HAY_SILENT_PRUNE"] = old
+    assert "[pruned" not in pruned
+    assert "drop_one" not in pruned
+    assert "drop_two" not in pruned
+    assert "keep_one" in pruned
+    assert "keep_two" in pruned
+
+
+def test_silent_prune_removes_repair_renderer_markers() -> None:
+    old = os.environ.get("HAY_SILENT_PRUNE")
+    os.environ["HAY_SILENT_PRUNE"] = "1"
+    try:
+        code = "import os\n\n\ndef helper(x):\n    y = x + 1\n    return y\n"
+        repaired = repair_python_mask(code, [5]).repaired_code
+    finally:
+        if old is None:
+            os.environ.pop("HAY_SILENT_PRUNE", None)
+        else:
+            os.environ["HAY_SILENT_PRUNE"] = old
+    assert "[pruned" not in repaired
+    assert "def helper(x):" in repaired
+    assert "y = x + 1" in repaired
+
+
 def main() -> int:
     test_routing()
     test_degraded_is_loud()
     test_repair_expands_enclosing_scope()
+    test_silent_prune_removes_line_renderer_markers()
+    test_silent_prune_removes_repair_renderer_markers()
     print("test_backends OK")
     return 0
 

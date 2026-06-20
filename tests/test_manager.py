@@ -30,6 +30,7 @@ class SpyBackend:
         self.evicted = 0
 
     def prune(self, *, text: str, query: str) -> str:
+        self.last_stats = {"chunks": 2, "saved_tokens": 5, "model_input_tokens": 20}
         return text[: len(text) // 2]  # visibly shorter so we can assert pruning
 
     def evict(self) -> None:
@@ -94,6 +95,7 @@ def main() -> int:
         # First prune loads the model.
         r = _call(tmp, {"op": "prune", "text": "abcdefghij", "query": "x"})
         assert r["ok"] and r["pruned_len"] < r["original_len"], r
+        assert r["stats"]["chunks"] == 2 and r["stats"]["saved_tokens"] == 5, r
         assert len(builds) == 1, builds
         assert _call(tmp, {"op": "stats"})["resident"] is True
 

@@ -1,0 +1,11 @@
+model:
+  model_name: "openai/gpt-5.5"
+  model_class: "litellm"
+  # VibeProxy routes subscription models that LiteLLM may not know how to price.
+  # This only disables cost-registry failures; model/API/agent errors still fail.
+  cost_tracking: "ignore_errors"
+  model_kwargs:
+    api_base: "http://localhost:8317/v1"
+    api_key: "dummy"
+    drop_params: true
+    temperature: 0

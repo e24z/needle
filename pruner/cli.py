@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import json
 import os
 import sys
+import time
 
 from . import client, events, naming
 from .manager import serve_manager
@@ -26,7 +28,7 @@ def _manage(args: argparse.Namespace) -> int:
         # notifications, and we don't want it narrating routine startup.
         print(
             f"{naming.APP_NAME}: manager listening on {path} "
-            f"(backend={os.environ.get('HAY_BACKEND', 'fake')}, lazy-load on first prune)",
+            f"(backend={os.environ.get('HAY_BACKEND', 'code-pruner')}, lazy-load on first prune)",
             file=sys.stderr,
             flush=True,
         )
@@ -50,11 +52,23 @@ def _prune(args: argparse.Namespace) -> int:
         return 1
     sys.stdout.write(resp["text"])
     saved = resp["original_len"] - resp["pruned_len"]
-    print(
-        f"[{naming.APP_NAME}] backend={resp['backend']} "
-        f"in={resp['original_len']} out={resp['pruned_len']} saved={saved}",
-        file=sys.stderr,
-    )
+    bits = [
+        f"[{naming.APP_NAME}] backend={resp['backend']}",
+        f"in={resp['original_len']}",
+        f"out={resp['pruned_len']}",
+        f"saved={saved}",
+    ]
+    stats = resp.get("stats") if isinstance(resp.get("stats"), dict) else {}
+    if stats:
+        bits.extend(
+            [
+                f"tokens={stats.get('original_tokens', '?')}->{stats.get('pruned_tokens', '?')}",
+                f"token_saved={stats.get('saved_tokens', '?')}",
+                f"chunks={stats.get('chunks', '?')}",
+                f"pruner_input_tokens={stats.get('model_input_tokens', '?')}",
+            ]
+        )
+    print(" ".join(bits), file=sys.stderr)
     return 0
 
 
@@ -100,12 +114,51 @@ def _render_status(stats: dict | None, recent: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _status(args: argparse.Namespace) -> int:
+def _status_payload(stats: dict | None, recent: list[dict]) -> dict:
+    """Structured status for dashboards and other Unix-y wrappers."""
+    manager = stats if stats and stats.get("ok") else {"ok": False, "state": "down"}
+    return {
+        "ok": bool(stats and stats.get("ok")),
+        "app": naming.APP_NAME,
+        "generated_at": time.time(),
+        "socket": str(naming.manager_socket_path()),
+        "manager": manager,
+        "events": recent,
+    }
+
+
+def _read_status(events_n: int) -> tuple[dict | None, list[dict]]:
     try:
         stats = client.stats(timeout=0.5)
     except OSError:
         stats = None  # no manager / unreachable -> "down", still show recent events
-    print(_render_status(stats, events.tail(args.events)))
+    return stats, events.tail(events_n)
+
+
+def _status(args: argparse.Namespace) -> int:
+    def emit_once(*, clear: bool = False) -> None:
+        stats, recent = _read_status(args.events)
+        if args.json:
+            print(json.dumps(_status_payload(stats, recent), sort_keys=True), flush=True)
+            return
+        if clear:
+            sys.stdout.write("\033[2J\033[H")
+        print(_render_status(stats, recent), flush=True)
+
+    if not args.watch:
+        emit_once()
+        return 0
+
+    if args.interval <= 0:
+        print("error: --interval must be > 0", file=sys.stderr)
+        return 2
+
+    try:
+        while True:
+            emit_once(clear=not args.json)
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        return 130
     return 0
 
 
@@ -132,6 +185,12 @@ def main(argv: list[str] | None = None) -> int:
 
     stp = sub.add_parser("status", help="operator snapshot: residency + recent events")
     stp.add_argument("--events", "-n", type=int, default=12, help="recent events to show")
+    stp.add_argument("--json", action="store_true", help="emit structured JSON")
+    stp.add_argument("--watch", action="store_true", help="refresh until interrupted")
+    stp.add_argument(
+        "--interval", type=float, default=1.0,
+        help="seconds between refreshes with --watch (default: 1.0)",
+    )
     stp.set_defaults(func=_status)
 
     args = p.parse_args(argv)

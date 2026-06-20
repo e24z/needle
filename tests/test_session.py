@@ -11,8 +11,10 @@ loop is exercised against an in-thread manager. Run:
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -27,6 +29,22 @@ from pruner.manager import serve_manager  # noqa: E402
 from pruner.session import run_session  # noqa: E402
 
 _ROOT = str(Path(__file__).resolve().parent.parent)
+
+try:
+    import pytest  # type: ignore
+except ImportError:  # script mode still works without pytest installed
+    pytest = None
+
+
+if pytest is not None:
+
+    @pytest.fixture
+    def tmp_sock() -> Path:
+        d = Path(tempfile.mkdtemp(prefix="hay-test-", dir="/tmp"))
+        try:
+            yield d / "hay.sock"
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
 
 
 def _wait(pred, timeout: float = 8.0, interval: float = 0.05) -> bool:
