@@ -24,6 +24,23 @@ def app_home() -> Path:
     return Path.home() / f".{APP_NAME}"
 
 
+def model_root() -> Path:
+    """Directory for Hay-owned model files. Override with HAY_MODEL_ROOT."""
+    env = os.environ.get("HAY_MODEL_ROOT")
+    if env:
+        return Path(env).expanduser()
+    return app_home() / "models"
+
+
+def model_dir_for_repo(repo: str) -> Path:
+    """Stable local directory for a Hugging Face repo under Hay's model root."""
+    safe = "".join(
+        ch if ch.isalnum() or ch in "._-" else "-"
+        for ch in repo.replace("/", "--")
+    ).strip("-")
+    return model_root() / (safe or "model")
+
+
 def manager_socket_path() -> Path:
     """The machine-wide manager socket. One per machine (per HAY_HOME), NOT keyed
     by project: the whole point of the manager is a single resident model shared

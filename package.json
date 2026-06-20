@@ -2,13 +2,17 @@
   "name": "hay",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Local context-pruning for agent coding tools.",
   "keywords": [
     "pi-package"
   ],
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
   "pi": {
     "extensions": [
-      "./adapters/pi/extension.mjs"
+      "./adapters/pi/extension.js"
     ]
   }
 }

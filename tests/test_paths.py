@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 
 def _reload_naming(**env):
-    for k in ("HAY_MANAGER_SOCKET", "CLAUDE_PROJECT_DIR", "HAY_HOME"):
+    for k in ("HAY_MANAGER_SOCKET", "CLAUDE_PROJECT_DIR", "HAY_HOME", "HAY_MODEL_ROOT"):
         os.environ.pop(k, None)
     os.environ.update(env)
     import pruner.naming as naming
@@ -42,10 +42,22 @@ def test_socket_is_live_false_when_absent() -> None:
     assert naming.socket_is_live(naming.manager_socket_path()) is False
 
 
+def test_model_dir_is_hay_owned_and_sanitized() -> None:
+    naming = _reload_naming(HAY_HOME="/tmp/hayhome")
+    assert naming.model_root() == Path("/tmp/hayhome/models")
+    assert naming.model_dir_for_repo("ayanami-kitasan/code-pruner") == Path(
+        "/tmp/hayhome/models/ayanami-kitasan--code-pruner"
+    )
+
+    naming = _reload_naming(HAY_MODEL_ROOT="/tmp/hay-models")
+    assert naming.model_dir_for_repo("org/model:v1") == Path("/tmp/hay-models/org--model-v1")
+
+
 if __name__ == "__main__":
     test_manager_socket_overrides()
     test_manager_socket_is_machine_wide()
     test_socket_is_live_false_when_absent()
-    for k in ("HAY_MANAGER_SOCKET", "CLAUDE_PROJECT_DIR", "HAY_HOME"):
+    test_model_dir_is_hay_owned_and_sanitized()
+    for k in ("HAY_MANAGER_SOCKET", "CLAUDE_PROJECT_DIR", "HAY_HOME", "HAY_MODEL_ROOT"):
         os.environ.pop(k, None)
     print("ok: manager socket overridable, machine-wide, liveness probe works")

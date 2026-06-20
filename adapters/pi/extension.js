@@ -1,3 +1,8 @@
+import { execFileSync } from "node:child_process";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
 import {
 	acquireLease,
 	appHome,
@@ -14,27 +19,49 @@ import {
 	tailEvents,
 } from "./client.mjs";
 
-const TARGET_TOOLS = new Set(["read", "grep", "find"]);
+const READ_TOOL = "read";
 const MIN_CHARS = Number.parseInt(process.env.HAY_MIN_CHARS || "200", 10);
 const MIN_RATIO = Number.parseFloat(process.env.HAY_MIN_SAVINGS_RATIO || "0.10");
+const PRUNE_TIMEOUT_MS = envMs("HAY_PI_PRUNE_TIMEOUT_SECS", 180);
 const HEARTBEAT_MS = Number.parseFloat(process.env.HAY_HEARTBEAT_INTERVAL || "30") * 1000;
-const STATUS_MS = Number.parseFloat(process.env.HAY_PI_STATUS_INTERVAL || "1") * 1000;
+const STATUS_MS = envMs("HAY_PI_STATUS_INTERVAL_SECS", 0.4);
+const STATUS_POLL_MS = envMs("HAY_PI_STATUS_POLL_SECS", 1);
+const ANIMATION_MS = envMs("HAY_PI_ANIMATION_INTERVAL_SECS", 0.4);
+const ACTIVE_MS = Number.parseFloat(process.env.HAY_PI_ACTIVE_SECS || "3") * 1000;
 const CUSTOM_STATE = "hay-state";
+const SEP = " · ";
+const SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const PULSE_FRAMES = ["⠤", "⠶", "⠿", "⠶"];
+const INTENSITY_CODES = ["2", "", "1", ""];
+const STATE_CODES = {
+	down: "38;5;240",
+	cold: "38;5;67",
+	loading: "38;5;179",
+	degraded: "38;5;196",
+	ready: "38;5;35",
+	active: "38;5;87",
+};
 const PRESSURE = new Map([
 	[1, "normal"],
 	[2, "warning"],
 	[4, "critical"],
 ]);
 
-export default function hayPiExtension(pi) {
+export default async function hayPiExtension(pi) {
+	return installHayPiExtension(pi, { createReadTool: await loadCreateReadTool() });
+}
+
+export function installHayPiExtension(pi, options = {}) {
 	const repoRoot = repoRootFromModuleUrl(import.meta.url);
 	const extensionPath = pathFromModuleUrl(import.meta.url);
 	const counters = emptyCounters();
+	const statusCache = { snapshot: null, checkedAt: 0, pending: null, busyPrunes: 0 };
 	let sessionId = "";
 	let heartbeatTimer;
 	let statusTimer;
 
 	registerHayCommand(pi, counters, { repoRoot, extensionPath });
+	registerReadOverride(pi, counters, options.createReadTool, statusCache);
 
 	pi.on("session_start", async (_event, ctx) => {
 		sessionId = ctx.sessionManager?.getSessionId?.() || `pi-${Date.now()}`;
@@ -42,24 +69,13 @@ export default function hayPiExtension(pi) {
 		const version = await codeVersion(repoRoot);
 		const ready = await ensureManager({ repoRoot });
 		if (ready) await acquireLease(sessionId, version, { repoRoot });
-		await updateStatus(ctx, counters);
+		await updateStatus(ctx, counters, statusCache, { force: true });
 		heartbeatTimer = setInterval(() => {
 			if (sessionId) heartbeat(sessionId).catch(() => undefined);
 		}, HEARTBEAT_MS);
 		statusTimer = setInterval(() => {
-			updateStatus(ctx, counters).catch(() => undefined);
+			updateStatus(ctx, counters, statusCache).catch(() => undefined);
 		}, STATUS_MS);
-	});
-
-	pi.on("tool_result", async (event, ctx) => {
-		const patch = await buildToolResultPatch(event, ctx, counters, (text, query) =>
-			prune(text, query, { signal: ctx.signal }),
-		);
-		if (patch) {
-			pi.appendEntry?.(CUSTOM_STATE, counters);
-			await updateStatus(ctx, counters);
-		}
-		return patch;
 	});
 
 	pi.on("session_shutdown", async () => {
@@ -69,8 +85,96 @@ export default function hayPiExtension(pi) {
 	});
 }
 
+async function loadCreateReadTool() {
+	const mod = await importPiSdk();
+	if (typeof mod.createReadTool !== "function") {
+		throw new Error("Hay Pi extension requires createReadTool from @mariozechner/pi-coding-agent");
+	}
+	return mod.createReadTool;
+}
+
+async function importPiSdk() {
+	try {
+		return await import("@mariozechner/pi-coding-agent");
+	} catch (error) {
+		return importPiSdkFromCli(error);
+	}
+}
+
+async function importPiSdkFromCli(cause) {
+	const candidates = [];
+	if (process.argv[1]) candidates.push(process.argv[1]);
+	try {
+		const piPath = execFileSync("which", ["pi"], { encoding: "utf8" }).trim();
+		if (piPath) candidates.push(piPath);
+	} catch {
+		// Fall through to the clearer package import error below.
+	}
+	for (const candidate of candidates) {
+		try {
+			const real = realpathSync(candidate);
+			const indexPath = resolve(dirname(dirname(real)), "dist/index.js");
+			if (existsSync(indexPath)) return import(pathToFileURL(indexPath).href);
+		} catch {
+			// Try the next candidate.
+		}
+	}
+	throw cause;
+}
+
+function registerReadOverride(pi, counters, createReadTool, statusCache) {
+	if (typeof pi.registerTool !== "function" || typeof createReadTool !== "function") {
+		return false;
+	}
+	const template = createReadTool(process.cwd());
+	const definition = {
+		name: READ_TOOL,
+		label: template.label || READ_TOOL,
+		description: template.description,
+		parameters: template.parameters,
+		async execute(toolCallId, params, signal, onUpdate, ctx) {
+			const readTool = createReadTool(ctx?.cwd || process.cwd());
+			const result = await readTool.execute(toolCallId, params, signal, onUpdate);
+			statusCache.busyPrunes += 1;
+			await updateStatus(ctx, counters, statusCache);
+			let patch;
+			try {
+				patch = await buildReadResultPatch(result, ctx, counters, (text, query) =>
+					prune(text, query, { signal, timeoutMs: PRUNE_TIMEOUT_MS }),
+				);
+			} finally {
+				statusCache.busyPrunes = Math.max(0, statusCache.busyPrunes - 1);
+			}
+			await updateStatus(ctx, counters, statusCache, { force: true });
+			if (!patch) return result;
+			pi.appendEntry?.(CUSTOM_STATE, counters);
+			return {
+				...result,
+				...patch,
+				details: { ...(result?.details || {}), ...(patch.details || {}) },
+			};
+		},
+	};
+	for (const key of [
+		"promptSnippet",
+		"promptGuidelines",
+		"prepareArguments",
+		"renderCall",
+		"renderResult",
+		"renderShell",
+	]) {
+		if (template[key] !== undefined) definition[key] = template[key];
+	}
+	pi.registerTool(definition);
+	return true;
+}
+
+export async function buildReadResultPatch(result, ctx, counters, pruneFn) {
+	return buildToolResultPatch({ toolName: READ_TOOL, ...result }, ctx, counters, pruneFn);
+}
+
 export async function buildToolResultPatch(event, ctx, counters, pruneFn) {
-	if (!TARGET_TOOLS.has(event.toolName)) return undefined;
+	if (event.toolName !== READ_TOOL) return undefined;
 	const original = extractText(event.content);
 	if (!original || original.length < MIN_CHARS) return undefined;
 	const query = extractQuery(ctx);
@@ -100,15 +204,17 @@ export function extractText(content) {
 
 export function extractQuery(ctx) {
 	const entries = ctx?.sessionManager?.getEntries?.() || [];
+	let latestUserText = "";
 	for (let i = entries.length - 1; i >= 0; i--) {
 		const entry = entries[i];
 		if (entry?.type !== "message") continue;
 		const msg = entry.message;
-		if (msg?.role !== "assistant") continue;
 		const text = messageText(msg);
-		if (text) return text;
+		if (!text) continue;
+		if (msg?.role === "assistant") return text;
+		if (!latestUserText && msg?.role === "user") latestUserText = text;
 	}
-	return "";
+	return latestUserText;
 }
 
 function messageText(msg) {
@@ -150,28 +256,105 @@ function record(counters, originalLen, prunedLen, tool) {
 	counters.updatedAt = Date.now();
 }
 
-async function updateStatus(ctx, counters) {
-	let snapshot = null;
-	try {
-		snapshot = await stats({ timeoutMs: 250 });
-	} catch (err) {
-		// A serial manager cannot answer while cold-loading or pruning.
-		snapshot = err?.message === "timeout" ? "loading" : null;
+async function updateStatus(ctx, counters, cache = undefined, options = {}) {
+	const now = Date.now();
+	let snapshot = cache?.snapshot ?? null;
+	if (options.force || shouldPollStatus(cache, now)) {
+		snapshot = await refreshStatus(cache);
+	} else if (cache?.pending) {
+		snapshot = cache.snapshot ?? "loading";
 	}
-	ctx.ui?.setStatus?.("hay", formatStatus(snapshot, counters, ctx.ui.theme));
+	const previousResident = Boolean(cache?.snapshot?.ok && cache.snapshot.resident);
+	const managerBusy = snapshot === "loading" || Boolean(cache?.pending);
+	const busy = Number(cache?.busyPrunes || 0) > 0 || (managerBusy && previousResident);
+	if (snapshot === "loading" && previousResident) snapshot = cache.snapshot;
+	ctx.ui?.setStatus?.("hay", formatStatus(snapshot, counters, ctx.ui.theme, { nowMs: now, busy }));
 }
 
-export function formatStatus(snapshot, counters = {}, theme) {
-	const saved = formatTokens(Math.floor((counters.savedChars || 0) / 4));
-	const suffix = `${saved}t ${counters.calls || 0}p`;
-	if (snapshot === "loading") return color(theme, "warning", `hay loading ${suffix}`);
-	if (!snapshot?.ok) return color(theme, "muted", `hay down ${suffix}`);
-	if (!snapshot.resident) return color(theme, "dim", `hay cold ${suffix}`);
+function shouldPollStatus(cache, now) {
+	if (!cache) return true;
+	if (cache.pending) return false;
+	return now - cache.checkedAt >= STATUS_POLL_MS;
+}
+
+async function refreshStatus(cache) {
+	const read = readStatusSnapshot();
+	if (!cache) return read;
+	cache.pending = read;
+	try {
+		const snapshot = await read;
+		cache.checkedAt = Date.now();
+		if (snapshot !== "loading") cache.snapshot = snapshot;
+		return snapshot;
+	} finally {
+		cache.pending = null;
+	}
+}
+
+async function readStatusSnapshot() {
+	try {
+		return await stats({ timeoutMs: 250 });
+	} catch (err) {
+		// A serial manager cannot answer while cold-loading or pruning.
+		return err?.message === "timeout" ? "loading" : null;
+	}
+}
+
+export function decideStatusState(snapshot, counters = {}, options = {}) {
+	if (snapshot === null || snapshot === undefined) return "down";
+	if (snapshot === "loading") return "loading";
+	if (typeof snapshot !== "object" || !snapshot.ok) return "down";
+	if (!snapshot.resident) return "cold";
 	const backend = snapshot.backend || "?";
 	if (typeof backend === "string" && backend.startsWith("fake (")) {
-		return color(theme, "error", `hay degraded ${suffix}`);
+		return "degraded";
 	}
-	return color(theme, "success", `hay ready ${suffix}`);
+	if (options.busy) return "active";
+	const now = options.nowMs ?? Date.now();
+	const updatedAt = Number(counters.updatedAt || 0);
+	const recent = Number.isFinite(updatedAt) && updatedAt > 0 && now - updatedAt < ACTIVE_MS;
+	return recent ? "active" : "ready";
+}
+
+export function formatIndicator(state, theme, options = {}) {
+	const now = options.nowMs ?? Date.now();
+	const tick = Math.floor(now / ANIMATION_MS);
+	if (state === "loading") {
+		return color(theme, STATE_CODES.loading, SPIN_FRAMES[tick % SPIN_FRAMES.length]);
+	}
+	if (state === "active") {
+		return color(theme, STATE_CODES.active, SPIN_FRAMES[tick % SPIN_FRAMES.length]);
+	}
+	if (state === "ready") {
+		return color(theme, STATE_CODES.ready, PULSE_FRAMES[tick % PULSE_FRAMES.length]);
+	}
+	if (state === "cold") {
+		return breathe(theme, STATE_CODES.cold, "·", tick);
+	}
+	if (state === "degraded") {
+		return breathe(theme, STATE_CODES.degraded, "✗", tick);
+	}
+	return breathe(theme, STATE_CODES.down, "-", tick);
+}
+
+export function formatStatus(snapshot, counters = {}, theme, options = {}) {
+	const calls = Number(counters.calls || 0);
+	const tokens = Math.floor(Number(counters.savedChars || 0) / 4);
+	const state = decideStatusState(snapshot, counters, options);
+	const plural = calls === 1 ? "" : "s";
+	const forms = [
+		`hay${SEP}${formatTokens(tokens)} tokens saved${SEP}${calls} prune${plural}`,
+		`hay${SEP}${formatTokens(tokens)}t${SEP}${calls}p`,
+		"hay",
+	];
+	const cols = Number(options.columns || process.env.COLUMNS || 80);
+	const indicator = formatIndicator(state, theme, options);
+	for (const line of forms) {
+		if (2 + line.length <= cols - 1) {
+			return `${indicator} ${line}`;
+		}
+	}
+	return `${indicator} hay`;
 }
 
 function registerHayCommand(pi, counters, runtime) {
@@ -344,8 +527,22 @@ function formatMb(value) {
 	return `${(value / 1024).toFixed(1)} GB`;
 }
 
-function color(theme, name, text) {
-	return theme?.fg ? theme.fg(name, text) : text;
+function envMs(name, defaultSecs) {
+	const secs = Number.parseFloat(process.env[name] || "");
+	return (Number.isFinite(secs) && secs > 0 ? secs : defaultSecs) * 1000;
+}
+
+function color(_theme, code, text) {
+	return ansi(code, text);
+}
+
+function ansi(code, text) {
+	return `\x1b[${code}m${text}\x1b[0m`;
+}
+
+function breathe(theme, code, glyph, tick) {
+	const intensity = INTENSITY_CODES[tick % INTENSITY_CODES.length];
+	return color(theme, intensity ? `${code};${intensity}` : code, glyph);
 }
 
 function formatTokens(n) {

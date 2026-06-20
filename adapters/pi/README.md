@@ -10,10 +10,12 @@ The extension uses Pi lifecycle/tool/status events:
 
 - `session_start`: ensure the machine-wide manager is running, acquire a lease,
   heartbeat while the Pi session is alive, and publish a Pi footer status via
-  `ctx.ui.setStatus("hay", ...)`.
-- `tool_result`: prune large `read`, `grep`, and `find` results through the Hay
-  manager socket, returning a Pi partial result patch when savings clear the
-  threshold.
+  `ctx.ui.setStatus("hay", ...)`. The footer mirrors the Claude statusline
+  ontology: down, cold, loading, degraded, ready, and active.
+- `read` override: register a Pi tool named `read`, delegate to Pi's own
+  built-in read implementation, then prune large textual results through the
+  Hay manager socket when savings clear the threshold. The model and user still
+  see the normal `read` tool name.
 - `session_shutdown`: release the lease.
 
 Run locally without installing:
@@ -21,7 +23,7 @@ Run locally without installing:
 ```bash
 PI_CODING_AGENT_DIR=/tmp/pi-agent \
 PI_CODING_AGENT_SESSION_DIR=/tmp/pi-sessions \
-pi --extension adapters/pi/extension.mjs --no-session --offline
+pi --extension adapters/pi/extension.js --no-session --offline
 ```
 
 Once loaded, `/hay` shows the operator snapshot: manager residency, memory
@@ -37,7 +39,7 @@ pi install ./local/path/to/hay
 ```
 
 The root `package.json` is the Pi package manifest. It points Pi at
-`adapters/pi/extension.mjs`; the Python engine stays at the repo root so the
+`adapters/pi/extension.js`; the Python engine stays at the repo root so the
 extension can start the manager with `uv run -m pruner manage`. For pre-1.0
 distribution, prefer local or git installs pinned to a commit/tag. Keep
 `package.json` and `pyproject.toml` versions aligned when cutting a release.
@@ -46,4 +48,4 @@ During local development, prefer `pi -e .` for the active working tree and
 
 The adapter intentionally leaves `bash` alone for now. Shell output is high
 variance and is the path that previously exposed memory-residency problems.
-Add it only after the read/grep/find path is boring.
+Add it only after the read path is boring.

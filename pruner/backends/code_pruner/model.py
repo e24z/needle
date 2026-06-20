@@ -6,6 +6,7 @@ import mlx.nn as nn
 import numpy as np
 from mlx_lm import load
 
+from ... import naming
 from .lines import aggregate_token_scores_to_lines, prune_code_lines
 
 # The optional C++ Viterbi extension never shipped to Hay; the numpy decoder
@@ -667,15 +668,26 @@ def _without_filter_markers(text: str) -> str:
 
 
 def _resolve_model_dir() -> str:
-    """Local directory for the code-pruner model. Resolves from the HF cache
-    (no re-download if present); override with HAY_MODEL_DIR or HAY_MODEL."""
+    """Local directory for the code-pruner model.
+
+    HAY_MODEL_DIR points at an exact existing model directory. Otherwise Hay
+    downloads HAY_MODEL from Hugging Face into a Hay-owned directory so uninstall
+    can clean up without spelunking through the shared Hugging Face cache.
+    """
     explicit = os.environ.get("HAY_MODEL_DIR")
     if explicit:
         return explicit
     from huggingface_hub import snapshot_download
 
     repo = os.environ.get("HAY_MODEL", "ayanami-kitasan/code-pruner")
-    return snapshot_download(repo)
+    root = naming.model_root()
+    local_dir = naming.model_dir_for_repo(repo)
+    root.mkdir(parents=True, exist_ok=True)
+    return snapshot_download(
+        repo,
+        local_dir=str(local_dir),
+        cache_dir=str(root / ".hf-cache"),
+    )
 
 
 class CodePrunerBackend:
