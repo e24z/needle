@@ -20,11 +20,11 @@ The pruning layer stands between an agent tool and the model. A tool produces
 text. Needle may return a smaller, task-relevant version of that text, or it may
 return the original unchanged. Everything else is support structure:
 
-- A `PruningPolicy` defines a falsifiable behavior claim.
-- A `NeedlePackage` composes policy, host integration, compute, prompts/skills,
+- A Capability defines a falsifiable behavior claim.
+- A Package composes capabilities, host integration, compute, prompts/skills,
   accounting, lifecycle, and evidence into something a user can install.
 - A host binding maps a real agent tool result into the package's text contract.
-- A backend implements the package's required behavior.
+- A backend supports the package's required capabilities.
 - A runtime keeps expensive models observable and resident when useful.
 - A transport decides whether the backend is local, LAN, hosted, or embedded.
 - Accounting explains what was changed and how savings claims were calculated.
@@ -103,7 +103,7 @@ Practical contract:
 {
   "text": "large tool output",
   "intent": "What is the model looking for?",
-  "package": "needle/pi-local-mac",
+  "package": "e24z/pi-local-mac",
   "source": {
     "host": "pi",
     "tool": "read"
@@ -130,182 +130,171 @@ SWE-Pruner. A backend might use AST structure, semantic search, lossy summaries,
 compressed artifacts, or some other representation. The platform should allow
 that as long as the agent receives a usable response.
 
-### 5.2 Core, PruningPolicy, NeedlePackage
+### 5.2 Protocol, Capability, Backend, Package
 
-Needle needs a clear separation:
+Needle needs a separation that is strict enough for validation and loose enough
+for commons contribution. A person should be able to publish a new behavior, a
+new scorer, a new host integration, or eventually a new protocol without forcing
+every idea into the default Pi package.
 
-- Needle Core: the universal protocol, `prune :: text -> text' | text`.
-- PruningPolicy: a host-neutral, versioned behavior contract for when text is
-  eligible, what intent is required, how failure passes through, and which
-  behavior recipe is being claimed.
-- NeedlePackage: the installable/testable bundle that wires a policy into a
-  host integration, prompts/skills, compute target, accounting, lifecycle, docs,
-  claim card, and evidence pack.
-- ArtifactKind: a package-local compatibility tag such as `file_text` or
-  `process_output`; useful for bindings and fixtures, but not a universal
-  ontology.
-- HostBinding: host tool extraction and patching, such as Pi `read` and `bash`.
-- Backend: an implementation of the package's required policy behavior.
-- Runtime: how a backend stays alive, visible, and safe.
-- Transport: where calls go.
-- Accounting: how exact changes, token estimates, and price estimates are
-  enriched and labeled.
+The public model has four registry object kinds:
+
+- Protocol: the minimal universal law for a call boundary. The 1.0 default is
+  `needle/text-transform`: text plus optional intent in, pruned text or original
+  text out, fail open, and report honestly.
+- Capability: an abstract behavior contract. It says what a caller can rely on,
+  independent of host, runtime, transport, or model implementation.
+  `swe-pruner/reference` is the canonical SWE-Pruner reference capability.
+- Backend: a swappable compute implementation. A backend supports one or more
+  capabilities, but it is not the user-facing product surface. Examples:
+  `e24z/code-pruner-mlx` and `e24z/code-pruner-cuda-http`.
+- Package: the installable delivery vehicle. A package implements capabilities,
+  uses a backend, and carries host binding, lifecycle, privacy, accounting,
+  status, docs, and evidence. Example: `e24z/pi-local-mac`.
+
+Registry names use publisher or project namespaces at every layer. The namespace
+does not determine the object kind. `swe-pruner/reference` can be a capability,
+`e24z/code-pruner-mlx` can be a backend, and `e24z/pi-local-mac` can be a
+package. The object kind belongs in metadata and registry path, not inside the
+canonical id.
+
+This draft uses `e24z/...` as a provisional publisher namespace for the first
+packages and backends. That should not be read as a protocol-governance decision;
+the final default namespace can still be `e24z`, `needle`, a future org, or a
+split between them.
+
+The relationship verbs are fixed:
+
+```text
+extends      same-kind specialization
+conforms_to  capability -> protocol
+supports     backend -> capability
+implements   package -> capability
+uses         package -> backend
+```
+
+```mermaid
+flowchart BT
+    Protocol["Protocol<br/>needle/text-transform"]
+    Ref["Capability<br/>swe-pruner/reference<br/>upstream SWE-Pruner behavior"]
+    Soft["Capability<br/>e24z/soft-lamr<br/>SWE-Pruner + AST repair"]
+    MLX["Backend<br/>e24z/code-pruner-mlx"]
+    CUDA["Backend<br/>e24z/code-pruner-cuda-http"]
+    Package["Package<br/>e24z/pi-local-mac"]
+
+    Ref -->|"conforms_to"| Protocol
+    Soft -->|"extends"| Ref
+    MLX -->|"supports"| Ref
+    CUDA -->|"supports"| Ref
+    Package -->|"implements"| Ref
+    Package -->|"uses"| MLX
+```
 
 This avoids Xeno's-paradox development, where every change gets us "closer" to
-parity without defining what parity means.
+parity without defining what parity means. `swe-pruner/reference` means the
+upstream anchored behavior: explicit focus, task-aware line relevance pruning,
+upstream filtered-line rendering, fail-open behavior, and no AST repair.
+`e24z/soft-lamr` can extend that capability with Python AST repair without
+silently changing what the reference capability claims.
 
-The only platform law is the core protocol. `ArtifactKind` names and behavior
-steps should be strict inside a package, but they should not become eternal
-Needle-wide categories. A future summarizing, retrieval-based, compressed, or
-opaque hosted pruner should still be valid if it accepts text, returns usable
-replacement text or the original, fails open, and reports claims honestly.
+Backends are separated because they are the thing contributors should be able to
+swap. If someone finds a better MLX inference strategy, or runs the upstream
+CUDA service behind HTTP, the package should not have to become a new product.
+The package still owns host behavior and trust; the backend owns computation.
 
-Minimum policy example:
+End users should mostly encounter a Package Card, not the ontology:
+
+```mermaid
+flowchart TD
+    Discover["User finds<br/>e24z/pi-local-mac"]
+    Promise["Package Card says<br/>Prunes large Pi read/bash outputs<br/>Runs locally by default"]
+    Install["Install package"]
+    FirstUse["Native Pi tools keep working<br/>Focused large outputs get shorter"]
+    Status["Status shows<br/>package, backend, privacy,<br/>recent prune/pass-through reasons"]
+    Inspect["Advanced details show<br/>implements swe-pruner/reference<br/>uses e24z/code-pruner-mlx<br/>conforms to needle/text-transform"]
+    Swap["Optional backend swap<br/>MLX -> CUDA/HTTP"]
+    Doctor["Doctor validates<br/>backend supports package capabilities"]
+
+    Discover --> Promise --> Install --> FirstUse --> Status
+    Status --> Inspect
+    Inspect --> Swap --> Doctor
+```
+
+Minimal registry examples:
 
 ```yaml
-schema: needle.pruning_policy.v1
+schema: needle.protocol.v1
+id: needle/text-transform
+input:
+  text: string
+  intent: optional string
+output:
+  text: string
+failure:
+  default: passthrough_original
+```
+
+```yaml
+schema: needle.capability.v1
 id: swe-pruner/reference
-version: 0.1
-description: "Paper-parity SWE-Pruner behavior: explicit focus, line scoring, line-marker rendering, no AST expansion."
-contract:
-  input: text
-  output: text
-  failure: passthrough
-artifact_kinds:
-  - file_text
-  - process_output
+conforms_to: needle/text-transform
 focus:
   field: context_focus_question
-  required: true
-  missing: passthrough
-gates:
-  min_chars: 500
+  missing: passthrough_original
+rendering:
+  omitted_spans: counted_filtered_lines
+  marker_format: "(filtered {line_count} lines)"
 claim_scope:
-  ast_expansion: absent
+  ast_repair: absent
 ```
-
-Reference-policy implementation metadata can be more specific, but it remains
-local to this policy/package:
 
 ```yaml
-implementation:
-  behavior_recipe:
-    steps:
-      - id: chunk
-        kind: whole_document_overlap_chunker
-        params:
-          chunk_overlap_tokens: 50
-      - id: score
-        kind: swe_pruner_line_scorer
-      - id: select
-        kind: threshold_line_selector
-        params:
-          threshold: 0.4
-          always_keep_first_frags: false
-      - id: render
-        kind: pruned_line_marker_renderer
-        params:
-          marker: "[pruned]"
+schema: needle.capability.v1
+id: e24z/soft-lamr
+extends: swe-pruner/reference
+overrides:
+  ast_repair: python
 ```
-
-`description` is human prose, not a field the product parses for behavior. The
-falsifiable behavior lives in the contract, focus rules, gates, claim scope, and
-the package's evidence pack. Internal tensor shapes, tokenizer choices, padding
-strategy, and model paths belong to backend implementation docs.
-
-A Pi binding maps host tools to package artifact kinds:
-
-```yaml
-schema: needle.host_binding.v1
-id: pi/native-tools
-version: 0.1
-host: pi
-tools:
-  read:
-    artifact_kind: file_text
-    focus_param: context_focus_question
-    text_extract: pi_text_blocks
-    text_patch: replace_pi_text_blocks
-  bash:
-    artifact_kind: process_output
-    focus_param: context_focus_question
-    text_extract: pi_text_blocks_or_stdout
-    text_patch: replace_pi_text_blocks_or_stdout
-fallbacks:
-  unsupported_result_shape: passthrough
-```
-
-A backend advertises what this package can rely on:
 
 ```yaml
 schema: needle.backend.v1
-id: code-pruner-mlx
-implements:
-  - policy: swe-pruner/reference
-    capabilities:
-      - focus_question
-      - line_scores
-      - whole_document_chunking
+id: e24z/code-pruner-mlx
+supports:
+  - swe-pruner/reference
+interface:
+  accepts: [text, focus]
+  returns: [text, scores, accounting]
 ```
-
-A `NeedlePackage` is the thing users and blind testers relate to:
 
 ```yaml
 schema: needle.package.v1
-id: needle/pi-local-mac
+id: e24z/pi-local-mac
 display_name: "Needle for Pi - Local Mac"
-host_binding: pi/native-tools
-pruning_policy: swe-pruner/reference
-focus_contract:
-  prompt_bundle: pi/context-focus-question@0.1
-  missing_focus_behavior: passthrough
-compute:
-  default: local_mlx
-  alternatives:
-    - http_pruner
+implements:
+  - swe-pruner/reference
+uses:
+  backend: e24z/code-pruner-mlx
+host:
+  name: pi
+  tools: [read, bash]
 privacy:
   default: local_only
-  remote_requires_explicit_endpoint: true
-accounting:
-  status: exact_chars
-  async:
-    - local_token_estimate
 lifecycle:
-  install: pi_extension
   status: /needle status
   doctor: /needle doctor
   uninstall: supported
-claim_card: claims/pi-local-mac-swe-pruner-reference
-evidence:
-  - fixture_pack:swe-pruner-reference
-  - demo_trace:pi-read-bash-local
 ```
 
 The 1.0 config can compile down to today's simple runtime wire
-`prune(text, intent)`. The policy and package do not need to travel over the
+`prune(text, intent)`. The full registry graph does not need to travel over the
 socket on every call before the manager supports that; the adapter/runtime setup
-only needs to know which package is active.
+only needs to know which package is active and which backend it uses.
 
-Validation should be strict for what a package declares: known package schema,
-known policy id, valid host binding, valid compute target, supported accounting
-method, and resolvable evidence/claim-card references. If a package declares
-required recipe steps, those steps must resolve to a package-local interface and
-test fixture. Unknown required steps make that package invalid. Protocol
-compatibility still only requires text in, text out, fail-open behavior, and
-honest accounting.
-
-This matters for AST repair. AST repair is not a universal policy field. It is
-an optional behavior change that can add code back after pruning. That is why it
-should not silently be part of a policy claiming paper parity, and why policies
-should not all have a `support_recovery` key just because one package uses AST.
-
-```text
-swe-pruner/reference      # PruningPolicy: line pruning, no AST expansion
-needle/soft-lamr          # PruningPolicy: SWE-Pruner scoring + Python AST expansion
-pi/native-tools           # HostBinding: Pi read/bash mapped to artifact kinds
-needle/pi-local-mac       # NeedlePackage: Pi binding + reference policy + local MLX
-needle/default            # public package chosen for users
-```
+Validation should be strict for declared relationships. Unknown object kinds,
+unresolved `extends`, unresolved `conforms_to`, unsupported package
+capabilities, and missing backend references make the package invalid. Protocol
+compatibility still only requires text in, text out or original text, fail-open
+behavior, and honest accounting.
 
 ### 5.3 Fail open
 
@@ -333,7 +322,7 @@ Acceptance:
 
 - Pi extension installs from the repo or a package.
 - Native `read` is extended, not replaced with a weird new tool name.
-- The default Pi package maps `bash` output through the same policy as `read`.
+- The default Pi package maps `bash` output through the same capability as `read`.
 - Status bar is present, responsive, and semantically true.
 - `/needle status` or `/hay status` explains state and recent events.
 
@@ -345,7 +334,7 @@ As an agent, when I ask for a large tool output, I can include a
 Acceptance:
 
 - `context_focus_question` is a first-class tool parameter for prunable tools.
-- Missing question means pass-through by default in the SWE-Pruner policy.
+- Missing question means pass-through by default in the SWE-Pruner reference capability.
 - Inferred query may exist as a fallback or experiment, but it is not the 1.0
   canonical behavior.
 
@@ -370,7 +359,7 @@ Acceptance:
 - Backend contract is documented.
 - Required request and response fields are small.
 - Optional metadata is documented but not mandatory.
-- Backends can expose timing, memory, token, and policy/package metadata.
+- Backends can expose timing, memory, token, and capability/package metadata.
 
 ### 6.5 Public evaluator
 
@@ -384,11 +373,11 @@ Acceptance:
 - Pricing formulas use current provider pricing tables.
 - Claims do not imply exact savings for a user unless the evidence supports it.
 
-## 7. SWE-Pruner reference policy
+## 7. SWE-Pruner reference capability
 
-The reference 1.0 `PruningPolicy` should be named `swe-pruner/reference`.
+The reference 1.0 Capability should be named `swe-pruner/reference`.
 
-This policy is the compatibility target for the paper and upstream repo. It is
+This capability is the compatibility target for the paper and upstream repo. It is
 not the only behavior Needle can ever support, but it should be the default
 reference point because it gives the product a grounded claim.
 
@@ -408,7 +397,7 @@ From the upstream implementation and examples:
 - Some benchmark configs used `threshold = 0.4`; Needle should document the
   chosen default and not hide it.
 
-Source anchors for the policy:
+Source anchors for the capability:
 
 - Paper abstract: task-aware pruning is guided by an "explicit goal"; this
   supports making `context_focus_question` first-class rather than inferred.
@@ -419,33 +408,31 @@ Source anchors for the policy:
   supports `process_output` plus `file_text` as default package artifact kinds,
   and the Pi binding maps those to `bash` and `read`.
 
-### 7.2 Needle 1.0 reference policy and Pi package
+### 7.2 Needle 1.0 reference capability and Pi package
 
-Default reference policy:
+Default reference capability:
 
 ```yaml
-schema: needle.pruning_policy.v1
+schema: needle.capability.v1
 # Source anchor: the SWE-Pruner paper frames pruning as task-aware and guided by
 # an explicit goal; the upstream Mini-SWE/OpenHands prompts expose that goal as
 # an optional context_focus_question for large outputs.
 id: swe-pruner/reference
+conforms_to: needle/text-transform
 version: 0.1
 description: "Paper-parity SWE-Pruner behavior for large text artifacts."
-contract:
-  input: text
-  output: text
-  failure: passthrough
-artifact_kinds:
-  - file_text
-  - process_output
 focus:
   field: context_focus_question
-  required: true
-  missing: passthrough
+  missing: passthrough_original
 gates:
   min_chars: 500
+rendering:
+  omitted_spans: counted_filtered_lines
+  marker_format: "(filtered {line_count} lines)"
+  single_line_gap: keep_original_line
+  small_span_shorter_than_marker: keep_original_lines
 claim_scope:
-  ast_expansion: absent
+  ast_repair: absent
 implementation:
   behavior_recipe:
     steps:
@@ -458,22 +445,23 @@ implementation:
       - id: select
         kind: threshold_line_selector
         params:
-          threshold: 0.4
+          threshold: 0.5
           always_keep_first_frags: false
       - id: render
-        kind: pruned_line_marker_renderer
-        params:
-          marker: "[pruned]"
+        kind: upstream_filtered_line_renderer
 ```
 
 Default Pi package:
 
 ```yaml
 schema: needle.package.v1
-id: needle/pi-local-mac
+id: e24z/pi-local-mac
 display_name: "Needle for Pi - Local Mac"
+implements:
+  - swe-pruner/reference
 host_binding: pi/native-tools
-pruning_policy: swe-pruner/reference
+uses:
+  backend: e24z/code-pruner-mlx
 focus_contract:
   prompt_bundle: pi/context-focus-question@0.1
   missing_focus_behavior: passthrough
@@ -490,20 +478,20 @@ evidence:
   - fixture_pack:swe-pruner-reference
 ```
 
-The exact defaults can change after tests, but the policy and package files must
-make them explicit. The user should not need to infer the pruning policy from
-scattered adapter and backend environment variables.
+The exact defaults can change after tests, but the capability and package files
+must make them explicit. The user should not need to infer the active capability
+from scattered adapter and backend environment variables.
 
 If the public product wants AST repair by default, that should be a deliberate
-Needle product policy:
+capability variant:
 
 ```yaml
-schema: needle.pruning_policy.v1
-id: needle/soft-lamr
+schema: needle.capability.v1
+id: e24z/soft-lamr
 version: 0.1
 extends: swe-pruner/reference
-claim_scope:
-  ast_expansion: python
+overrides:
+  ast_repair: python
 implementation:
   behavior_recipe:
     steps:
@@ -512,15 +500,15 @@ implementation:
       - id: expand
         kind: python_ast_mask_expander
       - id: render
-        kind: pruned_line_marker_renderer
+        kind: upstream_filtered_line_renderer
 ```
 
-It should not be silently folded into a policy that claims paper parity. The
+It should not be silently folded into a capability that claims paper parity. The
 older Soft-LaMR diagnostics are not clean proof that AST is necessary for the
 final product because the pruning setup had goal-hint bugs at the time. Treat
 them as failure-mode evidence: when the selector chooses useful internal lines,
 AST expansion can restore enclosing classes/functions/imports, but it can also
-return too much code. This policy must be retested with explicit goal hints
+return too much code. This capability must be retested with explicit goal hints
 before becoming a public default.
 
 ### 7.3 Current gap on this branch
@@ -548,18 +536,20 @@ These are not signs that the project is a dud. They are the exact delta between
 flowchart TD
     User["Developer using Pi"] --> Pi["Pi agent"]
     Pi --> Tools["Native tools: read, bash, edit, write"]
-    Tools --> Binding["Pi HostBinding: read/bash -> artifacts"]
-    Package["NeedlePackage: needle/pi-local-mac"] -. configures .-> Binding
-    Package -. selects .-> Policy["PruningPolicy: swe-pruner/reference"]
-    Package -. selects .-> Runtime
+    Tools --> Binding["Pi host binding: read/bash -> text artifacts"]
+    Package["Package: e24z/pi-local-mac"] -. configures .-> Binding
+    Package -. implements .-> Capability["Capability: swe-pruner/reference"]
+    Capability -. conforms_to .-> Protocol["Protocol: needle/text-transform"]
+    Package -. uses .-> Runtime
+    Package -. uses .-> Backend
     Package -. declares .-> Claim["ClaimCard + EvidencePack"]
-    Binding --> Policy
-    Policy --> Runtime["Needle runtime manager"]
+    Binding --> Runtime["Needle runtime manager"]
     Runtime --> Transport{"Transport"}
-    Transport --> LocalMLX["Local MLX backend"]
-    Transport --> LocalCUDA["Local CUDA/Torch service"]
-    Transport --> LAN["LAN or homelab HTTP service"]
-    Transport --> Hosted["Hosted GPU service: Modal, RunPod, Vast.ai"]
+    Backend --> LocalMLX["Local MLX backend"]
+    Backend --> LocalCUDA["Local CUDA/Torch service"]
+    Backend --> LAN["LAN or homelab HTTP service"]
+    Backend --> Hosted["Hosted GPU service: Modal, RunPod, Vast.ai"]
+    Transport --> Backend
     LocalMLX --> Result["Pruned text or original text"]
     LocalCUDA --> Result
     LAN --> Result
@@ -578,18 +568,19 @@ Host binding / adapter code:
 - Applies the pruned result back into the host's expected result shape.
 - Records per-session counters.
 
-PruningPolicy:
+Capability:
 
-- Defines eligible artifact kinds.
-- Defines when a query is required.
-- Defines fail-open gates.
-- Defines the behavior claim, optional behavior recipe, and render policy.
+- Defines the abstract behavior claim.
+- Conforms to a protocol.
+- Defines when intent/focus is required.
+- Defines fail-open behavior, rendering semantics, and evidence requirements.
 
-NeedlePackage:
+Package:
 
-- Composes host binding, policy, prompts/skills, compute target, runtime,
+- Implements capabilities and uses a backend.
+- Composes host binding, prompts/skills, compute target, runtime,
   accounting, lifecycle, claim card, and evidence pack.
-- Is the thing blind testers install, inspect, and trust.
+- Owns the Package Card that blind testers install, inspect, and trust.
 
 Runtime manager:
 
@@ -600,8 +591,8 @@ Runtime manager:
 
 Backend:
 
-- Implements the package's required policy behavior.
-- Advertises capabilities such as line scores, whole-document chunking,
+- Supports the package's required capabilities.
+- Advertises implementation features such as line scores, whole-document chunking,
   black-box text pruning, or optional AST expansion.
 - May be MLX, Torch/CUDA, upstream SWE-Pruner HTTP, a debug backend, or a
   third-party backend.
@@ -629,7 +620,7 @@ sequenceDiagram
 
     M->>T: "Call read/bash with context_focus_question"
     T-->>A: "Raw tool output"
-    A->>A: "Check package policy"
+    A->>A: "Check package capability"
     alt "Not eligible or no focus question"
         A-->>M: "Original output"
     else "Eligible and large enough"
@@ -713,7 +704,7 @@ adapter.
 - `backend = http`
 - `NEEDLE_PRUNER_URL = http://localhost:8000/prune`
 - Optional bearer token.
-- Same package/policy metadata as local MLX.
+- Same package/capability metadata as local MLX.
 
 ### 10.3 Hosted GPU services
 
@@ -962,8 +953,8 @@ Example:
 ```yaml
 schema: needle.claim_card.v1
 id: claims/pi-local-mac-swe-pruner-reference
-package: needle/pi-local-mac
-policy: swe-pruner/reference
+package: e24z/pi-local-mac
+capability: swe-pruner/reference
 claim: "Task-aware pruning for large Pi read/bash outputs with explicit focus questions."
 evidence_level: demo_fixture
 tested:
@@ -972,7 +963,7 @@ tested:
     - read
     - bash
   compute: local_mlx
-  policy: swe-pruner/reference
+  capability: swe-pruner/reference
 metrics:
   exact:
     - original_chars
@@ -1047,9 +1038,9 @@ the model through separate Needle-named tools.
 - Prunable tools accept `context_focus_question`.
 - Missing focus question passes through.
 - The status bar renders with system fonts/colors provided by Pi.
-- `/needle status` reports runtime state, backend identity, package, policy,
+- `/needle status` reports runtime state, backend identity, package, capability,
   counters, model dir, source checkout, and recent events.
-- `/needle doctor` reports install/source identity, package version, policy id,
+- `/needle doctor` reports install/source identity, package version, capability id,
   prompt/skill bundle versions, compute target, privacy mode, and claim card.
 
 The model should still feel like it is using normal Pi. Needle should be a layer
@@ -1075,10 +1066,10 @@ Before LinkedIn/Twitter/public tester launch:
    - Package claim card included.
    - No overclaiming on dollars.
 4. Contributor path:
-   - Backend protocol documented.
+   - Backend contract documented.
    - HTTP backend documented.
-   - PruningPolicy documented.
-   - NeedlePackage manifest documented.
+   - Capability registry object documented.
+   - Package manifest documented.
 5. Safety path:
    - Fail-open behavior documented.
    - Local vs remote privacy implications documented.
@@ -1093,19 +1084,21 @@ Before LinkedIn/Twitter/public tester launch:
 - Model files live under Needle/Hay-owned directories.
 - Uninstall instructions remove extension wiring and model files.
 
-### 15.2 Policy/package trust gate
+### 15.2 Capability/package trust gate
 
-- `swe-pruner/reference` exists as a named `PruningPolicy`.
-- The policy applies to package artifact kinds such as `file_text` and
-  `process_output`, not host tool names.
+- `swe-pruner/reference` exists as a named Capability.
+- The capability conforms to `needle/text-transform`.
+- The package applies the capability to package artifact kinds such as
+  `file_text` and `process_output`, not host tool names.
 - A Pi host binding maps `read` and `bash` to those artifact kinds.
-- A `NeedlePackage` such as `needle/pi-local-mac` composes the binding, policy,
-  compute target, accounting, lifecycle, claim card, and evidence pack.
+- A Package such as `e24z/pi-local-mac` composes the binding, implemented
+  capabilities, backend, compute target, accounting, lifecycle, Package Card,
+  claim card, and evidence pack.
 - `context_focus_question` is first-class.
 - No question means pass-through.
-- Chunking, overlap, threshold, and render marker are explicit.
-- The reference policy has no AST expansion step.
-- Package validation rejects unresolved required policy, binding, compute,
+- Chunking, overlap, threshold, and upstream filtered-line rendering are explicit.
+- The reference capability has no AST repair step.
+- Package validation rejects unresolved required capability, binding, backend,
   accounting, evidence, or package-local step references.
 
 ### 15.3 Runtime trust gate
@@ -1138,39 +1131,42 @@ Before LinkedIn/Twitter/public tester launch:
    Decision so far: the rename should happen before public 1.0/tester launch,
    not after people start installing it.
 2. Which exact `swe-pruner/reference` defaults are paper/reference defaults, and
-   which are benchmark-config defaults? The answer should live in the policy and
-   package claim card, not in scattered env vars.
-3. Which public package should be the default, and which policy does it select:
-   `swe-pruner/reference`, `needle/soft-lamr`, or another tested policy? This
-   decides whether Python AST expansion is absent for parity or present as a
-   Needle product choice. MLX, CUDA, and HTTP are compute choices, not policy
-   names.
-4. What user-facing token counter choices should ship first: local estimate,
+   which are benchmark-config defaults? The answer should live in the capability
+   and package claim card, not in scattered env vars.
+3. Which public package should be the default, and which capability does it
+   implement: `swe-pruner/reference`, `e24z/soft-lamr`, or another tested
+   capability? This decides whether Python AST expansion is absent for parity or
+   present as a Needle product choice. MLX, CUDA, and HTTP are compute choices,
+   not capability names.
+4. Which namespace owns the default published objects: `e24z`, `needle`, a future
+   org, or a split between them? This draft uses `e24z/...` provisionally for
+   packages and backends.
+5. What user-facing token counter choices should ship first: local estimate,
    OpenAI provider count, Anthropic provider count, custom counter registry, or
    design-only?
-5. Do we ship a tested hosted GPU recipe in 1.0, or document only the HTTP
+6. Do we ship a tested hosted GPU recipe in 1.0, or document only the HTTP
    protocol and leave provider-specific recipes post-1.0?
-6. How much MLX batching is enough for public testers? The likely gate is
+7. How much MLX batching is enough for public testers? The likely gate is
    "decent parallelism plus timing/padding metrics," not perfect Apple-runtime
    optimization.
 
 ## 17. Proposed immediate work order
 
 1. Convert this PRD into issues.
-2. Add a `swe-pruner/reference` PruningPolicy document/config.
-3. Add `pi/native-tools` HostBinding and `needle/pi-local-mac` NeedlePackage
-   configs.
-4. Add a package claim card and fixture/evidence pack for the demo path.
-5. Change the status line from "tokens saved" to exact chars trimmed; put token
+2. Add a `needle/text-transform` Protocol document/config.
+3. Add a `swe-pruner/reference` Capability document/config.
+4. Add `pi/native-tools` host binding and `e24z/pi-local-mac` Package configs.
+5. Add a Package Card, claim card, and fixture/evidence pack for the demo path.
+6. Change the status line from "tokens saved" to exact chars trimmed; put token
    method details in `/needle status`, reports, and docs.
-6. Add explicit `context_focus_question` to Pi `read`.
-7. Add Pi `bash` pruning under the same policy.
-8. Tighten status ontology so `active` means in-flight.
-9. Add backend timing/whole-file chunk metrics.
-10. Add HTTP backend transport compatible with upstream SWE-Pruner service.
-11. Re-run small structural diagnostics with explicit goal hints, comparing
-   `swe-pruner/reference` and `needle/soft-lamr`.
-12. Re-run one demo trace.
+7. Add explicit `context_focus_question` to Pi `read`.
+8. Add Pi `bash` pruning under the same capability.
+9. Tighten status ontology so `active` means in-flight.
+10. Add backend timing/whole-file chunk metrics.
+11. Add HTTP backend transport compatible with upstream SWE-Pruner service.
+12. Re-run small structural diagnostics with explicit goal hints, comparing
+   `swe-pruner/reference` and `e24z/soft-lamr`.
+13. Re-run one demo trace.
 
 ## 18. Sources
 
@@ -1188,3 +1184,58 @@ Before LinkedIn/Twitter/public tester launch:
 - Vast.ai serverless architecture docs: https://docs.vast.ai/guides/serverless/architecture
 - Modal scaling docs: https://modal.com/docs/guide/scale
 - Modal Function docs: https://modal.com/docs/sdk/py/latest/modal.Function
+
+## 19. Bonus design note: bash-only MCP reference surface
+
+This section captures a follow-on design decision from the 1.0 ontology
+discussion. It is intentionally a bonus note, not a replacement for the main
+Pi-local 1.0 path above.
+
+The portable MCP package should be bash-minimal. The upstream Mini-SWE-Agent
+runner is the useful reference point: it does not expose separate read, grep,
+glob, write, or edit tools. It asks the model for one shell command, executes it
+with a fresh subprocess, appends the observation, and repeats. The SWE-Pruner
+fork preserves that shape and adds an optional `context_focus_question` next to
+the bash command.
+
+Needle's portable MCP reference package should therefore start with one
+observation tool:
+
+```text
+needle_bash(command, context_focus_question?)
+```
+
+The `context_focus_question` is optional for `swe-pruner/reference`, matching
+the upstream pruning fork. A package or skill may strongly recommend it for
+large exploratory reads, but the reference capability should not require a
+hidden side call to invent one. If no focus question is supplied, the package
+must pass through or follow the explicit reference behavior rather than guessing
+intent.
+
+This also clarifies what is and is not canonical:
+
+- Canonical portable shape: bash command plus optional focus question.
+- Reusable engine: Python manager, backend, scoring, fail-open behavior, and
+  accounting.
+- Host-specific packages: Pi native `read` override, Claude `PostToolUse`
+  output replacement, statusline/status footer, install/update glue, and any
+  future host-native tool bridges.
+
+Pi's native `read` integration is still valuable, but it should be treated as a
+host package, not as the portable ontology. Claude Code's hook path is also
+valuable, but it proves a Claude-specific replacement mechanism rather than a
+universal agent interface. Closed-source tools should use MCP or host-native
+tool bridges where they can disable or de-prioritize native observation tools
+and teach the agent, through a bundled skill/prompt contract, to use
+`needle_bash` for observation.
+
+The first MCP claim should be modest:
+
+```text
+Package: e24z/mcp-bash-local
+Capability: swe-pruner/reference
+Backend: e24z/code-pruner-mlx or another compatible backend
+Tool surface: needle_bash(command, context_focus_question?)
+Mutation: use host-native edit/write/apply-patch tools; Needle does not own
+mutation in the reference MCP package.
+```

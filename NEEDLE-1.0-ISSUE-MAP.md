@@ -1,8 +1,8 @@
 # Needle 1.0 Issue Map
 
 Status: Draft
-Date: 2026-06-22
-Branch: `needle/1-0-loop-plan`
+Date: 2026-06-23
+Branch: `pi-native-pruning`
 Source spec: `NEEDLE-1.0-PRD.md`
 
 ## Purpose
@@ -29,8 +29,8 @@ Needle 1.0 is ready for public testers when a Pi user can:
 - use normal Pi `read` and `bash`,
 - see whether Needle is down, cold, loading, ready, active, or degraded,
 - see exact chars trimmed rather than fake "tokens saved",
-- inspect the active `NeedlePackage`, `PruningPolicy`, backend, model directory,
-  source checkout, prompt/skill bundle, and claim card,
+- inspect the active Package, implemented Capability, backend, model directory,
+  source checkout, prompt/skill bundle, Package Card, and claim card,
 - verify that `swe-pruner/reference` has AST repair off,
 - run one demo fixture that proves visible pruning and pass-through behavior,
 - turn Needle off or uninstall it cleanly.
@@ -44,7 +44,7 @@ Needle 1.0 is ready for public testers when a Pi user can:
 - Every issue must define acceptance criteria, file ownership, and verification.
 - Maker and checker must be separate roles. The checker should not be the agent
   that wrote the patch.
-- No benchmark reruns until the package/policy/status/demo slice is real.
+- No benchmark reruns until the package/capability/status/demo slice is real.
 - No more ontology work unless implementation discovers a contradiction.
 - Commits use Conventional Commits.
 
@@ -53,10 +53,11 @@ Needle 1.0 is ready for public testers when a Pi user can:
 - `p0-1.0-blocker`: required before public tester launch.
 - `p1-1.0-support`: helps the launch but can follow the first demo.
 - `p2-post-1.0`: useful, but not on the critical path.
-- `lane-config`: manifests, package, policy, claim card.
+- `lane-config`: protocol, capability, package, binding, claim card.
 - `lane-pi`: Pi host binding and tool behavior.
 - `lane-status`: status, doctor, accounting.
-- `lane-engine`: backend/policy behavior.
+- `lane-engine`: backend/capability behavior.
+- `lane-mcp`: portable MCP package and bash-only observation surface.
 - `lane-demo`: fixtures, evidence, tester handoff.
 - `lane-install`: install, uninstall, model dir hygiene.
 
@@ -64,12 +65,12 @@ Needle 1.0 is ready for public testers when a Pi user can:
 
 ```mermaid
 flowchart TD
-    I1["#1 Static package/policy/claim files"] --> I2["#2 Minimal package loader"]
+    I1["#1 Static protocol/capability/package/card files"] --> I2["#2 Minimal package loader"]
     I1 --> I3["#3 Status and doctor identity"]
     I1 --> I7["#7 Demo claim card and evidence pack"]
     I2 --> I4["#4 Pi read explicit focus"]
     I2 --> I5["#5 Pi bash pruning"]
-    I2 --> I6["#6 Reference policy disables AST repair"]
+    I2 --> I6["#6 Reference capability disables AST repair"]
     I3 --> I7
     I4 --> I7
     I5 --> I7
@@ -87,43 +88,54 @@ Wave 1 can run in parallel:
 - Lane C, Pi tools: issues #4 and #5, split carefully by tool path if possible.
 - Lane D, engine: issue #6.
 - Lane E, demo: issue #7 can start as a skeleton, then fill after #3-#6 land.
+- Optional Lane F, MCP: issue #13 only after the coordinator decides whether
+  the PRD's bash-only MCP reference package is 1.0-blocking or support work.
 
 Suggested worktree branches:
 
-- `issue/1-package-policy-files`
+- `issue/1-protocol-capability-package-files`
 - `issue/2-package-loader`
 - `issue/3-status-doctor-identity`
 - `issue/4-pi-read-focus`
 - `issue/5-pi-bash-pruning`
-- `issue/6-reference-policy-ast-off`
+- `issue/6-reference-capability-ast-off`
 - `issue/7-demo-evidence-pack`
 
 ## Issue Drafts
 
-### #1 Add static NeedlePackage, PruningPolicy, HostBinding, and ClaimCard files
+### #1 Add static Protocol, Capability, Package, HostBinding, Package Card, and ClaimCard files
 
 Labels: `p0-1.0-blocker`, `lane-config`
 
 Problem:
-The PRD now defines the product around `NeedlePackage`, `PruningPolicy`,
-`HostBinding`, and `ClaimCard`, but those are still examples in prose. 1.0 needs
-real files the product and testers can point at.
+The PRD now defines the product around Protocol, Capability, Backend, Package,
+HostBinding, Package Card, and ClaimCard, but those are still examples in prose.
+1.0 needs real files the product and testers can point at.
 
 Proposed files:
 
-- `packages/needle/pi-local-mac.yaml`
-- `policies/swe-pruner/reference.yaml`
-- `policies/needle/soft-lamr.yaml`
+- `protocols/needle/text-transform.yaml`
+- `capabilities/swe-pruner/reference.yaml`
+- `capabilities/e24z/soft-lamr.yaml`
+- `backends/e24z/code-pruner-mlx.yaml`
 - `bindings/pi/native-tools.yaml`
+- `packages/e24z/pi-local-mac.yaml`
+- `package-cards/e24z/pi-local-mac.md`
 - `claims/pi-local-mac-swe-pruner-reference.yaml`
 
 Acceptance:
 
 - Static files exist and mirror the PRD examples.
-- `swe-pruner/reference` declares AST expansion absent.
-- `needle/soft-lamr` declares Python AST expansion present.
-- Package points to binding, policy, compute target, accounting, claim card, and
-  evidence.
+- `needle/text-transform` declares the universal text-in/text-out fail-open
+  protocol.
+- `swe-pruner/reference` declares counted filtered-line rendering and AST repair
+  absent.
+- `e24z/soft-lamr` extends `swe-pruner/reference` and declares Python AST repair
+  present.
+- `e24z/code-pruner-mlx` declares support for `swe-pruner/reference` and the
+  local MLX compute target.
+- Package points to binding, implemented capability, backend, compute target,
+  accounting, Package Card, claim card, and evidence.
 - Files are hand-readable and stable enough for `/needle doctor` to display.
 
 Verification:
@@ -132,10 +144,13 @@ Verification:
 python - <<'PY'
 from pathlib import Path
 for p in [
-    "packages/needle/pi-local-mac.yaml",
-    "policies/swe-pruner/reference.yaml",
-    "policies/needle/soft-lamr.yaml",
+    "protocols/needle/text-transform.yaml",
+    "capabilities/swe-pruner/reference.yaml",
+    "capabilities/e24z/soft-lamr.yaml",
+    "backends/e24z/code-pruner-mlx.yaml",
     "bindings/pi/native-tools.yaml",
+    "packages/e24z/pi-local-mac.yaml",
+    "package-cards/e24z/pi-local-mac.md",
     "claims/pi-local-mac-swe-pruner-reference.yaml",
 ]:
     assert Path(p).exists(), p
@@ -155,8 +170,9 @@ that, they become decorative YAML.
 
 Acceptance:
 
-- Loader reads the active `NeedlePackage`.
-- Loader resolves referenced `PruningPolicy`, `HostBinding`, and `ClaimCard`.
+- Loader reads the active Package.
+- Loader resolves referenced Protocol, Capability, Backend, HostBinding, Package
+  Card, and ClaimCard.
 - Missing required references fail with a clear error.
 - Unknown package-local required steps fail only if the package declares them as
   required.
@@ -185,11 +201,11 @@ requires exact chars first, with token estimates moved to detailed views.
 Acceptance:
 
 - Status line says chars trimmed, not tokens saved.
-- `/hay status` or `/needle status` shows active package, policy, backend,
+- `/hay status` or `/needle status` shows active package, capability, backend,
   source checkout, model dir, counters, and recent events.
-- `/hay doctor` or `/needle doctor` includes package version/id, policy id,
-  prompt/skill bundle id, compute target, privacy mode, claim card id, source
-  identity, and model dir.
+- `/hay doctor` or `/needle doctor` includes package version/id, implemented
+  capability ids, prompt/skill bundle id, compute target, privacy mode, Package
+  Card id, claim card id, source identity, and model dir.
 - Existing tests are updated from token wording to char wording.
 
 Verification:
@@ -231,7 +247,7 @@ File ownership:
 - `adapters/pi/extension.js`
 - `tests/test_pi_client.mjs`
 
-### #5 Add Pi bash pruning under the same policy
+### #5 Add Pi bash pruning under the same capability
 
 Labels: `p0-1.0-blocker`, `lane-pi`
 
@@ -259,20 +275,20 @@ File ownership:
 - `tests/test_pi_client.mjs`
 - `adapters/pi/README.md`
 
-### #6 Separate reference policy from Soft-LaMR behavior
+### #6 Separate reference capability from Soft-LaMR behavior
 
 Labels: `p0-1.0-blocker`, `lane-engine`
 
 Problem:
 The MLX wrapper currently enables repair by default, but
 `swe-pruner/reference` must mean no AST expansion. AST repair belongs to
-`needle/soft-lamr`.
+`e24z/soft-lamr`.
 
 Acceptance:
 
 - There is an explicit config/env/runtime switch that disables AST repair for
   `swe-pruner/reference`.
-- `needle/soft-lamr` can opt into AST expansion.
+- `e24z/soft-lamr` can opt into AST expansion.
 - Tests prove reference mode has no AST expansion.
 - Tests prove Soft-LaMR mode can expand Python AST masks.
 
@@ -299,7 +315,7 @@ Acceptance:
 
 - Demo fixture includes one large file read and one noisy bash output.
 - Demo shows visible pruning, pass-through on missing focus, exact chars trimmed,
-  and current package/policy identity.
+  and current package/capability identity.
 - Evidence pack records before/after text, commands, expected status snippets,
   and claim-card caveats.
 - The demo does not require Docker or a paid benchmark run.
@@ -367,7 +383,7 @@ first public package.
 Acceptance:
 
 - Docs explain HTTP prune endpoint shape.
-- Docs distinguish compute target from `PruningPolicy`.
+- Docs distinguish compute target from Capability.
 - Docs explain privacy and auth for non-local endpoints.
 - No hosted provider is required for local 1.0.
 
@@ -386,7 +402,7 @@ rules, and product vocabulary.
 Acceptance:
 
 - A repo-local or user-local skill describes Needle 1.0 terms:
-  `NeedlePackage`, `PruningPolicy`, `ArtifactKind`, `ClaimCard`.
+  Protocol, Capability, Backend, Package, Package Card, and ClaimCard.
 - It lists test commands and branch rules.
 - It warns not to run benchmarks or heavy MLX paths unless the issue asks.
 
@@ -418,11 +434,48 @@ gh issue list --limit 20
 
 Do this only after the local issue map looks right.
 
+### #13 Decide and scaffold bash-only MCP reference package
+
+Labels: `p1-1.0-support`, `lane-mcp`
+
+Problem:
+The PRD now has a bonus design note for a portable MCP reference package:
+`e24z/mcp-bash-local`, exposing `needle_bash(command,
+context_focus_question?)`. This could become a strong cross-agent story, but it
+must not accidentally replace the Pi-local 1.0 path or turn
+`swe-pruner/reference` into an MCP-specific capability.
+
+Acceptance:
+
+- Coordinator records whether MCP is 1.0-blocking or support work.
+- MCP is modeled as a host binding/package surface, not as the
+  `swe-pruner/reference` capability itself.
+- If scaffolded, the package exposes only the bash observation surface:
+  `needle_bash(command, context_focus_question?)`.
+- Missing `context_focus_question` follows reference behavior: pass through or
+  explicit package behavior, not hidden intent guessing.
+- Mutation remains with host-native edit/write/apply-patch tools.
+- Tests use a fake backend and do not require MLX, Docker, paid APIs, or real
+  MCP clients.
+
+Verification:
+
+```bash
+PYTHONPATH=. python3 tests/test_mcp_package_config.py
+```
+
+File ownership:
+
+- `packages/e24z/mcp-bash-local.yaml`
+- `bindings/mcp/bash.yaml`
+- `package-cards/e24z/mcp-bash-local.md`
+- `tests/test_mcp_package_config.py`
+
 ## First Parallel Run
 
 Recommended first run:
 
-1. Maker A: #1 static package/policy files.
+1. Maker A: #1 static protocol/capability/package files.
 2. Maker B: #3 status/doctor char wording and identity.
 3. Maker C: #4 explicit Pi read focus.
 4. Maker D: #6 reference-vs-Soft-LaMR switch.
@@ -430,10 +483,15 @@ Recommended first run:
 
 Do not start #5 `bash` pruning until #4 clarifies the canonical focus contract
 in the Pi adapter. Do not start #7 demo evidence until at least #1 and #3 have
-landed.
+landed. Do not let #13 block the Pi-local path unless the coordinator concludes
+that the updated PRD has promoted MCP from bonus note to 1.0 blocker.
 
 ## State
 
 - 2026-06-22: Issue map drafted on `needle/1-0-loop-plan`.
-- Current source branch base: `pi-native-pruning` at `c4b24d2`.
-- Current untracked planning files include `NEEDLE-1.0-PRD.md` and this file.
+- 2026-06-23: PRD §5.2 rewrite changed the map from
+  `NeedlePackage`/`PruningPolicy` vocabulary to Protocol, Capability, Backend,
+  Package, and Package Card vocabulary.
+- 2026-06-23: PRD §19 added a bash-only MCP reference package note; the map now
+  tracks it as conditional support work unless promoted by the coordinator.
+- Current source branch: `pi-native-pruning`.
