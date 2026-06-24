@@ -559,11 +559,12 @@ function renderPackageIdentity(activePackage) {
 	if (activePackage.capabilities?.length) lines.push(`capability ${activePackage.capabilities.join(", ")}`);
 	if (activePackage.backend) lines.push(`backend ${activePackage.backend}`);
 	if (activePackage.backendLauncher) {
-		const args = activePackage.backendLauncher.args?.length ? ` ${activePackage.backendLauncher.args.join(" ")}` : "";
-		lines.push(
-			`backend launch extra ${activePackage.backendLauncher.extra} | ` +
-				`module ${activePackage.backendLauncher.module}${args}`,
-		);
+		const command = Array.isArray(activePackage.backendLauncher.command)
+			? activePackage.backendLauncher.command
+			: [];
+		if (command.length) {
+			lines.push(`backend launch ${command.join(" ")}`);
+		}
 	}
 	if (activePackage.hostBinding) lines.push(`host binding ${activePackage.hostBinding}`);
 	if (activePackage.compute || activePackage.privacy) {

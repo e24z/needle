@@ -54,10 +54,10 @@
     }
   },
   "launcher": {
-    "kind": "uv-python-module",
-    "extra": "",
-    "module": "needle.runtime",
-    "args": [
+    "kind": "needle-cli",
+    "command": [
+      "needle",
+      "runtime",
       "manage"
     ],
     "env": {

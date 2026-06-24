@@ -7,10 +7,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { registryRoot, repoRootFromModuleUrl } from "./client.mjs";
 import { installHayPiExtension } from "./extension.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = join(HERE, "..", "..");
+const REPO_ROOT = repoRootFromModuleUrl(import.meta.url);
+const REGISTRY_ROOT = registryRoot(REPO_ROOT);
 const DEFAULT_PACK = "swe-pruner-reference";
 
 async function main() {
@@ -103,7 +105,7 @@ async function closeDemoManager(server) {
 }
 
 async function loadFixturePack(packId) {
-	const manifestPath = join(REPO_ROOT, "evidence", "fixture-packs", packId, "manifest.json");
+	const manifestPath = join(REGISTRY_ROOT, "evidence", "fixture-packs", packId, "manifest.json");
 	const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 	const cases = [];
 	for (const ref of manifest.cases || []) {

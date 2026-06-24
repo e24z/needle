@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
 import { basename, dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,7 +36,7 @@ export function eventsPath() {
 }
 
 export function repoRootFromModuleUrl(moduleUrl) {
-	return join(dirname(fileURLToPath(moduleUrl)), "..", "..");
+	return join(dirname(fileURLToPath(moduleUrl)), "..", "..", "..");
 }
 
 export function pathFromModuleUrl(moduleUrl) {
@@ -132,12 +133,20 @@ export async function sourceIdentity(repoRoot, options = {}) {
 		activePackage: null,
 		git: { available: false, reason: "not checked" },
 	};
-	try {
-		const pkg = JSON.parse(await readFile(identity.packagePath, "utf8"));
-		identity.packageName = typeof pkg.name === "string" ? pkg.name : null;
-		identity.packageVersion = typeof pkg.version === "string" ? pkg.version : null;
-	} catch {
-		// The extension can be loaded as a single file; package metadata is optional.
+	for (const packagePath of [
+		join(repoRoot, "package.json"),
+		join(repoRoot, "needle", "hosts", "pi", "package.json"),
+		join(repoRoot, "hosts", "pi", "package.json"),
+	]) {
+		try {
+			const pkg = JSON.parse(await readFile(packagePath, "utf8"));
+			identity.packagePath = packagePath;
+			identity.packageName = typeof pkg.name === "string" ? pkg.name : null;
+			identity.packageVersion = typeof pkg.version === "string" ? pkg.version : null;
+			break;
+		} catch {
+			// Try the next packaged/source metadata location.
+		}
 	}
 	try {
 		const pyproject = await readFile(join(repoRoot, "pyproject.toml"), "utf8");
@@ -268,7 +277,16 @@ export async function activePackageId(options = {}) {
 }
 
 export function registryRoot(repoRoot) {
-	return process.env.NEEDLE_REGISTRY_ROOT || process.env.HAY_REGISTRY_ROOT || repoRoot;
+	if (process.env.NEEDLE_REGISTRY_ROOT) return process.env.NEEDLE_REGISTRY_ROOT;
+	if (process.env.HAY_REGISTRY_ROOT) return process.env.HAY_REGISTRY_ROOT;
+	for (const candidate of [
+		join(repoRoot, "needle", "registry_data"),
+		join(repoRoot, "registry_data"),
+		repoRoot,
+	]) {
+		if (existsSync(join(candidate, "packages"))) return candidate;
+	}
+	return repoRoot;
 }
 
 async function readRegistryJson(repoRoot, dir, objectId) {
@@ -286,18 +304,32 @@ function normalizeLauncher(backend, backendId = backend?.id || "<backend>") {
 	if (!launcher || typeof launcher !== "object" || Array.isArray(launcher)) {
 		throw new Error(`backend ${backendId} requires launcher metadata`);
 	}
-	if (launcher.kind !== "uv-python-module") {
-		throw new Error(`backend ${backendId} launcher.kind must be uv-python-module`);
-	}
-	if (typeof launcher.extra !== "string") {
-		throw new Error(`backend ${backendId} launcher.extra must be a string`);
-	}
-	if (typeof launcher.module !== "string" || !launcher.module) {
-		throw new Error(`backend ${backendId} launcher.module must be a non-empty string`);
-	}
-	const args = Array.isArray(launcher.args) ? launcher.args : [];
-	if (!args.every((arg) => typeof arg === "string" && arg)) {
-		throw new Error(`backend ${backendId} launcher.args must be a string list`);
+	let command;
+	let extra = "";
+	let module = "";
+	let args = [];
+	if (launcher.kind === "uv-python-module") {
+		if (typeof launcher.extra !== "string") {
+			throw new Error(`backend ${backendId} launcher.extra must be a string`);
+		}
+		if (typeof launcher.module !== "string" || !launcher.module) {
+			throw new Error(`backend ${backendId} launcher.module must be a non-empty string`);
+		}
+		args = Array.isArray(launcher.args) ? launcher.args : [];
+		if (!args.every((arg) => typeof arg === "string" && arg)) {
+			throw new Error(`backend ${backendId} launcher.args must be a string list`);
+		}
+		extra = launcher.extra;
+		module = launcher.module;
+		command = launcherCommand({ kind: launcher.kind, extra, module, args });
+	} else if (launcher.kind === "needle-cli") {
+		command = Array.isArray(launcher.command) ? launcher.command : [];
+		if (!command.every((arg) => typeof arg === "string" && arg) || command.length === 0) {
+			throw new Error(`backend ${backendId} launcher.command must be a non-empty string list`);
+		}
+		args = command.slice(1);
+	} else {
+		throw new Error(`backend ${backendId} launcher.kind must be needle-cli or uv-python-module`);
 	}
 	const env = launcher.env && typeof launcher.env === "object" && !Array.isArray(launcher.env)
 		? launcher.env
@@ -309,14 +341,16 @@ function normalizeLauncher(backend, backendId = backend?.id || "<backend>") {
 	}
 	return {
 		kind: launcher.kind,
-		extra: launcher.extra,
-		module: launcher.module,
+		extra,
+		module,
 		args: [...args],
+		command: [...command],
 		env: { ...env },
 	};
 }
 
 function launcherCommand(launcher) {
+	if (Array.isArray(launcher.command)) return [...launcher.command];
 	const command = ["uv", "run"];
 	if (launcher.extra) command.push("--extra", launcher.extra);
 	command.push("-m", launcher.module, ...launcher.args);

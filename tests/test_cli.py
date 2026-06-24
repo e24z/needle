@@ -20,6 +20,7 @@ from pruner.cli import main as pruner_main  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent
+REGISTRY_ROOT = ROOT / "needle" / "registry_data"
 
 
 def _run(args: list[str]) -> tuple[int, str, str]:
@@ -37,7 +38,7 @@ def test_typer_help_groups_public_commands() -> None:
     code, out, err = _run(["--help"])
     assert code == 0, err
     assert "Commands" in out
-    for command in ("package", "evidence", "model", "status", "stop", "uninstall"):
+    for command in ("package", "evidence", "model", "runtime", "setup", "status", "stop", "uninstall"):
         assert command in out
 
 
@@ -59,7 +60,7 @@ def test_package_cli_lists_and_selects_packages() -> None:
         old_registry_root = os.environ.get("HAY_REGISTRY_ROOT")
         old_needle_registry_root = os.environ.get("NEEDLE_REGISTRY_ROOT")
         os.environ["NEEDLE_CONFIG"] = str(Path(td) / "config.json")
-        os.environ["NEEDLE_REGISTRY_ROOT"] = str(ROOT)
+        os.environ["NEEDLE_REGISTRY_ROOT"] = str(REGISTRY_ROOT)
         os.environ.pop("HAY_CONFIG", None)
         os.environ.pop("HAY_REGISTRY_ROOT", None)
         os.environ.pop("HAY_PACKAGE", None)
@@ -76,8 +77,7 @@ def test_package_cli_lists_and_selects_packages() -> None:
             code, out, err = _run(["package", "use", "e24z/pi-local-mac-soft-lamr"])
             assert code == 0, err
             assert "selected package: e24z/pi-local-mac-soft-lamr" in out
-            assert "runtime extra: backend-code-pruner-mlx" in out
-            assert "runtime command: uv run --extra backend-code-pruner-mlx -m needle.runtime manage" in out
+            assert "runtime command: needle runtime manage" in out
             assert "restart the resident runtime" in out
 
             code, out, err = _run(["package", "current"])
@@ -97,8 +97,8 @@ def test_package_cli_lists_and_selects_packages() -> None:
             assert "protocol: needle/text-transform" in out
             assert "implements: e24z/soft-lamr" in out
             assert "uses backend: e24z/code-pruner-mlx" in out
-            assert "runtime extra: backend-code-pruner-mlx" in out
-            assert "runtime command: uv run --extra backend-code-pruner-mlx -m needle.runtime manage" in out
+            assert "runtime launcher: needle-cli" in out
+            assert "runtime command: needle runtime manage" in out
             assert "evidence: fixture_pack:needle-soft-lamr" in out
             assert "evidence/fixture-packs/needle-soft-lamr/manifest.json" in out
         finally:
@@ -182,7 +182,9 @@ def test_uninstall_dry_run_and_yes_use_needle_owned_paths() -> None:
             code, out, err = _run(["uninstall", "--yes"])
             assert code == 0, err
             assert "removed Needle-owned local state" in out
-            assert "pi uninstall ." in out
+            assert "needle setup pi --uninstall" in out
+            assert "brew uninstall needle" in out
+            assert "pipx uninstall needle" in out
             assert "uv tool uninstall needle" in out
             assert "Claude" not in out
             assert not home.exists()
@@ -212,6 +214,22 @@ def test_model_dir_command_reports_needle_model_path() -> None:
                 os.environ["NEEDLE_MODEL_ROOT"] = old_root
 
 
+def test_setup_pi_dry_run_uses_packaged_adapter() -> None:
+    code, out, err = _run(["setup", "pi", "--dry-run"])
+    assert code == 0, err
+    assert "Needle Pi package:" in out
+    assert "needle/hosts/pi" in out
+    assert "Pi command: pi install" in out
+    assert "Canary command: node" in out
+    assert "dry run: no changes made" in out
+
+
+def test_runtime_status_wrapper_is_available() -> None:
+    code, out, err = _run(["runtime", "status"])
+    assert code == 0, err
+    assert "manager:" in out
+
+
 def test_pruner_cli_does_not_own_packages() -> None:
     out = StringIO()
     err = StringIO()
@@ -233,6 +251,8 @@ def main() -> int:
     test_evidence_check_lists_fixture_cases()
     test_uninstall_dry_run_and_yes_use_needle_owned_paths()
     test_model_dir_command_reports_needle_model_path()
+    test_setup_pi_dry_run_uses_packaged_adapter()
+    test_runtime_status_wrapper_is_available()
     test_pruner_cli_does_not_own_packages()
     print("test_cli OK")
     return 0

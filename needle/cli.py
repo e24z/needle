@@ -12,6 +12,7 @@ import datetime
 import json
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -37,10 +38,14 @@ app = typer.Typer(
 package_app = typer.Typer(help="Inspect and select Needle packages.", no_args_is_help=True)
 evidence_app = typer.Typer(help="Inspect package evidence fixtures.", no_args_is_help=True)
 model_app = typer.Typer(help="Inspect, download, or remove local model files.", no_args_is_help=True)
+runtime_app = typer.Typer(help="Low-level runtime commands used by host adapters.", no_args_is_help=True)
+setup_app = typer.Typer(help="Set up Needle inside supported host agents.", no_args_is_help=True)
 
 app.add_typer(package_app, name="package")
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(model_app, name="model")
+app.add_typer(runtime_app, name="runtime")
+app.add_typer(setup_app, name="setup")
 
 
 def _print_error(message: object) -> None:
@@ -103,7 +108,6 @@ def _package_use(args: argparse.Namespace) -> int:
     print(f"protocol: {loaded.protocol['id']}")
     print(f"uses backend: {loaded.backend_id}")
     plan = runtime_launch_plan(package_id=loaded.package_id, host_binding=args.host_binding or None)
-    print(f"runtime extra: {plan.extra}")
     print(f"runtime command: {' '.join(plan.command)}")
     print("restart the resident runtime for running sessions: needle stop")
     return 0
@@ -126,8 +130,7 @@ def _package_doctor(args: argparse.Namespace) -> int:
         f"protocol: {loaded.protocol['id']}",
         f"implements: {', '.join(loaded.capability_ids)}",
         f"uses backend: {loaded.backend_id}",
-        f"runtime extra: {plan.extra}",
-        f"runtime module: {plan.module}",
+        f"runtime launcher: {plan.kind}",
         f"runtime command: {' '.join(plan.command)}",
         f"host binding: {loaded.binding_id}",
         f"claim card: {loaded.claim_card['id']}",
@@ -268,7 +271,7 @@ def _uninstall(args: argparse.Namespace) -> int:
             print("  nothing found")
         print("")
         print("Host extension removal stays host-native:")
-        print("  Pi:     pi uninstall .")
+        print("  Pi:     needle setup pi --uninstall")
         print("")
         print("Run `needle uninstall --yes` to stop the runtime and remove these files.")
         return 0
@@ -295,9 +298,72 @@ def _uninstall(args: argparse.Namespace) -> int:
         print("no Needle-owned local state found")
     print("")
     print("Remove host integrations with their native commands:")
-    print("  Pi:     pi uninstall .")
-    print("Remove the CLI entrypoint with your Python tool installer, for example:")
+    print("  Pi:     needle setup pi --uninstall")
+    print("Remove the CLI entrypoint with your package manager, for example:")
+    print("  brew uninstall needle")
+    print("  pipx uninstall needle")
     print("  uv tool uninstall needle")
+    return 0
+
+
+def _pi_package_dir() -> Path:
+    return Path(__file__).resolve().parent / "hosts" / "pi"
+
+
+def _format_command(command: list[str]) -> str:
+    return " ".join(command)
+
+
+def _run_visible(command: list[str]) -> int:
+    proc = subprocess.run(command, text=True, capture_output=True, check=False)
+    if proc.stdout:
+        print(proc.stdout, end="")
+    if proc.stderr:
+        print(proc.stderr, end="", file=sys.stderr)
+    if proc.returncode:
+        _print_error(f"command failed ({proc.returncode}): {_format_command(command)}")
+    return int(proc.returncode)
+
+
+def _setup_pi(args: argparse.Namespace) -> int:
+    package_dir = _pi_package_dir()
+    manifest = package_dir / "package.json"
+    canary = package_dir / "demo-canary.mjs"
+    if not manifest.exists():
+        _print_error(f"Needle Pi package manifest is missing at {manifest}")
+        return 1
+
+    pi_command = ["pi", "uninstall" if args.uninstall else "install", str(package_dir)]
+    print(f"Needle Pi package: {package_dir}")
+    print(f"Pi command: {_format_command(pi_command)}")
+
+    if args.dry_run:
+        if not args.uninstall and not args.skip_canary:
+            print(f"Canary command: node {canary}")
+        print("dry run: no changes made")
+        return 0
+
+    if shutil.which("pi") is None:
+        _print_error("Pi CLI was not found on PATH; install or open Pi before running setup.")
+        return 1
+
+    code = _run_visible(pi_command)
+    if code:
+        return code
+
+    if args.uninstall:
+        print("Needle Pi adapter removed through Pi's native package command.")
+        return 0
+
+    if not args.skip_canary:
+        if shutil.which("node") is None:
+            _print_error("Node.js was not found on PATH; Pi adapter installed, but the canary could not run.")
+            return 1
+        code = _run_visible(["node", str(canary)])
+        if code:
+            return code
+
+    print("Needle Pi adapter installed. Open Pi and run `/needle doctor`.")
     return 0
 
 
@@ -320,7 +386,8 @@ def _model_download(args: argparse.Namespace) -> int:
     except ImportError:
         print(
             "error: model download needs the MLX backend extra; "
-            "run `uv run --extra backend-code-pruner-mlx needle model download`",
+            "install Needle with the MLX backend dependencies "
+            "(developer path: `uv run --extra backend-code-pruner-mlx needle model download`)",
             file=sys.stderr,
         )
         return 1
@@ -476,6 +543,94 @@ def model_clean(
 ) -> None:
     """Remove the local model directory."""
     _exit_with(_model_clean(_ns(yes=yes)))
+
+
+@runtime_app.command("manage")
+def runtime_manage() -> None:
+    """Run the machine-wide model residency manager."""
+    from .runtime import cli as runtime_cli
+
+    _exit_with(runtime_cli.main(["manage"]))
+
+
+@runtime_app.command("session")
+def runtime_session(
+    session: str = typer.Option(
+        "",
+        "--session",
+        help="Optional host session id to lease under.",
+    ),
+) -> None:
+    """Hold a session lease against the manager."""
+    from .runtime import cli as runtime_cli
+
+    argv = ["session"]
+    if session:
+        argv.extend(["--session", session])
+    _exit_with(runtime_cli.main(argv))
+
+
+@runtime_app.command("prune")
+def runtime_prune(
+    query: str = typer.Option(
+        "",
+        "--query",
+        "-q",
+        help="Relevance query / goal.",
+    ),
+) -> None:
+    """Pipe stdin through the manager and print the returned text."""
+    from .runtime import cli as runtime_cli
+
+    argv = ["prune"]
+    if query:
+        argv.extend(["--query", query])
+    _exit_with(runtime_cli.main(argv))
+
+
+@runtime_app.command("status")
+def runtime_status(
+    events_count: int = typer.Option(
+        12,
+        "--events",
+        "-n",
+        help="Recent events to show.",
+    ),
+) -> None:
+    """Show the low-level runtime residency snapshot."""
+    from .runtime import cli as runtime_cli
+
+    _exit_with(runtime_cli.main(["status", "--events", str(events_count)]))
+
+
+@runtime_app.command("stop")
+def runtime_stop() -> None:
+    """Ask the resident manager to shut down cleanly."""
+    from .runtime import cli as runtime_cli
+
+    _exit_with(runtime_cli.main(["stop"]))
+
+
+@setup_app.command("pi")
+def setup_pi(
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the Pi package command without changing Pi.",
+    ),
+    uninstall_adapter: bool = typer.Option(
+        False,
+        "--uninstall",
+        help="Remove the Pi adapter through Pi's native package command.",
+    ),
+    skip_canary: bool = typer.Option(
+        False,
+        "--skip-canary",
+        help="Skip the local Pi adapter canary after install.",
+    ),
+) -> None:
+    """Install or remove Needle's Pi adapter using Pi's native package flow."""
+    _exit_with(_setup_pi(_ns(dry_run=dry_run, uninstall=uninstall_adapter, skip_canary=skip_canary)))
 
 
 def main(argv: list[str] | None = None) -> int:

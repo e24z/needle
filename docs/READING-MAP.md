@@ -7,15 +7,14 @@ stays alive across sessions, and evicts itself before it freezes the laptop.
 
 Three active layers:
 
-- `needle/registry.py` plus `protocols/`, `capabilities/`, `backends/`,
-  `bindings/`, `packages/`, `claims/`, and `package-cards/` are the package
+- `needle/registry.py` plus `needle/registry_data/` are the built-in package
   graph: what a user installs, what it claims, which backend it uses, and what
   evidence backs it.
 - `needle/runtime/` is the resident runtime: socket protocol, client, manager,
   session leases, event log, memory guard.
 - `pruner/` is now a compatibility facade for old imports and `python -m pruner`.
-- `adapters/pi/` is the Pi host binding: native read/bash wrappers, status, and
-  package identity.
+- `needle/hosts/pi/` is the packaged Pi host binding: native read/bash
+  wrappers, status, package identity, and the Pi package manifest.
 
 ## Read in this order
 
@@ -28,8 +27,9 @@ Three active layers:
    packs, and backend launch metadata without importing MLX.
 
 3. **`needle/cli.py`** — *How does a user control packages and runtime state?*
-   The public Typer CLI owns `needle package ...`, `needle evidence check`,
-   `needle status`, `needle stop`, `needle uninstall`, and `needle model ...`.
+   The public Typer CLI owns `needle setup pi`, `needle package ...`,
+   `needle evidence check`, `needle status`, `needle stop`, `needle uninstall`,
+   and `needle model ...`.
 
 4. **`needle/runtime/protocol.py` + `needle/runtime/client.py`** — *How do the pieces talk?* The
    wire format and the thin client every surface (adapter, status, CLI) uses to
@@ -52,15 +52,15 @@ Three active layers:
 
 Then the **adapter surface** (how it becomes visible and safe):
 
-8. **`adapters/pi/client.mjs`** — *How does a Pi tool result become a pruned
+8. **`needle/hosts/pi/client.mjs`** — *How does a Pi tool result become a pruned
    result, and why can it never break the agent?* The fail-open boundary:
    missing focus, backend errors, tiny output, and unsupported shapes pass the
    original text through unchanged.
 
-9. **`adapters/pi/extension.js`** — *How is the package exposed to Pi?* Lifecycle,
+9. **`needle/hosts/pi/extension.js`** — *How is the package exposed to Pi?* Lifecycle,
    tool registration, slash commands, and status surface.
 
-10. **`adapters/pi/demo-canary.mjs`** — *Can I see the Pi path work without
+10. **`needle/hosts/pi/demo-canary.mjs`** — *Can I see the Pi path work without
     Docker, paid APIs, SWE-bench, or live MLX?* This replays the checked fixture
     pack through mock Pi native tools and a mock Needle manager.
 
@@ -77,15 +77,16 @@ npm run demo:pi-canary
 # package/evidence checks
 uv run needle package doctor --host-binding pi/native-tools
 uv run needle evidence check --host-binding pi/native-tools
+uv run needle setup pi --dry-run
 
 # terminal 1: a manager on its own socket/home (downloads the model on first prune)
-cd /tmp/needle-sandbox && NEEDLE_HOME=/tmp/needle-sandbox-home uv run -m needle.runtime manage
+cd /tmp/needle-sandbox && NEEDLE_HOME=/tmp/needle-sandbox-home uv run needle runtime manage
 
 # terminal 2: feed it text and watch it prune
 cd /tmp/needle-sandbox && NEEDLE_HOME=/tmp/needle-sandbox-home \
-  uv run -m needle.runtime prune -q "what does the manager do" < needle/runtime/manager.py
+  uv run needle runtime prune -q "what does the manager do" < needle/runtime/manager.py
 # and the operator view:
-cd /tmp/needle-sandbox && NEEDLE_HOME=/tmp/needle-sandbox-home uv run -m needle.runtime status
+cd /tmp/needle-sandbox && NEEDLE_HOME=/tmp/needle-sandbox-home uv run needle runtime status
 ```
 
 The first `prune` is slow (one-time model download + env build under uv); after

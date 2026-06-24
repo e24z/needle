@@ -16,9 +16,16 @@ spending model context on irrelevant file sections or noisy command output.
 1. She installs the extension:
 
    ```bash
+   brew install e24z/tap/needle
+   needle setup pi
+   ```
+
+   Until the Homebrew tap exists, the developer path is:
+
+   ```bash
    cd /path/to/hay
    uv tool install --editable .
-   pi install .
+   needle setup pi
    ```
 
 2. She starts Pi from a project:
@@ -129,16 +136,16 @@ spending model context on irrelevant file sections or noisy command output.
 9. If she wants to remove Needle completely:
 
    ```bash
-   cd /path/to/hay
-   pi uninstall .
+   needle setup pi --uninstall
    needle uninstall --yes
-   uv tool uninstall needle
+   brew uninstall needle
    ```
 
-   `pi uninstall .` removes the Pi extension through Pi's native package flow.
+   `needle setup pi --uninstall` removes the Pi extension through Pi's native package flow.
    `needle uninstall --yes` removes Needle-owned local runtime/config/model
-   files, which default to `~/.needle`. `uv tool uninstall needle` removes the
-   CLI entrypoint installed in step 1.
+   files, which default to `~/.needle`. `brew uninstall needle` removes the CLI
+   entrypoint installed in step 1. If she used the developer path, the last
+   command is `uv tool uninstall needle`.
 
 10. If she wants to preview cleanup first:
 

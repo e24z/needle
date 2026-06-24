@@ -1,0 +1,2 @@
+recursive-include needle/registry_data *.yaml *.json *.md
+recursive-include needle/hosts/pi *.js *.mjs *.json *.md

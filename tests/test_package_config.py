@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from needle.registry import (  # noqa: E402
+    BUILTIN_REGISTRY_ROOT,
     PackageConfigError,
     active_package_selection,
     configured_package_id,
@@ -27,6 +28,7 @@ from needle.registry import (  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent
+REGISTRY_ROOT = BUILTIN_REGISTRY_ROOT
 
 
 def _copy_registry(tmp: Path) -> None:
@@ -40,13 +42,13 @@ def _copy_registry(tmp: Path) -> None:
         "package-cards",
         "evidence",
     ):
-        src = ROOT / name
+        src = REGISTRY_ROOT / name
         if src.exists():
             shutil.copytree(src, tmp / name)
 
 
 def test_default_package_graph_loads() -> None:
-    loaded = load_active_package(ROOT, "e24z/pi-local-mac")
+    loaded = load_active_package(REGISTRY_ROOT, "e24z/pi-local-mac")
     assert loaded.package_id == "e24z/pi-local-mac"
     assert loaded.protocol["id"] == "needle/text-transform"
     assert loaded.capability_ids == ["swe-pruner/reference"]
@@ -59,20 +61,13 @@ def test_default_package_graph_loads() -> None:
 
 
 def test_default_package_resolves_runtime_launch_plan() -> None:
-    plan = runtime_launch_plan(ROOT, "e24z/pi-local-mac")
+    plan = runtime_launch_plan(REGISTRY_ROOT, "e24z/pi-local-mac")
     assert plan.package_id == "e24z/pi-local-mac"
     assert plan.backend_id == "e24z/code-pruner-mlx"
-    assert plan.kind == "uv-python-module"
-    assert plan.extra == "backend-code-pruner-mlx"
-    assert plan.module == "needle.runtime"
-    assert plan.args == ["manage"]
+    assert plan.kind == "needle-cli"
     assert plan.command == [
-        "uv",
-        "run",
-        "--extra",
-        "backend-code-pruner-mlx",
-        "-m",
-        "needle.runtime",
+        "needle",
+        "runtime",
         "manage",
     ]
     assert plan.env["NEEDLE_BACKEND"] == "e24z/code-pruner-mlx"
@@ -80,12 +75,13 @@ def test_default_package_resolves_runtime_launch_plan() -> None:
 
 
 def test_http_backend_contract_validates_without_server() -> None:
-    backend = load_backend(ROOT, "e24z/code-pruner-http")
+    backend = load_backend(REGISTRY_ROOT, "e24z/code-pruner-http")
     assert backend["id"] == "e24z/code-pruner-http"
     assert backend["compute"]["default"] == "remote_http"
     assert backend["compute"]["requires"] == ["explicit_endpoint"]
     assert backend["runtime"] == "local_manager"
-    assert backend["launcher"]["extra"] == ""
+    assert backend["launcher"]["kind"] == "needle-cli"
+    assert backend["launcher"]["command"] == ["needle", "runtime", "manage"]
     assert backend["transport"]["kind"] == "http_json"
     assert backend["transport"]["endpoint_env"] == "NEEDLE_HTTP_PRUNER_URL"
     assert backend["transport"]["endpoint_required"] is True
@@ -95,7 +91,7 @@ def test_http_backend_contract_validates_without_server() -> None:
 
 
 def test_reference_capability_has_no_ast_repair() -> None:
-    loaded = load_active_package(ROOT, "e24z/pi-local-mac")
+    loaded = load_active_package(REGISTRY_ROOT, "e24z/pi-local-mac")
     ref = loaded.capabilities["swe-pruner/reference"]
     assert ref["claim_scope"]["ast_repair"] == "absent"
     assert ref["focus"]["field"] == "context_focus_question"
@@ -104,14 +100,14 @@ def test_reference_capability_has_no_ast_repair() -> None:
 
 
 def test_soft_lamr_is_separate_capability() -> None:
-    path = ROOT / "capabilities/e24z/soft-lamr.yaml"
+    path = REGISTRY_ROOT / "capabilities/e24z/soft-lamr.yaml"
     soft = json.loads(path.read_text(encoding="utf-8"))
     assert soft["extends"] == "swe-pruner/reference"
     assert soft["overrides"]["ast_repair"] == "python"
 
 
 def test_soft_lamr_package_resolves_parent_protocol() -> None:
-    loaded = load_active_package(ROOT, "e24z/pi-local-mac-soft-lamr")
+    loaded = load_active_package(REGISTRY_ROOT, "e24z/pi-local-mac-soft-lamr")
     assert loaded.package_id == "e24z/pi-local-mac-soft-lamr"
     assert loaded.protocol["id"] == "needle/text-transform"
     assert loaded.capability_ids == ["e24z/soft-lamr"]
@@ -203,13 +199,13 @@ def test_package_selection_can_come_from_user_config() -> None:
         os.environ.pop("HAY_PACKAGE", None)
         os.environ.pop("NEEDLE_PACKAGE", None)
         try:
-            selected = set_configured_package_id("e24z/pi-local-mac-soft-lamr", root=ROOT)
+            selected = set_configured_package_id("e24z/pi-local-mac-soft-lamr", root=REGISTRY_ROOT)
             assert selected.package_id == "e24z/pi-local-mac-soft-lamr"
             assert configured_package_id() == "e24z/pi-local-mac-soft-lamr"
             assert configured_package_id(host_binding="pi/native-tools") == "e24z/pi-local-mac-soft-lamr"
             assert active_package_selection()[0] == "e24z/pi-local-mac-soft-lamr"
             assert active_package_selection(host_binding="pi/native-tools")[0] == "e24z/pi-local-mac-soft-lamr"
-            assert load_active_package(ROOT, host_binding="pi/native-tools").package_id == "e24z/pi-local-mac-soft-lamr"
+            assert load_active_package(REGISTRY_ROOT, host_binding="pi/native-tools").package_id == "e24z/pi-local-mac-soft-lamr"
 
             os.environ["HAY_PACKAGE"] = "e24z/pi-local-mac"
             os.environ["NEEDLE_PACKAGE"] = "e24z/pi-local-mac-soft-lamr"
@@ -241,7 +237,7 @@ def test_package_selection_can_come_from_user_config() -> None:
 
 
 def test_package_summaries_can_filter_by_host_binding() -> None:
-    summaries = package_summaries(ROOT, host_binding="pi/native-tools")
+    summaries = package_summaries(REGISTRY_ROOT, host_binding="pi/native-tools")
     ids = {item["id"] for item in summaries}
     assert "e24z/pi-local-mac" in ids
     assert "e24z/pi-local-mac-soft-lamr" in ids

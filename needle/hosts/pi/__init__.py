@@ -1,0 +1,1 @@
+"""Packaged Pi adapter assets."""

@@ -3,10 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local context-pruning for agent coding tools.",
-  "scripts": {
-    "demo:pi-canary": "node needle/hosts/pi/demo-canary.mjs"
-  },
+  "description": "Needle adapter for Pi.",
   "keywords": [
     "pi-package"
   ],
@@ -15,7 +12,7 @@
   },
   "pi": {
     "extensions": [
-      "./needle/hosts/pi/extension.js"
+      "./extension.js"
     ]
   }
 }

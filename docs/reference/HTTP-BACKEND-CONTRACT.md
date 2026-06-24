@@ -6,7 +6,7 @@ ontology.
 
 ## Backend Object
 
-`backends/e24z/code-pruner-http.yaml` describes an HTTP JSON backend that still
+`needle/registry_data/backends/e24z/code-pruner-http.yaml` describes an HTTP JSON backend that still
 runs behind the local Needle manager. Host adapters continue to call Needle;
 Needle may then call a user-configured HTTP endpoint.
 

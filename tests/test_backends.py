@@ -25,6 +25,7 @@ from pruner.backends.code_pruner.repair import repair_python_mask  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent
+REGISTRY_ROOT = ROOT / "needle" / "registry_data"
 
 
 def test_routing() -> None:
@@ -94,7 +95,7 @@ def test_default_active_package_is_reference_without_repair() -> None:
             "NEEDLE_REPAIR",
         )
     }
-    os.environ["HAY_REGISTRY_ROOT"] = str(ROOT)
+    os.environ["HAY_REGISTRY_ROOT"] = str(REGISTRY_ROOT)
     os.environ["HAY_PACKAGE"] = "e24z/pi-local-mac"
     os.environ.pop("NEEDLE_PACKAGE", None)
     os.environ.pop("NEEDLE_REGISTRY_ROOT", None)
@@ -122,7 +123,7 @@ def test_soft_lamr_active_package_enables_repair() -> None:
             "NEEDLE_REPAIR",
         )
     }
-    os.environ["HAY_REGISTRY_ROOT"] = str(ROOT)
+    os.environ["HAY_REGISTRY_ROOT"] = str(REGISTRY_ROOT)
     os.environ["HAY_PACKAGE"] = "e24z/pi-local-mac-soft-lamr"
     os.environ.pop("NEEDLE_PACKAGE", None)
     os.environ.pop("NEEDLE_REGISTRY_ROOT", None)

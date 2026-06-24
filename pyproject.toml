@@ -27,5 +27,19 @@ backend-code-pruner-mlx = [
 [project.scripts]
 needle = "needle.cli:main"
 
+[tool.setuptools]
+include-package-data = true
+
 [tool.setuptools.packages.find]
 include = ["needle*", "pruner*"]
+
+[tool.setuptools.package-data]
+needle = [
+    "registry_data/**/*.yaml",
+    "registry_data/**/*.json",
+    "registry_data/**/*.md",
+    "hosts/pi/*.js",
+    "hosts/pi/*.mjs",
+    "hosts/pi/*.json",
+    "hosts/pi/*.md",
+]

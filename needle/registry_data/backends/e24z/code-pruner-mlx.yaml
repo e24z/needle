@@ -26,10 +26,10 @@
   },
   "runtime": "local_manager",
   "launcher": {
-    "kind": "uv-python-module",
-    "extra": "backend-code-pruner-mlx",
-    "module": "needle.runtime",
-    "args": [
+    "kind": "needle-cli",
+    "command": [
+      "needle",
+      "runtime",
       "manage"
     ],
     "env": {

@@ -18,7 +18,7 @@ import {
 	socketIsLive,
 	sourceIdentity,
 	tailEvents,
-} from "../adapters/pi/client.mjs";
+} from "../needle/hosts/pi/client.mjs";
 import {
 	buildBashResultPatch,
 	buildPackageStatus,
@@ -31,7 +31,7 @@ import {
 	installHayPiExtension,
 	renderPackageStatus,
 	renderOperatorStatus,
-} from "../adapters/pi/extension.js";
+} from "../needle/hosts/pi/extension.js";
 
 test("Pi client speaks Hay newline JSON protocol", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "hay-pi-"));
@@ -255,7 +255,7 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 		{ calls: 3, savedChars: 4096, lastTool: "grep" },
 		{
 			appHome: "/tmp/hay",
-			extensionPath: "/tmp/hay/adapters/pi/extension.js",
+			extensionPath: "/tmp/hay/needle/hosts/pi/extension.js",
 			socketPath: "/tmp/hay/manager.sock",
 			source: {
 				repoRoot: "/tmp/hay",
@@ -269,9 +269,8 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 					capabilities: ["swe-pruner/reference"],
 					backend: "e24z/code-pruner-mlx",
 					backendLauncher: {
-						extra: "backend-code-pruner-mlx",
-						module: "needle.runtime",
-						args: ["manage"],
+						kind: "needle-cli",
+						command: ["needle", "runtime", "manage"],
 					},
 					hostBinding: "pi/native-tools",
 					packageCard: "package-cards/e24z/pi-local-mac",
@@ -288,12 +287,12 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 	assert.match(rendered, /sessions 2  \|  version abcdef123456/);
 	assert.match(rendered, /pressure warning  \|  free 2.0 GB/);
 	assert.match(rendered, /this Pi session 4.1k chars trimmed  \|  3 prunes  \|  last tool grep/);
-	assert.match(rendered, /extension \/tmp\/hay\/adapters\/pi\/extension\.js/);
+	assert.match(rendered, /extension \/tmp\/hay\/needle\/hosts\/pi\/extension\.js/);
 	assert.match(rendered, /model dir \/tmp\/hay\/models/);
 	assert.match(rendered, /active package e24z\/pi-local-mac/);
 	assert.match(rendered, /capability swe-pruner\/reference/);
 	assert.match(rendered, /backend e24z\/code-pruner-mlx/);
-	assert.match(rendered, /backend launch extra backend-code-pruner-mlx \| module needle\.runtime manage/);
+	assert.match(rendered, /backend launch needle runtime manage/);
 	assert.match(rendered, /host binding pi\/native-tools/);
 	assert.match(rendered, /compute local_mlx \| privacy local_only/);
 	assert.match(rendered, /prompt bundle pi\/context-focus-question@0\.1/);
@@ -326,9 +325,8 @@ test("Pi source identity reads package, pyproject, git state, and active Needle 
 		assert.deepEqual(identity.activePackage.capabilities, ["swe-pruner/reference"]);
 		assert.equal(identity.activePackage.backend, "e24z/code-pruner-mlx");
 		assert.equal(identity.activePackage.backendRuntime, "local_manager");
-		assert.equal(identity.activePackage.backendLauncher.extra, "backend-code-pruner-mlx");
-		assert.equal(identity.activePackage.backendLauncher.module, "needle.runtime");
-		assert.deepEqual(identity.activePackage.backendLauncher.args, ["manage"]);
+		assert.equal(identity.activePackage.backendLauncher.kind, "needle-cli");
+		assert.deepEqual(identity.activePackage.backendLauncher.command, ["needle", "runtime", "manage"]);
 		assert.equal(identity.activePackage.hostBinding, "pi/native-tools");
 		assert.equal(identity.activePackage.claimCard, "claims/pi-local-mac-swe-pruner-reference");
 		assert.equal(typeof identity.git.available, "boolean");
@@ -358,18 +356,16 @@ test("Pi source identity reads package, pyproject, git state, and active Needle 
 test("Pi resolves backend launch plan from the active package graph", async () => {
 	const backend = await backendIdentity(process.cwd(), "e24z/code-pruner-mlx");
 	assert.equal(backend.available, true);
-	assert.equal(backend.launcher.extra, "backend-code-pruner-mlx");
-	assert.equal(backend.launcher.module, "needle.runtime");
-	assert.deepEqual(backend.launcher.args, ["manage"]);
+	assert.equal(backend.launcher.kind, "needle-cli");
+	assert.deepEqual(backend.launcher.command, ["needle", "runtime", "manage"]);
 	const httpBackend = await backendIdentity(process.cwd(), "e24z/code-pruner-http");
 	assert.equal(httpBackend.available, true);
-	assert.equal(httpBackend.launcher.extra, "");
-	assert.equal(httpBackend.launcher.module, "needle.runtime");
+	assert.deepEqual(httpBackend.launcher.command, ["needle", "runtime", "manage"]);
 
 	const plan = await runtimeLaunchPlan(process.cwd(), { hostBinding: "pi/native-tools" });
 	assert.equal(plan.packageId, "e24z/pi-local-mac");
 	assert.equal(plan.backendId, "e24z/code-pruner-mlx");
-	assert.deepEqual(plan.command, ["uv", "run", "--extra", "backend-code-pruner-mlx", "-m", "needle.runtime", "manage"]);
+	assert.deepEqual(plan.command, ["needle", "runtime", "manage"]);
 	assert.equal(plan.env.NEEDLE_BACKEND, "e24z/code-pruner-mlx");
 	assert.equal(plan.env.HAY_BACKEND, "code-pruner");
 });
@@ -389,8 +385,8 @@ test("Pi ensureManager spawns from backend launch metadata", async () => {
 	});
 	assert.equal(ok, false);
 	assert.equal(spawned.length, 1);
-	assert.equal(spawned[0].command, "uv");
-	assert.deepEqual(spawned[0].args, ["run", "--extra", "backend-code-pruner-mlx", "-m", "needle.runtime", "manage"]);
+	assert.equal(spawned[0].command, "needle");
+	assert.deepEqual(spawned[0].args, ["runtime", "manage"]);
 	assert.equal(spawned[0].options.env.NEEDLE_BACKEND, "e24z/code-pruner-mlx");
 	assert.equal(spawned[0].options.env.HAY_BACKEND, "code-pruner");
 });
@@ -398,7 +394,7 @@ test("Pi ensureManager spawns from backend launch metadata", async () => {
 test("Pi package identity can load from an external registry root", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "hay-registry-"));
 	for (const name of ["packages", "capabilities", "backends", "bindings", "claims", "package-cards", "protocols"]) {
-		await cp(join(process.cwd(), name), join(dir, name), { recursive: true });
+		await cp(join(process.cwd(), "needle", "registry_data", name), join(dir, name), { recursive: true });
 	}
 
 	const oldRoot = process.env.HAY_REGISTRY_ROOT;
@@ -557,7 +553,7 @@ test("Pi package status explains package selection", async () => {
 });
 
 test("Pi demo canary prints proof report", () => {
-	const result = spawnSync(process.execPath, ["adapters/pi/demo-canary.mjs"], {
+	const result = spawnSync(process.execPath, ["needle/hosts/pi/demo-canary.mjs"], {
 		cwd: process.cwd(),
 		encoding: "utf8",
 	});

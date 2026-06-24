@@ -8,7 +8,7 @@ the Python standard library.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
@@ -17,7 +17,9 @@ from typing import Any
 from .runtime import naming
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_ROOT = Path(__file__).resolve().parent
+REPO_ROOT = PACKAGE_ROOT.parent
+BUILTIN_REGISTRY_ROOT = PACKAGE_ROOT / "registry_data"
 DEFAULT_PACKAGE_ID = "e24z/pi-local-mac"
 REGISTRY_ROOT_ENVS = ("NEEDLE_REGISTRY_ROOT", "HAY_REGISTRY_ROOT")
 PACKAGE_ID_ENVS = ("NEEDLE_PACKAGE", "HAY_PACKAGE")
@@ -87,19 +89,11 @@ class RuntimeLaunchPlan:
     package_id: str
     backend_id: str
     kind: str
-    extra: str
-    module: str
-    args: list[str]
+    command: list[str]
     env: dict[str, str]
-
-    @property
-    def command(self) -> list[str]:
-        command = ["uv", "run"]
-        if self.extra:
-            command.extend(["--extra", self.extra])
-        command.extend(["-m", self.module])
-        command.extend(self.args)
-        return command
+    extra: str = ""
+    module: str = ""
+    args: list[str] = field(default_factory=list)
 
 
 def load_active_package(
@@ -134,10 +128,11 @@ def runtime_launch_plan(
         package_id=loaded.package_id,
         backend_id=loaded.backend_id,
         kind=launcher["kind"],
+        command=launcher["command"],
+        env=launcher["env"],
         extra=launcher["extra"],
         module=launcher["module"],
         args=launcher["args"],
-        env=launcher["env"],
     )
 
 
@@ -197,7 +192,11 @@ def package_summaries(
 def default_registry_root() -> Path:
     """Registry root for built-ins or an installed package registry checkout."""
     env = _first_env(REGISTRY_ROOT_ENVS)
-    return Path(env).expanduser() if env else REPO_ROOT
+    if env:
+        return Path(env).expanduser()
+    if BUILTIN_REGISTRY_ROOT.exists():
+        return BUILTIN_REGISTRY_ROOT
+    return REPO_ROOT
 
 
 def default_package_id(
@@ -776,19 +775,32 @@ def _validate_backend_launcher(backend: dict[str, Any]) -> dict[str, Any]:
         raise PackageConfigError(f"backend {backend_id!r} requires mapping field 'launcher'")
 
     kind = launcher.get("kind")
-    if kind != "uv-python-module":
+    if kind == "uv-python-module":
+        extra = launcher.get("extra")
+        if not isinstance(extra, str):
+            raise PackageConfigError(f"backend {backend_id!r} launcher.extra must be a string")
+        module = launcher.get("module")
+        if not isinstance(module, str) or not module:
+            raise PackageConfigError(f"backend {backend_id!r} launcher.module must be a non-empty string")
+        args = launcher.get("args", [])
+        if not isinstance(args, list) or not all(isinstance(arg, str) and arg for arg in args):
+            raise PackageConfigError(f"backend {backend_id!r} launcher.args must be a string list")
+        command = ["uv", "run"]
+        if extra:
+            command.extend(["--extra", extra])
+        command.extend(["-m", module])
+        command.extend(args)
+    elif kind == "needle-cli":
+        command = launcher.get("command")
+        if not isinstance(command, list) or not all(isinstance(arg, str) and arg for arg in command):
+            raise PackageConfigError(f"backend {backend_id!r} launcher.command must be a string list")
+        extra = ""
+        module = ""
+        args = list(command[1:])
+    else:
         raise PackageConfigError(
-            f"backend {backend_id!r} launcher.kind must be 'uv-python-module'"
+            f"backend {backend_id!r} launcher.kind must be 'needle-cli' or 'uv-python-module'"
         )
-    extra = launcher.get("extra")
-    if not isinstance(extra, str):
-        raise PackageConfigError(f"backend {backend_id!r} launcher.extra must be a string")
-    module = launcher.get("module")
-    if not isinstance(module, str) or not module:
-        raise PackageConfigError(f"backend {backend_id!r} launcher.module must be a non-empty string")
-    args = launcher.get("args", [])
-    if not isinstance(args, list) or not all(isinstance(arg, str) and arg for arg in args):
-        raise PackageConfigError(f"backend {backend_id!r} launcher.args must be a string list")
     env = launcher.get("env", {})
     if not isinstance(env, dict) or not all(
         isinstance(key, str) and key and isinstance(value, str)
@@ -798,6 +810,7 @@ def _validate_backend_launcher(backend: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "kind": kind,
+        "command": list(command),
         "extra": extra,
         "module": module,
         "args": list(args),
