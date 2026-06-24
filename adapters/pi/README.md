@@ -10,8 +10,9 @@ The extension uses Pi lifecycle/tool/status events:
 
 - `session_start`: ensure the machine-wide manager is running, acquire a lease,
   heartbeat while the Pi session is alive, and publish a Pi footer status via
-  `ctx.ui.setStatus("hay", ...)`. The footer mirrors the Claude statusline
-  ontology: down, cold, loading, degraded, ready, and active.
+  `ctx.ui.setStatus("hay", ...)`. The footer uses the status ontology developed
+  during the archived Claude adapter work: down, cold, loading, degraded, ready,
+  and active.
 - `read` override: register a Pi tool named `read`, delegate to Pi's own
   built-in read implementation, then prune large textual results through the
   Needle runtime socket when `context_focus_question` is present and savings clear

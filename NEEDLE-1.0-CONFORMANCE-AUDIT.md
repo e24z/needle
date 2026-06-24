@@ -54,9 +54,8 @@ Needle has crossed from "idea" into a real Pi slice:
 
 But the repo has not yet fully become the Needle 1.0 architecture:
 
-- The first backend-launch slice can make Pi consume backend launcher metadata,
-  but the runtime module is still the old `pruner` entrypoint until the runtime
-  re-home happens.
+- Pi consumes backend launcher metadata and starts the resident runtime through
+  `python -m needle.runtime manage`.
 - New Needle code can import through `needle.runtime`, and package/backend
   manifests now launch the resident manager through `python -m needle.runtime`.
   The implementation still delegates to the legacy `pruner` module until the
@@ -66,7 +65,8 @@ But the repo has not yet fully become the Needle 1.0 architecture:
 - Registry validation now checks the main package/capability/backend/binding
   and claim-card fields, but full evidence-pack resolution is still a later
   demo/evidence slice.
-- Claude remains in the active tree even though it is not the 1.0 ship target.
+- Claude is archived under `archive/claude/` and is no longer in the active
+  adapter or test tree.
 - The demo/evidence path is mostly described, not executable.
 - The PRD and issue map contain stale "current branch" statements.
 
@@ -92,7 +92,7 @@ or more ontology prose.
 | Reference vs Soft-LaMR | Capability files and repair config tests exist | Mostly landed | Need ensure active package controls repair in every runtime path and CLI doctor reports it plainly. |
 | HTTP/CUDA backend | PRD describes target | Missing | Need at least a documented backend contract, and maybe a minimal HTTP backend stub if "point Needle at HTTP" remains 1.0. |
 | Evidence/claims | Claim cards exist | Partial | Evidence pack refs are symbolic; no checked fixture pack proves claim-card behavior. |
-| Claude | `.claude-plugin`, `adapters/claude`, Claude tests/docs | Active legacy | Should be archived or explicitly marked non-1.0 to reduce product confusion. |
+| Claude | `archive/claude/` | Archived | Not a 1.0 host. Revive only through a new host binding, package card, claim card, and active tests. |
 | CLI shape | `needle/cli.py` uses argparse | Working but straining | Typer likely fits the nested product surface better, but it is secondary to ownership. |
 | Issue tracking | `NEEDLE-1.0-ISSUE-MAP.md` is a local Markdown queue | Transitional | Useful for staging, but not a real project tracker. GitHub issues should become the durable public/internal coordination layer once the work is ready to externalize. |
 | Docs | Tester handoff is current-ish; reading map and issue map are stale | Mixed | Need docs refresh after structural refactor. |
@@ -200,16 +200,14 @@ Target:
 
 Priority: P0 or P1 depending on release hygiene.
 
-Problem:
-Claude support remains structurally active, but 1.0 targets Pi.
+Status:
+Landed. Claude support is archived because 1.0 targets Pi.
 
-Target:
+What moved:
 
-- Move Claude adapter/plugin/skills/docs into `archive/claude/` or
-  `legacy/claude/`.
-- Keep no active package/plugin metadata that suggests Claude is shipping in
-  1.0.
-- Preserve lessons from the Claude statusline and manager lifecycle work.
+- Claude adapter/plugin/skills/docs moved into `archive/claude/`.
+- Claude-only tests moved out of the active `tests/test_*.py` suite.
+- Archive README preserves statusline and manager lifecycle lessons.
 
 ### F. Typer CLI pass
 
@@ -288,9 +286,9 @@ These are product/architecture calls, not chores.
    - Recommendation: yes before public release, with migration or clear cleanup.
      Do not strand early testers on a permanent codename path.
 
-3. Do we archive Claude now?
-   - Recommendation: yes. Archive, do not delete. The active repo should show
-     the Pi 1.0 product.
+3. Was Claude archived for 1.0?
+   - Answer: yes. The active repo now shows the Pi 1.0 product, while
+     `archive/claude/` preserves the older adapter work.
 
 4. Is `e24z/pi-local-mac` still the default public package?
    - Recommendation: yes, with `swe-pruner/reference` and no AST repair. Keep
@@ -323,11 +321,10 @@ These are product/architecture calls, not chores.
 1. Add backend dependency/launch metadata and make Pi consume it.
 2. Deepen registry validation so bad package graphs fail early.
 3. Re-home runtime/backend modules under Needle names, keeping `pruner` shims.
-4. Archive Claude out of the active 1.0 tree.
-5. Convert CLI to Typer and add `backend`/`runtime` doctor views.
-6. Add demo/evidence pack and validation.
-7. Migrate the accepted next issue set into GitHub issues.
-8. Refresh PRD/current-state sections, issue map, tester handoff, and reading
+4. Convert CLI to Typer and add `backend`/`runtime` doctor views.
+5. Add demo/evidence pack and validation.
+6. Migrate the accepted next issue set into GitHub issues.
+7. Refresh PRD/current-state sections, issue map, tester handoff, and reading
    map.
 
 Do not start with benchmarks. Do not start with more ontology prose. The next

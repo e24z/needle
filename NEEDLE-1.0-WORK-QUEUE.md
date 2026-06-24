@@ -43,40 +43,44 @@ without relying on chat memory.
   - Moved the MLX backend manifest, Pi client expectations, and CLI doctor
     output off `python -m pruner manage`.
   - Kept the runtime implementation delegated to `pruner.cli` during migration.
+- `chore(needle): archive claude adapter`
+  - Moved Claude plugin metadata, adapter code, skills, monitors, and
+    Claude-only tests under `archive/claude/`.
+  - Removed Claude from active uninstall guidance.
+  - Preserved the statusline/session lessons in an archive README.
 
 ## Now
 
-### 1. Finish Runtime Re-home
+### 1. Add Demo Fixture And Evidence Pack
 
 Goal:
-Stop making `pruner` the conceptual center of the product.
+Prove the Pi package behavior with small, local, repeatable fixtures before
+public tester docs or benchmark claims.
 
 Acceptance:
 
-- New imports can use `needle.runtime.*`. (First slice landed.)
-- Active package/backend launch uses `python -m needle.runtime manage`.
-- The old `pruner` package remains as a compatibility shim.
-- Runtime docs and status text prefer Needle language.
-- The implementation can later move physically without changing package
-  manifests again.
+- A checked fixture exercises one visible read prune.
+- A checked fixture exercises one bash/process-output prune.
+- A checked fixture exercises missing `context_focus_question` pass-through.
+- Claim-card evidence refs resolve to local files instead of placeholders.
+- `needle package doctor` or a dedicated validator reports evidence status.
 
-### 2. Archive Claude From The Active 1.0 Path
+### 2. Convert Work Queue Into GitHub Issues
 
 Goal:
-Make the active tree reflect that Pi is the 1.0 host.
+Move durable coordination out of local Markdown once the evidence-pack shape is
+concrete enough to split into public issues.
 
 Acceptance:
 
-- Claude plugin files move under `archive/claude/` or equivalent.
-- Tests that remain active do not imply Claude is shipping in 1.0.
-- Useful Claude lessons are preserved in docs or archive notes.
+- GitHub issues exist for demo/evidence, Typer CLI, runtime physical re-home,
+  state rename/migration, and HTTP/backend contract.
+- The local queue points to those issues instead of becoming a second tracker.
 
 ## Next
 
-- Convert the accepted work queue into GitHub issues.
 - Convert the CLI to Typer once command ownership is stable enough.
-- Add a demo fixture and evidence pack for one visible read prune, one bash
-  prune, and one missing-focus pass-through.
+- Finish physical runtime re-home under `needle.runtime`/`needle.backends`.
 - Refresh the PRD current-state sections after the structural slices land.
 
 ## Decisions Needed
@@ -85,9 +89,7 @@ These should be surfaced before they block code:
 
 1. Should HTTP backend support be a 1.0 promise or a post-1.0 documented path?
 2. Should runtime state migrate from `~/.hay` to `~/.needle` before testers?
-3. Should Claude be archived immediately after registry validation, or after
-   runtime re-home?
-4. Should package policy own min chars and minimum savings ratio directly, or
+3. Should package policy own min chars and minimum savings ratio directly, or
    should those remain adapter-local overrides with package-visible defaults?
-5. How strict should the first evidence validation be: checked local fixture
+4. How strict should the first evidence validation be: checked local fixture
    files now, or recognized placeholder references until the demo slice?

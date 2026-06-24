@@ -213,7 +213,6 @@ def _uninstall(args: argparse.Namespace) -> int:
         print("")
         print("Host extension removal stays host-native:")
         print("  Pi:     pi uninstall .")
-        print("  Claude: use Claude's plugin uninstall/update flow")
         print("")
         print("Run `needle uninstall --yes` to stop the runtime and remove these files.")
         return 0
@@ -241,7 +240,6 @@ def _uninstall(args: argparse.Namespace) -> int:
     print("")
     print("Remove host integrations with their native commands:")
     print("  Pi:     pi uninstall .")
-    print("  Claude: use Claude's plugin uninstall/update flow")
     print("Remove the CLI entrypoint with your Python tool installer, for example:")
     print("  uv tool uninstall needle")
     return 0

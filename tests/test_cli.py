@@ -145,6 +145,7 @@ def test_uninstall_dry_run_and_yes_use_needle_owned_paths() -> None:
             assert "removed Needle-owned local state" in out
             assert "pi uninstall ." in out
             assert "uv tool uninstall needle" in out
+            assert "Claude" not in out
             assert not home.exists()
             assert not models.exists()
             assert not config.exists()
