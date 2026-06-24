@@ -21,7 +21,7 @@ async function main() {
 	const eventsPath = join(temp, "events.jsonl");
 	const serverState = { pruneCalls: 0, sessions: new Set(), fixture, eventsPath };
 	const server = createDemoManager(socketPath, serverState);
-	await new Promise((resolve) => server.listen(socketPath, resolve));
+	await listenDemoManager(server, socketPath);
 
 	const oldEnv = captureEnv([
 		"NEEDLE_MANAGER_SOCKET",
@@ -66,8 +66,40 @@ async function main() {
 		printReport(fixture, [readPrune, bashPrune, passThrough], counters, status);
 	} finally {
 		restoreEnv(oldEnv);
-		await new Promise((resolve) => server.close(resolve));
+		await closeDemoManager(server);
 	}
+}
+
+async function listenDemoManager(server, socketPath) {
+	await new Promise((resolve, reject) => {
+		function cleanup() {
+			server.off("error", onError);
+			server.off("listening", onListening);
+		}
+		function onError(err) {
+			cleanup();
+			reject(new Error(`demo manager could not listen on ${socketPath}: ${err.message}`));
+		}
+		function onListening() {
+			cleanup();
+			resolve();
+		}
+		server.once("error", onError);
+		server.once("listening", onListening);
+		server.listen(socketPath);
+	});
+}
+
+async function closeDemoManager(server) {
+	await new Promise((resolve, reject) => {
+		server.close((err) => {
+			if (!err || err.code === "ERR_SERVER_NOT_RUNNING") {
+				resolve();
+				return;
+			}
+			reject(err);
+		});
+	});
 }
 
 async function loadFixturePack(packId) {
@@ -297,7 +329,9 @@ function restoreEnv(values) {
 	}
 }
 
-main().catch((err) => {
+try {
+	await main();
+} catch (err) {
 	console.error(err?.stack || err);
 	process.exit(1);
-});
+}

@@ -45,6 +45,7 @@ def test_base_cli_dependency_does_not_pull_backend_runtime() -> None:
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = "\n".join(data["project"].get("dependencies", [])).lower()
     assert "typer" in dependencies
+    assert "click" in dependencies
     for backend_dep in ("mlx", "mlx-lm", "numpy", "huggingface-hub", "transformers"):
         assert backend_dep not in dependencies
 
@@ -78,6 +79,11 @@ def test_package_cli_lists_and_selects_packages() -> None:
             assert "runtime extra: backend-code-pruner-mlx" in out
             assert "runtime command: uv run --extra backend-code-pruner-mlx -m needle.runtime manage" in out
             assert "restart the resident runtime" in out
+
+            code, out, err = _run(["package", "current"])
+            assert code == 0, err
+            assert out.splitlines()[0] == "e24z/pi-local-mac-soft-lamr"
+            assert "source: config:" in out
 
             code, out, err = _run(["package", "current", "--host-binding", "pi/native-tools"])
             assert code == 0, err

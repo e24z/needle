@@ -10,6 +10,8 @@ loop is exercised against an in-thread manager. Run:
 
 from __future__ import annotations
 
+from contextlib import redirect_stderr
+from io import StringIO
 import os
 import subprocess
 import sys
@@ -22,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["HAY_NO_EVENTS"] = "1"  # compatibility alias; don't write the real local event log
 
 from needle.runtime import client, naming  # noqa: E402
+from needle.runtime import session as session_mod  # noqa: E402
 from needle.runtime.backends import FakePruner  # noqa: E402
 from needle.runtime.manager import serve_manager  # noqa: E402
 from needle.runtime.session import run_session  # noqa: E402
@@ -93,9 +96,42 @@ def test_session_lease_loop(tmp_sock: Path) -> None:
     os.environ.pop("HAY_MANAGER_SOCKET", None)
 
 
+def test_session_failure_is_visible() -> None:
+    old_ensure = session_mod._ensure_manager
+    session_mod._ensure_manager = lambda timeout=10.0: False
+    err = StringIO()
+    try:
+        with redirect_stderr(err):
+            code = session_mod.run_session(stop_event=threading.Event(), session_id="sess-fail")
+    finally:
+        session_mod._ensure_manager = old_ensure
+    assert code == 1
+    assert "manager did not start" in err.getvalue()
+    assert "pruning disabled" in err.getvalue()
+
+
+def test_prune_without_manager_has_recovery_text(tmp_sock: Path) -> None:
+    env = dict(os.environ, HAY_MANAGER_SOCKET=str(tmp_sock), HAY_NO_EVENTS="1", PYTHONPATH=_ROOT)
+    proc = subprocess.run(
+        [sys.executable, "-m", "needle.runtime", "prune", "-q", "focus"],
+        cwd=_ROOT,
+        env=env,
+        input="hello",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert proc.returncode == 1
+    assert "manager is not reachable" in proc.stderr
+    assert "python -m needle.runtime status" in proc.stderr
+    assert "Traceback" not in proc.stderr
+
+
 if __name__ == "__main__":
     import tempfile
 
     test_manage_subprocess_serves(Path(tempfile.mkdtemp()) / "m1.sock")
     test_session_lease_loop(Path(tempfile.mkdtemp()) / "m2.sock")
+    test_session_failure_is_visible()
+    test_prune_without_manager_has_recovery_text(Path(tempfile.mkdtemp()) / "m3.sock")
     print("test_session OK")

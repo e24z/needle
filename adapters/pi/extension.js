@@ -437,7 +437,7 @@ export function renderPackageStatus(packages) {
 		return lines.join("\n");
 	}
 	for (const pkg of packages) {
-		const marker = pkg.active ? "*" : "-";
+		const marker = pkg.active ? "[active]" : "[ ]";
 		const capability = pkg.capabilities?.length ? pkg.capabilities.join(", ") : "?";
 		const backend = pkg.backend || "?";
 		const repair = pkg.capabilities?.includes("e24z/soft-lamr") ? "python AST repair" : "no AST repair";

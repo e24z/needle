@@ -308,6 +308,7 @@ name = "needle"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "typer" },
 ]
 
@@ -322,6 +323,7 @@ backend-code-pruner-mlx = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8,<9" },
     { name = "huggingface-hub", marker = "extra == 'backend-code-pruner-mlx'" },
     { name = "mlx", marker = "extra == 'backend-code-pruner-mlx'" },
     { name = "mlx-lm", marker = "extra == 'backend-code-pruner-mlx'" },

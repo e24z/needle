@@ -133,6 +133,20 @@ def main() -> int:
         assert _call(tmp, {"op": "stop"})["ok"], "manager did not accept stop"
         assert _wait_until(lambda: not tmp.exists()), "manager socket was not removed"
 
+        ready_on_failed_bind = threading.Event()
+        too_long = tmp.parent / ("x" * 200)
+        try:
+            serve_manager(
+                backend_factory=factory,
+                socket_path=too_long,
+                ready_cb=lambda _p: ready_on_failed_bind.set(),
+            )
+        except RuntimeError as exc:
+            assert "could not bind manager socket" in str(exc)
+        else:
+            raise AssertionError("bind failure should not be treated as a live manager")
+        assert not ready_on_failed_bind.is_set(), "failed bind must not signal ready"
+
         print("test_manager OK")
         return 0
     finally:

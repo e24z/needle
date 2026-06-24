@@ -246,7 +246,14 @@ def configured_package_id(
             if isinstance(value, str) and value:
                 return value
     value = config.get("package")
-    return value if isinstance(value, str) and value else None
+    if isinstance(value, str) and value:
+        return value
+    packages = config.get("packages")
+    if isinstance(packages, dict):
+        values = sorted({value for value in packages.values() if isinstance(value, str) and value})
+        if len(values) == 1:
+            return values[0]
+    return None
 
 
 def set_configured_package_id(
@@ -265,6 +272,8 @@ def set_configured_package_id(
         packages = {}
     packages[binding] = loaded.package_id
     config["packages"] = packages
+    if not host_binding:
+        config["package"] = loaded.package_id
     _write_user_config(config_path, config)
     return loaded
 

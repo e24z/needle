@@ -542,8 +542,8 @@ test("Pi package status explains package selection", async () => {
 			backend: "e24z/code-pruner-mlx",
 		},
 	]);
-	assert.match(rendered, /\* e24z\/pi-local-mac/);
-	assert.match(rendered, /- e24z\/pi-local-mac-soft-lamr/);
+	assert.match(rendered, /\[active\] e24z\/pi-local-mac/);
+	assert.match(rendered, /\[ \] e24z\/pi-local-mac-soft-lamr/);
 	assert.match(rendered, /no AST repair/);
 	assert.match(rendered, /python AST repair/);
 	assert.match(rendered, /needle packages:/);
@@ -554,6 +554,18 @@ test("Pi package status explains package selection", async () => {
 	assert.match(live, /e24z\/pi-local-mac/);
 	assert.match(live, /e24z\/pi-local-mac-soft-lamr/);
 	assert.doesNotMatch(live, /e24z\/mcp-bash-local/);
+});
+
+test("Pi demo canary prints proof report", () => {
+	const result = spawnSync(process.execPath, ["adapters/pi/demo-canary.mjs"], {
+		cwd: process.cwd(),
+		encoding: "utf8",
+	});
+	assert.equal(result.status, 0, result.stderr);
+	assert.match(result.stdout, /Needle Pi demo canary/);
+	assert.match(result.stdout, /total chars trimmed:/);
+	assert.match(result.stdout, /prunes accepted: 2/);
+	assert.match(result.stdout, /This proves the Pi extension path/);
 });
 
 test("Pi client reads the local Hay event log", async () => {

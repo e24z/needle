@@ -11,6 +11,7 @@ version = "0.1.0"
 description = "Local context-pruning for agent coding tools."
 requires-python = ">=3.13"
 dependencies = [
+    "click>=8,<9",
     "typer>=0.12,<1",
 ]
 

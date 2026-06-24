@@ -106,9 +106,19 @@ def run_session(
         signal.signal(signal.SIGINT, lambda *_: stop_event.set())
 
     if not _ensure_manager():
-        return 0  # couldn't start a manager: the hook fails open, nothing to hold
+        print(
+            f"{naming.APP_NAME}: manager did not start; pruning disabled for this session "
+            f"(socket={naming.manager_socket_path()}, log={naming.app_home() / 'manager.log'})",
+            file=sys.stderr,
+        )
+        return 1
     if not _acquire(session_id, version):
-        return 0
+        print(
+            f"{naming.APP_NAME}: could not acquire manager lease; pruning disabled for this session "
+            f"(socket={naming.manager_socket_path()})",
+            file=sys.stderr,
+        )
+        return 1
 
     last_beat = time.monotonic()
     try:

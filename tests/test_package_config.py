@@ -205,7 +205,9 @@ def test_package_selection_can_come_from_user_config() -> None:
         try:
             selected = set_configured_package_id("e24z/pi-local-mac-soft-lamr", root=ROOT)
             assert selected.package_id == "e24z/pi-local-mac-soft-lamr"
+            assert configured_package_id() == "e24z/pi-local-mac-soft-lamr"
             assert configured_package_id(host_binding="pi/native-tools") == "e24z/pi-local-mac-soft-lamr"
+            assert active_package_selection()[0] == "e24z/pi-local-mac-soft-lamr"
             assert active_package_selection(host_binding="pi/native-tools")[0] == "e24z/pi-local-mac-soft-lamr"
             assert load_active_package(ROOT, host_binding="pi/native-tools").package_id == "e24z/pi-local-mac-soft-lamr"
 

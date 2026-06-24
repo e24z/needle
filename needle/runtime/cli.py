@@ -34,6 +34,9 @@ def _manage(args: argparse.Namespace) -> int:
 
     try:
         serve_manager(ready_cb=ready)
+    except (OSError, RuntimeError) as exc:
+        print(f"{naming.APP_NAME}: manager failed to start: {exc}", file=sys.stderr)
+        return 1
     except KeyboardInterrupt:
         print(f"\n{naming.APP_NAME}: manager stopped", file=sys.stderr)
     return 0
@@ -45,7 +48,16 @@ def _session(args: argparse.Namespace) -> int:
 
 def _prune(args: argparse.Namespace) -> int:
     text = sys.stdin.read()
-    resp = client.prune(text=text, query=args.query)
+    try:
+        resp = client.prune(text=text, query=args.query)
+    except OSError as exc:
+        print(
+            f"error: {naming.APP_NAME} manager is not reachable at {naming.manager_socket_path()}: {exc}",
+            file=sys.stderr,
+        )
+        print(f"hint: run `python -m needle.runtime status` to inspect it", file=sys.stderr)
+        print(f"hint: run `python -m needle.runtime manage` to start it", file=sys.stderr)
+        return 1
     if not resp.get("ok"):
         print(f"error: {resp.get('error')}", file=sys.stderr)
         return 1

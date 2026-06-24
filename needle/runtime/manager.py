@@ -255,11 +255,13 @@ def serve_manager(
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         srv.bind(str(sock_path))
-    except OSError:  # lost the bind race to another manager; defer to it
+    except OSError as exc:
         srv.close()
-        if ready_cb:
-            ready_cb(sock_path)
-        return
+        if naming.socket_is_live(sock_path):
+            if ready_cb:  # lost the bind race to a manager that is actually live
+                ready_cb(sock_path)
+            return
+        raise RuntimeError(f"could not bind manager socket at {sock_path}: {exc}") from exc
     srv.listen(16)
     srv.settimeout(poll_interval)  # wake periodically to maintain + check stop
 
