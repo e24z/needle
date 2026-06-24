@@ -10,7 +10,7 @@ import { codeVersion, packageIdentity, prune, socketIsLive, sourceIdentity, tail
 import {
 	buildToolResultPatch,
 	decideStatusState,
-	extractQuery,
+	extractFocusQuestion,
 	extractText,
 	formatIndicator,
 	formatStatus,
@@ -57,19 +57,10 @@ test("Pi adapter patches prunable tool results and records savings", async () =>
 	const counters = { calls: 0, originalChars: 0, prunedChars: 0, savedChars: 0 };
 	const event = {
 		toolName: "read",
+		params: { context_focus_question: "read the config" },
 		content: [{ type: "text", text: "x".repeat(1000) }],
 	};
-	const ctx = {
-		sessionManager: {
-			getEntries: () => [
-				{
-					type: "message",
-					message: { role: "assistant", content: [{ type: "text", text: "read the config" }] },
-				},
-			],
-		},
-	};
-	const patch = await buildToolResultPatch(event, ctx, counters, async (text, query) => {
+	const patch = await buildToolResultPatch(event, {}, counters, async (text, query) => {
 		assert.equal(query, "read the config");
 		return { ok: true, text: text.slice(0, 400) };
 	});
@@ -126,7 +117,8 @@ test("Pi extension lifecycle leases, overrides read, updates status, and release
 				label: "read",
 				description: "mock Pi read",
 				parameters: {},
-				async execute() {
+				async execute(_toolCallId, params) {
+					assert.deepEqual(params, { path: "file.py" });
 					return {
 						content: [{ type: "text", text: "x".repeat(1000) }],
 						details: { cwd },
@@ -155,7 +147,14 @@ test("Pi extension lifecycle leases, overrides read, updates status, and release
 		await handlers.get("session_start")({}, ctx);
 		assert.equal(handlers.has("tool_result"), false);
 		assert.equal(tools.has("read"), true);
-		const result = await tools.get("read").execute("tool-call-1", { path: "file.py" }, ctx.signal, undefined, ctx);
+		assert.equal(tools.get("read").parameters.properties.context_focus_question.type, "string");
+		const result = await tools.get("read").execute(
+			"tool-call-1",
+			{ path: "file.py", context_focus_question: "summarize this file" },
+			ctx.signal,
+			undefined,
+			ctx,
+		);
 		await commands.get("hay").handler("status", ctx);
 		await handlers.get("session_shutdown")({}, ctx);
 
@@ -318,7 +317,11 @@ test("Pi adapter ignores tiny, non-target, and unchanged results", async () => {
 	);
 	assert.equal(
 		await buildToolResultPatch(
-			{ toolName: "read", content: [{ type: "text", text: "short" }] },
+			{
+				toolName: "read",
+				params: { context_focus_question: "focus" },
+				content: [{ type: "text", text: "short" }],
+			},
 			{},
 			counters,
 			async () => ({ ok: true, text: "" }),
@@ -327,7 +330,11 @@ test("Pi adapter ignores tiny, non-target, and unchanged results", async () => {
 	);
 	assert.equal(
 		await buildToolResultPatch(
-			{ toolName: "read", content: [{ type: "text", text: "x".repeat(1000) }] },
+			{
+				toolName: "read",
+				params: { context_focus_question: "focus" },
+				content: [{ type: "text", text: "x".repeat(1000) }],
+			},
 			{},
 			counters,
 			async (text) => ({ ok: true, text }),
@@ -336,26 +343,21 @@ test("Pi adapter ignores tiny, non-target, and unchanged results", async () => {
 	);
 });
 
-test("Pi query extraction uses the latest assistant text", () => {
-	const query = extractQuery({
-		sessionManager: {
-			getEntries: () => [
-				{ type: "message", message: { role: "user", content: "what" } },
-				{ type: "message", message: { role: "assistant", content: [{ type: "text", text: "old" }] } },
-				{ type: "message", message: { role: "assistant", content: [{ type: "text", text: "new" }] } },
-			],
+test("Pi pruning requires explicit context_focus_question", async () => {
+	assert.equal(extractFocusQuestion({ context_focus_question: "  inspect imports  " }), "inspect imports");
+	assert.equal(extractFocusQuestion({}), "");
+	let called = false;
+	const patch = await buildToolResultPatch(
+		{ toolName: "read", params: {}, content: [{ type: "text", text: "x".repeat(1000) }] },
+		{},
+		{ calls: 0, originalChars: 0, prunedChars: 0, savedChars: 0 },
+		async () => {
+			called = true;
+			return { ok: true, text: "" };
 		},
-	});
-	assert.equal(query, "new");
-	const fallback = extractQuery({
-		sessionManager: {
-			getEntries: () => [
-				{ type: "message", message: { role: "user", content: "read the model path code" } },
-				{ type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "read" }] } },
-			],
-		},
-	});
-	assert.equal(fallback, "read the model path code");
+	);
+	assert.equal(patch, undefined);
+	assert.equal(called, false);
 });
 
 test("Pi status formatter is honest about cold and degraded states", () => {

@@ -131,15 +131,15 @@ function registerReadOverride(pi, counters, createReadTool, statusCache) {
 		name: READ_TOOL,
 		label: template.label || READ_TOOL,
 		description: template.description,
-		parameters: template.parameters,
+		parameters: withFocusQuestionParameter(template.parameters),
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const readTool = createReadTool(ctx?.cwd || process.cwd());
-			const result = await readTool.execute(toolCallId, params, signal, onUpdate);
+			const result = await readTool.execute(toolCallId, stripNeedleParams(params), signal, onUpdate);
 			statusCache.busyPrunes += 1;
 			await updateStatus(ctx, counters, statusCache);
 			let patch;
 			try {
-				patch = await buildReadResultPatch(result, ctx, counters, (text, query) =>
+				patch = await buildReadResultPatch(result, params, ctx, counters, (text, query) =>
 					prune(text, query, { signal, timeoutMs: PRUNE_TIMEOUT_MS }),
 				);
 			} finally {
@@ -169,15 +169,37 @@ function registerReadOverride(pi, counters, createReadTool, statusCache) {
 	return true;
 }
 
-export async function buildReadResultPatch(result, ctx, counters, pruneFn) {
-	return buildToolResultPatch({ toolName: READ_TOOL, ...result }, ctx, counters, pruneFn);
+function withFocusQuestionParameter(parameters) {
+	const base = parameters && typeof parameters === "object" ? parameters : {};
+	return {
+		...base,
+		type: base.type || "object",
+		properties: {
+			...(base.properties || {}),
+			context_focus_question: {
+				type: "string",
+				description: "Optional task focus for Needle pruning. Omit to return the original output unchanged.",
+			},
+		},
+	};
+}
+
+function stripNeedleParams(params) {
+	if (!params || typeof params !== "object" || !("context_focus_question" in params)) return params;
+	const { context_focus_question: _focus, ...rest } = params;
+	return rest;
+}
+
+export async function buildReadResultPatch(result, params, ctx, counters, pruneFn) {
+	return buildToolResultPatch({ toolName: READ_TOOL, params, ...result }, ctx, counters, pruneFn);
 }
 
 export async function buildToolResultPatch(event, ctx, counters, pruneFn) {
 	if (event.toolName !== READ_TOOL) return undefined;
 	const original = extractText(event.content);
 	if (!original || original.length < MIN_CHARS) return undefined;
-	const query = extractQuery(ctx);
+	const query = extractFocusQuestion(event.params);
+	if (!query) return undefined;
 	let resp;
 	try {
 		resp = await pruneFn(original, query);
@@ -192,6 +214,11 @@ export async function buildToolResultPatch(event, ctx, counters, pruneFn) {
 	return { content: [{ type: "text", text: pruned }] };
 }
 
+export function extractFocusQuestion(params) {
+	const value = params?.context_focus_question;
+	return typeof value === "string" ? value.trim() : "";
+}
+
 export function extractText(content) {
 	if (!Array.isArray(content)) return "";
 	const parts = [];
@@ -200,33 +227,6 @@ export function extractText(content) {
 		parts.push(block.text);
 	}
 	return parts.join("\n");
-}
-
-export function extractQuery(ctx) {
-	const entries = ctx?.sessionManager?.getEntries?.() || [];
-	let latestUserText = "";
-	for (let i = entries.length - 1; i >= 0; i--) {
-		const entry = entries[i];
-		if (entry?.type !== "message") continue;
-		const msg = entry.message;
-		const text = messageText(msg);
-		if (!text) continue;
-		if (msg?.role === "assistant") return text;
-		if (!latestUserText && msg?.role === "user") latestUserText = text;
-	}
-	return latestUserText;
-}
-
-function messageText(msg) {
-	if (typeof msg.content === "string") return msg.content.trim();
-	if (Array.isArray(msg.content)) {
-		return msg.content
-			.filter((block) => block?.type === "text" && typeof block.text === "string")
-			.map((block) => block.text)
-			.join("\n")
-			.trim();
-	}
-	return "";
 }
 
 function emptyCounters() {

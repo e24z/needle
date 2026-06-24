@@ -14,8 +14,9 @@ The extension uses Pi lifecycle/tool/status events:
   ontology: down, cold, loading, degraded, ready, and active.
 - `read` override: register a Pi tool named `read`, delegate to Pi's own
   built-in read implementation, then prune large textual results through the
-  Hay manager socket when savings clear the threshold. The model and user still
-  see the normal `read` tool name.
+  Hay manager socket when `context_focus_question` is present and savings clear
+  the threshold. The model and user still see the normal `read` tool name. If
+  the focus question is missing, the original output passes through unchanged.
 - `session_shutdown`: release the lease.
 
 Run locally without installing:
@@ -27,10 +28,11 @@ pi --extension adapters/pi/extension.js --no-session --offline
 ```
 
 Once loaded, `/hay` shows the operator snapshot: manager residency, memory
-pressure, lease count, current Pi-session savings, socket/home paths, and recent
-local events. `/hay doctor` also shows the exact extension path, package version,
-pyproject version, Git branch/commit, and dirty/clean state. `/hay events 30`
-changes the event count.
+pressure, lease count, current Pi-session exact chars trimmed, socket/home
+paths, and recent local events. `/hay doctor` also shows the exact extension
+path, active Needle package, capability, backend, model directory, package
+version, pyproject version, Git branch/commit, and dirty/clean state.
+`/hay events 30` changes the event count.
 
 Install from this repo as a Pi package:
 
