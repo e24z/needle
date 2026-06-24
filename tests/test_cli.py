@@ -42,6 +42,18 @@ def test_typer_help_groups_public_commands() -> None:
         assert command in out
 
 
+def test_cli_version_and_usage_errors_are_human_readable() -> None:
+    code, out, err = _run(["--version"])
+    assert code == 0, err
+    assert out.strip().startswith("needle ")
+
+    code, out, err = _run(["nope"])
+    assert code != 0
+    assert out == ""
+    assert "No such command" in err
+    assert "Traceback" not in err
+
+
 def test_base_cli_dependency_does_not_pull_backend_runtime() -> None:
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     dependencies = "\n".join(data["project"].get("dependencies", [])).lower()
@@ -99,6 +111,9 @@ def test_package_cli_lists_and_selects_packages() -> None:
             assert "uses backend: e24z/code-pruner-mlx" in out
             assert "runtime launcher: needle-cli" in out
             assert "runtime command: needle runtime manage" in out
+            assert "package graph: ok" in out
+            assert "backend requirements: apple_silicon, mlx" in out
+            assert "backend readiness:" in out
             assert "evidence: fixture_pack:needle-soft-lamr" in out
             assert "evidence/fixture-packs/needle-soft-lamr/manifest.json" in out
         finally:
@@ -139,7 +154,8 @@ def test_evidence_check_lists_fixture_cases() -> None:
     code, out, err = _run(["evidence", "check", "e24z/pi-local-mac", "--host-binding", "pi/native-tools"])
     assert code == 0, err
     assert "package: e24z/pi-local-mac" in out
-    assert "evidence: ok" in out
+    assert "evidence: ok (fixture manifests only)" in out
+    assert "proof level: local fixtures" in out
     assert "fixture_pack:swe-pruner-reference" in out
     assert "case: read-visible-prune  tool=read  behavior=visible_prune" in out
     assert "case: bash-visible-prune  tool=bash  behavior=visible_prune" in out
@@ -222,12 +238,34 @@ def test_setup_pi_dry_run_uses_packaged_adapter() -> None:
     assert "Pi command: pi install" in out
     assert "Canary command: node" in out
     assert "dry run: no changes made" in out
+    assert "next: run `needle setup pi`" in out
 
 
 def test_runtime_status_wrapper_is_available() -> None:
     code, out, err = _run(["runtime", "status"])
     assert code == 0, err
     assert "manager:" in out
+
+
+def test_stop_is_idempotent_when_runtime_is_down() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        old_socket = os.environ.get("NEEDLE_MANAGER_SOCKET")
+        os.environ["NEEDLE_MANAGER_SOCKET"] = str(Path(td) / "missing.sock")
+        try:
+            code, out, err = _run(["stop"])
+            assert code == 0
+            assert out == ""
+            assert "already stopped" in err
+
+            code, out, err = _run(["runtime", "stop"])
+            assert code == 0
+            assert out == ""
+            assert "already stopped" in err
+        finally:
+            if old_socket is None:
+                os.environ.pop("NEEDLE_MANAGER_SOCKET", None)
+            else:
+                os.environ["NEEDLE_MANAGER_SOCKET"] = old_socket
 
 
 def test_pruner_cli_does_not_own_packages() -> None:
@@ -245,6 +283,7 @@ def test_pruner_cli_does_not_own_packages() -> None:
 
 def main() -> int:
     test_typer_help_groups_public_commands()
+    test_cli_version_and_usage_errors_are_human_readable()
     test_base_cli_dependency_does_not_pull_backend_runtime()
     test_package_cli_lists_and_selects_packages()
     test_package_cli_rejects_unknown_package()
@@ -253,6 +292,7 @@ def main() -> int:
     test_model_dir_command_reports_needle_model_path()
     test_setup_pi_dry_run_uses_packaged_adapter()
     test_runtime_status_wrapper_is_available()
+    test_stop_is_idempotent_when_runtime_is_down()
     test_pruner_cli_does_not_own_packages()
     print("test_cli OK")
     return 0

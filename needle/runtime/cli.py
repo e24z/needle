@@ -126,8 +126,8 @@ def _stop(args: argparse.Namespace) -> int:
     try:
         resp = client.stop(timeout=0.5)
     except OSError as exc:
-        print(f"{naming.APP_NAME}: manager not running ({exc})", file=sys.stderr)
-        return 1
+        print(f"{naming.APP_NAME}: manager already stopped ({exc})", file=sys.stderr)
+        return 0
     if not resp.get("ok"):
         print(f"error: {resp.get('error')}", file=sys.stderr)
         return 1

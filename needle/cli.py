@@ -19,6 +19,7 @@ from pathlib import Path
 import click
 import typer
 
+from . import __version__
 from .registry import (
     PackageConfigError,
     active_package_selection,
@@ -34,6 +35,7 @@ app = typer.Typer(
     name="needle",
     help="Needle package and runtime control plane.",
     no_args_is_help=True,
+    invoke_without_command=True,
 )
 package_app = typer.Typer(help="Inspect and select Needle packages.", no_args_is_help=True)
 evidence_app = typer.Typer(help="Inspect package evidence fixtures.", no_args_is_help=True)
@@ -46,6 +48,21 @@ app.add_typer(evidence_app, name="evidence")
 app.add_typer(model_app, name="model")
 app.add_typer(runtime_app, name="runtime")
 app.add_typer(setup_app, name="setup")
+
+
+@app.callback()
+def _root(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        help="Show Needle's version and exit.",
+        is_eager=True,
+    ),
+) -> None:
+    """Needle package and runtime control plane."""
+    if version:
+        print(f"needle {__version__}")
+        raise typer.Exit()
 
 
 def _print_error(message: object) -> None:
@@ -113,6 +130,26 @@ def _package_use(args: argparse.Namespace) -> int:
     return 0
 
 
+def _backend_readiness_notes(loaded: object) -> list[str]:
+    backend = getattr(loaded, "backend", {}) or {}
+    compute = backend.get("compute") if isinstance(backend, dict) else {}
+    requires = compute.get("requires", []) if isinstance(compute, dict) else []
+    requirements = ", ".join(str(item) for item in requires) if requires else "none declared"
+    notes = [
+        "package graph: ok (registry only; backend is not imported and model is not loaded)",
+        f"backend requirements: {requirements}",
+    ]
+    if "mlx" in requires:
+        notes.append(
+            "backend readiness: install the MLX backend dependencies and model before expecting real pruning"
+        )
+    elif "explicit_endpoint" in requires:
+        notes.append("backend readiness: set the endpoint env var before expecting remote pruning")
+    else:
+        notes.append("backend readiness: not checked by package doctor")
+    return notes
+
+
 def _package_doctor(args: argparse.Namespace) -> int:
     try:
         loaded = load_active_package(
@@ -132,6 +169,7 @@ def _package_doctor(args: argparse.Namespace) -> int:
         f"uses backend: {loaded.backend_id}",
         f"runtime launcher: {plan.kind}",
         f"runtime command: {' '.join(plan.command)}",
+        *_backend_readiness_notes(loaded),
         f"host binding: {loaded.binding_id}",
         f"claim card: {loaded.claim_card['id']}",
         f"package card: {loaded.package_card_path}",
@@ -154,7 +192,11 @@ def _evidence_check(args: argparse.Namespace) -> int:
 
     print(f"package: {loaded.package_id}")
     print(f"claim card: {loaded.claim_card['id']}")
-    print("evidence: ok")
+    print("evidence: ok (fixture manifests only)")
+    print(
+        "proof level: local fixtures; does not prove MLX model quality, "
+        "SWE-bench acceptance, token savings, or dollar savings"
+    )
     for ref, path in loaded.evidence_paths.items():
         print(f"- {ref}")
         print(f"  manifest: {path}")
@@ -227,8 +269,8 @@ def _stop(args: argparse.Namespace) -> int:
     try:
         resp = client.stop(timeout=0.5)
     except OSError as exc:
-        print(f"Needle: runtime not running ({exc})", file=sys.stderr)
-        return 1
+        print(f"Needle: runtime already stopped ({exc})", file=sys.stderr)
+        return 0
     if not resp.get("ok"):
         _print_error(resp.get("error"))
         return 1
@@ -341,10 +383,15 @@ def _setup_pi(args: argparse.Namespace) -> int:
         if not args.uninstall and not args.skip_canary:
             print(f"Canary command: node {canary}")
         print("dry run: no changes made")
+        if args.uninstall:
+            print("next: run `needle setup pi --uninstall` without `--dry-run` to remove the Pi adapter.")
+        else:
+            print("next: run `needle setup pi`, then open Pi and run `/needle doctor`.")
         return 0
 
     if shutil.which("pi") is None:
         _print_error("Pi CLI was not found on PATH; install or open Pi before running setup.")
+        print("tip: `pi --help` should work before Needle can install its Pi adapter.", file=sys.stderr)
         return 1
 
     code = _run_visible(pi_command)
@@ -385,9 +432,8 @@ def _model_download(args: argparse.Namespace) -> int:
         from huggingface_hub import snapshot_download
     except ImportError:
         print(
-            "error: model download needs the MLX backend extra; "
-            "install Needle with the MLX backend dependencies "
-            "(developer path: `uv run --extra backend-code-pruner-mlx needle model download`)",
+            "error: this Needle install does not include the MLX backend dependencies; "
+            "developer preview path: `uv tool install --editable '.[backend-code-pruner-mlx]'`",
             file=sys.stderr,
         )
         return 1
@@ -644,6 +690,16 @@ def main(argv: list[str] | None = None) -> int:
     except click.Abort:
         print("Aborted!", file=sys.stderr)
         return 1
+    except Exception as exc:
+        # Typer 0.26 uses a vendored Click implementation for console scripts.
+        # Catch those CLI-usage exceptions structurally so user mistakes do not
+        # render as Python tracebacks from installed artifacts.
+        show = getattr(exc, "show", None)
+        exit_code = getattr(exc, "exit_code", None)
+        if callable(show) and isinstance(exit_code, int):
+            show(file=sys.stderr)
+            return exit_code
+        raise
     if isinstance(result, int):
         return result
     return 0

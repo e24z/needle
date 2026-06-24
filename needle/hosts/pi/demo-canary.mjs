@@ -8,7 +8,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { registryRoot, repoRootFromModuleUrl } from "./client.mjs";
-import { installHayPiExtension } from "./extension.js";
+import { installNeedlePiExtension } from "./extension.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = repoRootFromModuleUrl(import.meta.url);
@@ -206,7 +206,7 @@ function installDemoExtension(fixture) {
 		registerTool: (definition) => tools.set(definition.name, definition),
 		sendMessage: (message) => messages.push(message),
 	};
-	installHayPiExtension(pi, {
+	installNeedlePiExtension(pi, {
 		createReadTool: () => ({
 			name: "read",
 			label: "read",

@@ -39,8 +39,16 @@ path, active Needle package, capability, backend, model directory, package
 version, pyproject version, Git branch/commit, and dirty/clean state.
 `/needle events 30` changes the event count. `/needle packages` is a Pi-local view of
 Needle packages whose host binding is `pi/native-tools`; the canonical package
-control plane is the host-neutral `needle package ...` CLI. `/hay` remains a
-temporary alias.
+control plane is the host-neutral `needle package ...` CLI.
+
+The Pi footer has a compact status indicator:
+
+- `down`: no manager is listening; Needle fails open.
+- `cold`: the manager is up, but the model is not loaded.
+- `loading`: the serial manager is cold-loading or busy.
+- `degraded`: Needle is running with a fallback backend.
+- `ready`: the manager and backend are resident.
+- `active`: a prune is in flight right now.
 
 Install through Needle:
 

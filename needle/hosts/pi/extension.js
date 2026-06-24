@@ -23,14 +23,14 @@ import {
 const READ_TOOL = "read";
 const BASH_TOOL = "bash";
 const PRUNABLE_TOOLS = new Set([READ_TOOL, BASH_TOOL]);
-const MIN_CHARS = Number.parseInt(process.env.HAY_MIN_CHARS || "200", 10);
-const MIN_RATIO = Number.parseFloat(process.env.HAY_MIN_SAVINGS_RATIO || "0.10");
-const PRUNE_TIMEOUT_MS = envMs("HAY_PI_PRUNE_TIMEOUT_SECS", 180);
-const HEARTBEAT_MS = Number.parseFloat(process.env.HAY_HEARTBEAT_INTERVAL || "30") * 1000;
-const STATUS_MS = envMs("HAY_PI_STATUS_INTERVAL_SECS", 0.4);
-const STATUS_POLL_MS = envMs("HAY_PI_STATUS_POLL_SECS", 1);
-const ANIMATION_MS = envMs("HAY_PI_ANIMATION_INTERVAL_SECS", 0.4);
-const ACTIVE_MS = Number.parseFloat(process.env.HAY_PI_ACTIVE_SECS || "3") * 1000;
+const MIN_CHARS = Number.parseInt(envValue("NEEDLE_MIN_CHARS", "HAY_MIN_CHARS", "200"), 10);
+const MIN_RATIO = Number.parseFloat(envValue("NEEDLE_MIN_SAVINGS_RATIO", "HAY_MIN_SAVINGS_RATIO", "0.10"));
+const PRUNE_TIMEOUT_MS = envMs("NEEDLE_PI_PRUNE_TIMEOUT_SECS", "HAY_PI_PRUNE_TIMEOUT_SECS", 180);
+const HEARTBEAT_MS =
+	Number.parseFloat(envValue("NEEDLE_HEARTBEAT_INTERVAL", "HAY_HEARTBEAT_INTERVAL", "30")) * 1000;
+const STATUS_MS = envMs("NEEDLE_PI_STATUS_INTERVAL_SECS", "HAY_PI_STATUS_INTERVAL_SECS", 0.4);
+const STATUS_POLL_MS = envMs("NEEDLE_PI_STATUS_POLL_SECS", "HAY_PI_STATUS_POLL_SECS", 1);
+const ANIMATION_MS = envMs("NEEDLE_PI_ANIMATION_INTERVAL_SECS", "HAY_PI_ANIMATION_INTERVAL_SECS", 0.4);
 const CUSTOM_STATE = "needle-state";
 const SEP = " · ";
 const SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -50,11 +50,11 @@ const PRESSURE = new Map([
 	[4, "critical"],
 ]);
 
-export default async function hayPiExtension(pi) {
-	return installHayPiExtension(pi, await loadPiTools());
+export default async function needlePiExtension(pi) {
+	return installNeedlePiExtension(pi, await loadPiTools());
 }
 
-export function installHayPiExtension(pi, options = {}) {
+export function installNeedlePiExtension(pi, options = {}) {
 	const repoRoot = repoRootFromModuleUrl(import.meta.url);
 	const extensionPath = pathFromModuleUrl(import.meta.url);
 	const counters = emptyCounters();
@@ -92,7 +92,7 @@ export function installHayPiExtension(pi, options = {}) {
 async function loadPiTools() {
 	const mod = await importPiSdk();
 	if (typeof mod.createReadTool !== "function") {
-		throw new Error("Hay Pi extension requires createReadTool from @mariozechner/pi-coding-agent");
+		throw new Error("Needle Pi extension requires createReadTool from @mariozechner/pi-coding-agent");
 	}
 	return {
 		createReadTool: mod.createReadTool,
@@ -331,10 +331,7 @@ export function decideStatusState(snapshot, counters = {}, options = {}) {
 		return "degraded";
 	}
 	if (options.busy) return "active";
-	const now = options.nowMs ?? Date.now();
-	const updatedAt = Number(counters.updatedAt || 0);
-	const recent = Number.isFinite(updatedAt) && updatedAt > 0 && now - updatedAt < ACTIVE_MS;
-	return recent ? "active" : "ready";
+	return "ready";
 }
 
 export function formatIndicator(state, theme, options = {}) {
@@ -379,40 +376,38 @@ export function formatStatus(snapshot, counters = {}, theme, options = {}) {
 }
 
 function registerNeedleCommand(pi, counters, runtime) {
-	for (const command of ["needle", "hay"]) {
-		pi.registerCommand?.(command, {
-			description: command === "needle" ? "Show Needle runtime status" : "Alias for /needle",
-			getArgumentCompletions: (prefix) => {
-				const items = ["status", "doctor", "events", "packages"].filter((item) => item.startsWith(prefix));
-				return items.length ? items.map((value) => ({ value, label: value })) : null;
-			},
-			handler: async (args, ctx) => {
-				const parsed = parseNeedleArgs(args);
-				if (!parsed.ok) {
-					ctx.ui?.notify?.(`Usage: /${command} [status|doctor|events|packages] [count]`, "warning");
-					return;
-				}
-				const content =
-					parsed.mode === "packages"
-						? await buildPackageStatus(runtime.repoRoot)
-						: await buildOperatorStatus(counters, {
-								events: parsed.events,
-								includeSource: parsed.mode === "doctor",
-								...runtime,
-							});
-				if (typeof pi.sendMessage === "function") {
-					pi.sendMessage({
-						customType: "needle-status",
-						content,
-						display: true,
-						details: { events: parsed.events, mode: parsed.mode },
-					});
-				} else {
-					ctx.ui?.notify?.(content, "info");
-				}
-			},
-		});
-	}
+	pi.registerCommand?.("needle", {
+		description: "Show Needle runtime status",
+		getArgumentCompletions: (prefix) => {
+			const items = ["status", "doctor", "events", "packages"].filter((item) => item.startsWith(prefix));
+			return items.length ? items.map((value) => ({ value, label: value })) : null;
+		},
+		handler: async (args, ctx) => {
+			const parsed = parseNeedleArgs(args);
+			if (!parsed.ok) {
+				ctx.ui?.notify?.("Usage: /needle [status|doctor|events|packages] [count]", "warning");
+				return;
+			}
+			const content =
+				parsed.mode === "packages"
+					? await buildPackageStatus(runtime.repoRoot)
+					: await buildOperatorStatus(counters, {
+							events: parsed.events,
+							includeSource: parsed.mode === "doctor",
+							...runtime,
+						});
+			if (typeof pi.sendMessage === "function") {
+				pi.sendMessage({
+					customType: "needle-status",
+					content,
+					display: true,
+					details: { events: parsed.events, mode: parsed.mode },
+				});
+			} else {
+				ctx.ui?.notify?.(content, "info");
+			}
+		},
+	});
 }
 
 function parseNeedleArgs(args) {
@@ -613,8 +608,12 @@ function formatMb(value) {
 	return `${(value / 1024).toFixed(1)} GB`;
 }
 
-function envMs(name, defaultSecs) {
-	const secs = Number.parseFloat(process.env[name] || "");
+function envValue(primary, legacy, fallback) {
+	return process.env[primary] ?? process.env[legacy] ?? fallback;
+}
+
+function envMs(primary, legacy, defaultSecs) {
+	const secs = Number.parseFloat(envValue(primary, legacy, ""));
 	return (Number.isFinite(secs) && secs > 0 ? secs : defaultSecs) * 1000;
 }
 

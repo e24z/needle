@@ -50,8 +50,6 @@ spending model context on irrelevant file sections or noisy command output.
    compute local_mlx | privacy local_only
    ```
 
-   `/hay` is a temporary alias for the same Pi command.
-
 4. She asks Pi to inspect a large file or run a noisy command. Pi's tool call
    includes a `context_focus_question`, so Needle can score the output against
    what the model is looking for. Missing focus questions pass through

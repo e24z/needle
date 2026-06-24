@@ -23,11 +23,18 @@ needle setup pi
 ```
 
 The tap is not published yet. Until the first tagged release, use the developer
-path:
+path from a clone of this repo. This path requires Python 3.13 or newer and
+`uv`; the future Homebrew formula will install the Python runtime for you.
 
 ```bash
 uv tool install --editable .
 needle setup pi
+```
+
+Needle's Pi setup expects Pi's CLI to be available:
+
+```bash
+pi --help
 ```
 
 Check the adapter from inside Pi:

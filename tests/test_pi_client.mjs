@@ -28,12 +28,12 @@ import {
 	extractText,
 	formatIndicator,
 	formatStatus,
-	installHayPiExtension,
+	installNeedlePiExtension,
 	renderPackageStatus,
 	renderOperatorStatus,
 } from "../needle/hosts/pi/extension.js";
 
-test("Pi client speaks Hay newline JSON protocol", async () => {
+test("Pi client speaks Needle newline JSON protocol", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "hay-pi-"));
 	const socketPath = join(dir, "manager.sock");
 	const server = createServer((conn) => {
@@ -143,7 +143,7 @@ test("Pi extension lifecycle leases, overrides read, updates status, and release
 			registerTool: (definition) => tools.set(definition.name, definition),
 			sendMessage: (message) => messages.push(message),
 		};
-		installHayPiExtension(pi, {
+		installNeedlePiExtension(pi, {
 			createReadTool: (cwd) => ({
 				name: "read",
 				label: "read",
@@ -192,7 +192,7 @@ test("Pi extension lifecycle leases, overrides read, updates status, and release
 		await handlers.get("session_start")({}, ctx);
 		assert.equal(handlers.has("tool_result"), false);
 		assert.equal(commands.has("needle"), true);
-		assert.equal(commands.has("hay"), true);
+		assert.equal(commands.has("hay"), false);
 		assert.equal(tools.has("read"), true);
 		assert.equal(tools.has("bash"), true);
 		assert.equal(tools.get("read").parameters.properties.context_focus_question.type, "string");
@@ -564,7 +564,7 @@ test("Pi demo canary prints proof report", () => {
 	assert.match(result.stdout, /This proves the Pi extension path/);
 });
 
-test("Pi client reads the local Hay event log", async () => {
+test("Pi client reads the local Needle event log", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "hay-pi-events-"));
 	const path = join(dir, "events.jsonl");
 	await writeFile(
@@ -679,7 +679,7 @@ test("Pi status formatter is honest about cold and degraded states", () => {
 			{ updatedAt: 9_000 },
 			{ nowMs: 10_000 },
 		),
-		"active",
+		"ready",
 	);
 	for (const state of ["down", "cold", "loading", "degraded", "ready", "active"]) {
 		assert.ok(formatIndicator(state, undefined, { nowMs: 10_000 }));
