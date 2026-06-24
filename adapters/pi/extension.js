@@ -20,6 +20,8 @@ import {
 } from "./client.mjs";
 
 const READ_TOOL = "read";
+const BASH_TOOL = "bash";
+const PRUNABLE_TOOLS = new Set([READ_TOOL, BASH_TOOL]);
 const MIN_CHARS = Number.parseInt(process.env.HAY_MIN_CHARS || "200", 10);
 const MIN_RATIO = Number.parseFloat(process.env.HAY_MIN_SAVINGS_RATIO || "0.10");
 const PRUNE_TIMEOUT_MS = envMs("HAY_PI_PRUNE_TIMEOUT_SECS", 180);
@@ -48,7 +50,7 @@ const PRESSURE = new Map([
 ]);
 
 export default async function hayPiExtension(pi) {
-	return installHayPiExtension(pi, { createReadTool: await loadCreateReadTool() });
+	return installHayPiExtension(pi, await loadPiTools());
 }
 
 export function installHayPiExtension(pi, options = {}) {
@@ -62,6 +64,7 @@ export function installHayPiExtension(pi, options = {}) {
 
 	registerHayCommand(pi, counters, { repoRoot, extensionPath });
 	registerReadOverride(pi, counters, options.createReadTool, statusCache);
+	registerBashOverride(pi, counters, options.createBashTool, statusCache);
 
 	pi.on("session_start", async (_event, ctx) => {
 		sessionId = ctx.sessionManager?.getSessionId?.() || `pi-${Date.now()}`;
@@ -85,12 +88,15 @@ export function installHayPiExtension(pi, options = {}) {
 	});
 }
 
-async function loadCreateReadTool() {
+async function loadPiTools() {
 	const mod = await importPiSdk();
 	if (typeof mod.createReadTool !== "function") {
 		throw new Error("Hay Pi extension requires createReadTool from @mariozechner/pi-coding-agent");
 	}
-	return mod.createReadTool;
+	return {
+		createReadTool: mod.createReadTool,
+		createBashTool: typeof mod.createBashTool === "function" ? mod.createBashTool : undefined,
+	};
 }
 
 async function importPiSdk() {
@@ -123,23 +129,29 @@ async function importPiSdkFromCli(cause) {
 }
 
 function registerReadOverride(pi, counters, createReadTool, statusCache) {
-	if (typeof pi.registerTool !== "function" || typeof createReadTool !== "function") {
-		return false;
-	}
-	const template = createReadTool(process.cwd());
+	return registerNativeToolOverride(pi, counters, createReadTool, statusCache, READ_TOOL);
+}
+
+function registerBashOverride(pi, counters, createBashTool, statusCache) {
+	return registerNativeToolOverride(pi, counters, createBashTool, statusCache, BASH_TOOL);
+}
+
+function registerNativeToolOverride(pi, counters, createTool, statusCache, toolName) {
+	if (typeof pi.registerTool !== "function" || typeof createTool !== "function") return false;
+	const template = createTool(process.cwd());
 	const definition = {
-		name: READ_TOOL,
-		label: template.label || READ_TOOL,
+		name: toolName,
+		label: template.label || toolName,
 		description: template.description,
 		parameters: withFocusQuestionParameter(template.parameters),
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
-			const readTool = createReadTool(ctx?.cwd || process.cwd());
-			const result = await readTool.execute(toolCallId, stripNeedleParams(params), signal, onUpdate);
+			const nativeTool = createTool(ctx?.cwd || process.cwd());
+			const result = await nativeTool.execute(toolCallId, stripNeedleParams(params), signal, onUpdate, ctx);
 			statusCache.busyPrunes += 1;
 			await updateStatus(ctx, counters, statusCache);
 			let patch;
 			try {
-				patch = await buildReadResultPatch(result, params, ctx, counters, (text, query) =>
+				patch = await buildNativeToolResultPatch(toolName, result, params, ctx, counters, (text, query) =>
 					prune(text, query, { signal, timeoutMs: PRUNE_TIMEOUT_MS }),
 				);
 			} finally {
@@ -191,11 +203,19 @@ function stripNeedleParams(params) {
 }
 
 export async function buildReadResultPatch(result, params, ctx, counters, pruneFn) {
-	return buildToolResultPatch({ toolName: READ_TOOL, params, ...result }, ctx, counters, pruneFn);
+	return buildNativeToolResultPatch(READ_TOOL, result, params, ctx, counters, pruneFn);
+}
+
+export async function buildBashResultPatch(result, params, ctx, counters, pruneFn) {
+	return buildNativeToolResultPatch(BASH_TOOL, result, params, ctx, counters, pruneFn);
+}
+
+async function buildNativeToolResultPatch(toolName, result, params, ctx, counters, pruneFn) {
+	return buildToolResultPatch({ toolName, params, ...result }, ctx, counters, pruneFn);
 }
 
 export async function buildToolResultPatch(event, ctx, counters, pruneFn) {
-	if (event.toolName !== READ_TOOL) return undefined;
+	if (!PRUNABLE_TOOLS.has(event.toolName)) return undefined;
 	const original = extractText(event.content);
 	if (!original || original.length < MIN_CHARS) return undefined;
 	const query = extractFocusQuestion(event.params);

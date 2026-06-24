@@ -8,6 +8,7 @@ import test from "node:test";
 
 import { codeVersion, packageIdentity, prune, socketIsLive, sourceIdentity, tailEvents } from "../adapters/pi/client.mjs";
 import {
+	buildBashResultPatch,
 	buildToolResultPatch,
 	decideStatusState,
 	extractFocusQuestion,
@@ -69,6 +70,23 @@ test("Pi adapter patches prunable tool results and records savings", async () =>
 	assert.equal(counters.savedChars, 600);
 });
 
+test("Pi adapter patches bash output through the same focus contract", async () => {
+	const counters = { calls: 0, originalChars: 0, prunedChars: 0, savedChars: 0 };
+	const patch = await buildBashResultPatch(
+		{ content: [{ type: "text", text: "log\n".repeat(300) }], details: { exitCode: 0 } },
+		{ context_focus_question: "find failing tests" },
+		{},
+		counters,
+		async (text, query) => {
+			assert.equal(query, "find failing tests");
+			return { ok: true, text: text.slice(0, 100) };
+		},
+	);
+	assert.deepEqual(patch, { content: [{ type: "text", text: "log\n".repeat(25) }] });
+	assert.equal(counters.calls, 1);
+	assert.equal(counters.lastTool, "bash");
+});
+
 test("Pi extension lifecycle leases, overrides read, updates status, and releases", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "hay-pi-lifecycle-"));
 	const socketPath = join(dir, "manager.sock");
@@ -125,6 +143,19 @@ test("Pi extension lifecycle leases, overrides read, updates status, and release
 					};
 				},
 			}),
+			createBashTool: (cwd) => ({
+				name: "bash",
+				label: "bash",
+				description: "mock Pi bash",
+				parameters: { properties: { command: { type: "string" } } },
+				async execute(_toolCallId, params) {
+					assert.deepEqual(params, { command: "printf hi" });
+					return {
+						content: [{ type: "text", text: "hi" }],
+						details: { cwd },
+					};
+				},
+			}),
 		});
 		const ctx = {
 			signal: new AbortController().signal,
@@ -147,10 +178,19 @@ test("Pi extension lifecycle leases, overrides read, updates status, and release
 		await handlers.get("session_start")({}, ctx);
 		assert.equal(handlers.has("tool_result"), false);
 		assert.equal(tools.has("read"), true);
+		assert.equal(tools.has("bash"), true);
 		assert.equal(tools.get("read").parameters.properties.context_focus_question.type, "string");
+		assert.equal(tools.get("bash").parameters.properties.context_focus_question.type, "string");
 		const result = await tools.get("read").execute(
 			"tool-call-1",
 			{ path: "file.py", context_focus_question: "summarize this file" },
+			ctx.signal,
+			undefined,
+			ctx,
+		);
+		const bashResult = await tools.get("bash").execute(
+			"tool-call-2",
+			{ command: "printf hi", context_focus_question: "tiny output" },
 			ctx.signal,
 			undefined,
 			ctx,
@@ -160,6 +200,8 @@ test("Pi extension lifecycle leases, overrides read, updates status, and release
 
 		assert.deepEqual(result.content, [{ type: "text", text: "x".repeat(300) }]);
 		assert.equal(result.details.cwd, "/tmp/pi-cwd");
+		assert.deepEqual(bashResult.content, [{ type: "text", text: "hi" }]);
+		assert.equal(bashResult.details.cwd, "/tmp/pi-cwd");
 		assert.equal(customEntries.length, 1);
 		assert.deepEqual(customEntries[0].data.calls, 1);
 		assert.equal(messages.length, 1);

@@ -17,6 +17,9 @@ The extension uses Pi lifecycle/tool/status events:
   Hay manager socket when `context_focus_question` is present and savings clear
   the threshold. The model and user still see the normal `read` tool name. If
   the focus question is missing, the original output passes through unchanged.
+- `bash` override: when Pi exposes its native bash tool factory, register the
+  same wrapper for shell output. Mutation still belongs to Pi's native edit and
+  write tools; Needle only prunes textual observations.
 - `session_shutdown`: release the lease.
 
 Run locally without installing:
@@ -48,6 +51,5 @@ distribution, prefer local or git installs pinned to a commit/tag. Keep
 During local development, prefer `pi -e .` for the active working tree and
 `/hay doctor` to confirm which checkout/ref Pi is actually running.
 
-The adapter intentionally leaves `bash` alone for now. Shell output is high
-variance and is the path that previously exposed memory-residency problems.
-Add it only after the read path is boring.
+The bash path uses the same explicit focus contract as read. Missing
+`context_focus_question` passes through unchanged.
