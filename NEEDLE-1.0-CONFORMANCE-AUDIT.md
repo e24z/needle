@@ -91,7 +91,7 @@ or more ontology prose.
 | HTTP/CUDA backend | PRD describes target | Missing | Need at least a documented backend contract, and maybe a minimal HTTP backend stub if "point Needle at HTTP" remains 1.0. |
 | Evidence/claims | Claim cards, `evidence/fixture-packs/*`, and `needle evidence check` exist | Mostly landed | Fixture packs are validated and listable; a live Pi demo script can still wrap an actual session later. |
 | Claude | `archive/claude/` | Archived | Not a 1.0 host. Revive only through a new host binding, package card, claim card, and active tests. |
-| CLI shape | `needle/cli.py` uses argparse | Working but straining | Typer likely fits the nested product surface better, but it is secondary to ownership. |
+| CLI shape | `needle/cli.py` uses Typer and tests invoke `uv run needle ...` | Landed | Help is grouped and command names stayed stable; future commands still need the same ownership discipline. |
 | Issue tracking | GitHub issues #1-#8 and `NEEDLE-1.0-WORK-QUEUE.md` | Mostly landed | GitHub now owns durable work items; local docs still need refresh to avoid stale parallel tracking. |
 | Docs | Tester handoff is current-ish; reading map and issue map are stale | Mixed | Need docs refresh after structural refactor. |
 

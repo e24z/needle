@@ -69,6 +69,12 @@ without relying on chat memory.
   - Left `pruner.*` as compatibility wrappers.
   - Updated active tests to import `needle.runtime` unless they are explicitly
     testing compatibility.
+- `feat(needle): convert cli to typer`
+  - Replaced the public `needle` argparse command tree with Typer.
+  - Kept stable command names for package, evidence, status, stop, uninstall,
+    and model commands.
+  - Kept backend/MLX dependencies out of the base CLI dependency set.
+  - Exercised the real `uv run needle ...` entrypoint in CLI tests.
 
 ## Now
 
@@ -102,7 +108,7 @@ Issue Set:
 - #2 Build bash-minimal Needle MCP package
 - #3 Finish Needle runtime re-home under Needle namespaces (runtime landed on branch)
 - #4 Migrate runtime state from `~/.hay` to `~/.needle` (landed on branch)
-- #5 Convert needle CLI to Typer with stable command names
+- #5 Convert needle CLI to Typer with stable command names (landed on branch)
 - #6 Define HTTP backend contract and registry metadata
 - #7 Add live Pi demo canary around evidence fixtures
 - #8 Refresh Needle 1.0 PRD and tester docs after structural slices
@@ -117,7 +123,7 @@ Acceptance:
 ## Next
 
 - Pick one issue and branch/PR against it instead of expanding this local queue.
-- Convert the CLI to Typer once command ownership is stable enough.
+- Work issue #6 next: define the HTTP backend contract and registry metadata.
 - Finish backend physical re-home under `needle.backends`.
 - Refresh the PRD current-state sections after the structural slices land.
 

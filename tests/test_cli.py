@@ -8,13 +8,14 @@ from __future__ import annotations
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 import os
+import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from needle.cli import main as needle_main  # noqa: E402
 from pruner.cli import main as pruner_main  # noqa: E402
 
 
@@ -22,11 +23,30 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _run(args: list[str]) -> tuple[int, str, str]:
-    out = StringIO()
-    err = StringIO()
-    with redirect_stdout(out), redirect_stderr(err):
-        code = needle_main(args)
-    return code, out.getvalue(), err.getvalue()
+    proc = subprocess.run(
+        ["uv", "run", "needle", *args],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return proc.returncode, proc.stdout, proc.stderr
+
+
+def test_typer_help_groups_public_commands() -> None:
+    code, out, err = _run(["--help"])
+    assert code == 0, err
+    assert "Commands" in out
+    for command in ("package", "evidence", "model", "status", "stop", "uninstall"):
+        assert command in out
+
+
+def test_base_cli_dependency_does_not_pull_backend_runtime() -> None:
+    data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    dependencies = "\n".join(data["project"].get("dependencies", [])).lower()
+    assert "typer" in dependencies
+    for backend_dep in ("mlx", "mlx-lm", "numpy", "huggingface-hub", "transformers"):
+        assert backend_dep not in dependencies
 
 
 def test_package_cli_lists_and_selects_packages() -> None:
@@ -200,6 +220,8 @@ def test_pruner_cli_does_not_own_packages() -> None:
 
 
 def main() -> int:
+    test_typer_help_groups_public_commands()
+    test_base_cli_dependency_does_not_pull_backend_runtime()
     test_package_cli_lists_and_selects_packages()
     test_package_cli_rejects_unknown_package()
     test_evidence_check_lists_fixture_cases()

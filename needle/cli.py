@@ -15,6 +15,9 @@ import shutil
 import sys
 from pathlib import Path
 
+import click
+import typer
+
 from .registry import (
     PackageConfigError,
     active_package_selection,
@@ -26,9 +29,31 @@ from .registry import (
 )
 from .runtime import client, events, naming
 
+app = typer.Typer(
+    name="needle",
+    help="Needle package and runtime control plane.",
+    no_args_is_help=True,
+)
+package_app = typer.Typer(help="Inspect and select Needle packages.", no_args_is_help=True)
+evidence_app = typer.Typer(help="Inspect package evidence fixtures.", no_args_is_help=True)
+model_app = typer.Typer(help="Inspect, download, or remove local model files.", no_args_is_help=True)
+
+app.add_typer(package_app, name="package")
+app.add_typer(evidence_app, name="evidence")
+app.add_typer(model_app, name="model")
+
 
 def _print_error(message: object) -> None:
     print(f"error: {message}", file=sys.stderr)
+
+
+def _exit_with(code: int) -> None:
+    if code:
+        raise typer.Exit(code=code)
+
+
+def _ns(**kwargs: object) -> argparse.Namespace:
+    return argparse.Namespace(**kwargs)
 
 
 def _package_list(args: argparse.Namespace) -> int:
@@ -323,98 +348,147 @@ def _model_clean(args: argparse.Namespace) -> int:
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="needle",
-        description="Needle package and runtime control plane",
-    )
-    sub = parser.add_subparsers(dest="cmd", required=True)
-
-    package = sub.add_parser("package", help="inspect and select Needle packages")
-    package_sub = package.add_subparsers(dest="package_cmd", required=True)
-
-    package_list = package_sub.add_parser("list", help="list registry packages")
-    package_list.add_argument(
+@package_app.command("list")
+def package_list(
+    host_binding: str = typer.Option(
+        "",
         "--host-binding",
-        default="",
-        help="optional host binding filter, for example pi/native-tools",
-    )
-    package_list.set_defaults(func=_package_list)
+        help="Optional host binding filter, for example pi/native-tools.",
+    ),
+) -> None:
+    """List registry packages."""
+    _exit_with(_package_list(_ns(host_binding=host_binding)))
 
-    package_current = package_sub.add_parser("current", help="show the active package id")
-    package_current.add_argument(
+
+@package_app.command("current")
+def package_current(
+    host_binding: str = typer.Option(
+        "",
         "--host-binding",
-        default="",
-        help="optional host binding scope, for example pi/native-tools",
-    )
-    package_current.set_defaults(func=_package_current)
+        help="Optional host binding scope, for example pi/native-tools.",
+    ),
+) -> None:
+    """Show the active package id."""
+    _exit_with(_package_current(_ns(host_binding=host_binding)))
 
-    package_use = package_sub.add_parser("use", help="persist a package selection")
-    package_use.add_argument("package_id", help="package id, for example e24z/pi-local-mac")
-    package_use.add_argument(
+
+@package_app.command("use")
+def package_use(
+    package_id: str = typer.Argument(..., help="Package id, for example e24z/pi-local-mac."),
+    host_binding: str = typer.Option(
+        "",
         "--host-binding",
-        default="",
-        help="optional required host binding; defaults to the selected package's binding",
-    )
-    package_use.set_defaults(func=_package_use)
+        help="Optional required host binding; defaults to the selected package's binding.",
+    ),
+) -> None:
+    """Persist a package selection."""
+    _exit_with(_package_use(_ns(package_id=package_id, host_binding=host_binding)))
 
-    package_doctor = package_sub.add_parser("doctor", help="validate and explain a package")
-    package_doctor.add_argument("package_id", nargs="?", default="", help="package id to inspect; defaults to active")
-    package_doctor.add_argument(
+
+@package_app.command("doctor")
+def package_doctor(
+    package_id: str = typer.Argument("", help="Package id to inspect; defaults to active."),
+    host_binding: str = typer.Option(
+        "",
         "--host-binding",
-        default="",
-        help="optional host binding scope, for example pi/native-tools",
-    )
-    package_doctor.set_defaults(func=_package_doctor)
+        help="Optional host binding scope, for example pi/native-tools.",
+    ),
+) -> None:
+    """Validate and explain a package."""
+    _exit_with(_package_doctor(_ns(package_id=package_id, host_binding=host_binding)))
 
-    evidence = sub.add_parser("evidence", help="inspect package evidence fixtures")
-    evidence_sub = evidence.add_subparsers(dest="evidence_cmd", required=True)
 
-    evidence_check = evidence_sub.add_parser("check", help="validate and list package evidence")
-    evidence_check.add_argument("package_id", nargs="?", default="", help="package id to inspect; defaults to active")
-    evidence_check.add_argument(
+@evidence_app.command("check")
+def evidence_check(
+    package_id: str = typer.Argument("", help="Package id to inspect; defaults to active."),
+    host_binding: str = typer.Option(
+        "",
         "--host-binding",
-        default="",
-        help="optional host binding scope, for example pi/native-tools",
-    )
-    evidence_check.set_defaults(func=_evidence_check)
+        help="Optional host binding scope, for example pi/native-tools.",
+    ),
+) -> None:
+    """Validate and list package evidence."""
+    _exit_with(_evidence_check(_ns(package_id=package_id, host_binding=host_binding)))
 
-    status = sub.add_parser("status", help="operator snapshot: residency + recent events")
-    status.add_argument("--events", "-n", type=int, default=12, help="recent events to show")
-    status.set_defaults(func=_status)
 
-    stop = sub.add_parser("stop", help="ask the resident runtime to shut down cleanly")
-    stop.set_defaults(func=_stop)
+@app.command("status")
+def status(
+    events_count: int = typer.Option(
+        12,
+        "--events",
+        "-n",
+        help="Recent events to show.",
+    ),
+) -> None:
+    """Operator snapshot: residency and recent events."""
+    _exit_with(_status(_ns(events=events_count)))
 
-    uninstall = sub.add_parser(
-        "uninstall",
-        help="stop Needle and remove Needle-owned local state",
-    )
-    uninstall.add_argument(
+
+@app.command("stop")
+def stop() -> None:
+    """Ask the resident runtime to shut down cleanly."""
+    _exit_with(_stop(_ns()))
+
+
+@app.command("uninstall")
+def uninstall(
+    yes: bool = typer.Option(
+        False,
         "--yes",
-        action="store_true",
-        help="actually remove local runtime/config/model files",
-    )
-    uninstall.set_defaults(func=_uninstall)
+        help="Actually remove local runtime/config/model files.",
+    ),
+) -> None:
+    """Stop Needle and remove Needle-owned local state."""
+    _exit_with(_uninstall(_ns(yes=yes)))
 
-    model = sub.add_parser("model", help="inspect, download, or remove local model files")
-    model_sub = model.add_subparsers(dest="model_cmd", required=True)
 
-    model_dir = model_sub.add_parser("dir", help="show the local directory for a model repo")
-    model_dir.add_argument("--repo", default="", help="Hugging Face repo id; defaults to code-pruner")
-    model_dir.set_defaults(func=_model_dir)
+@model_app.command("dir")
+def model_dir(
+    repo: str = typer.Option(
+        "",
+        "--repo",
+        help="Hugging Face repo id; defaults to code-pruner.",
+    ),
+) -> None:
+    """Show the local directory for a model repo."""
+    _exit_with(_model_dir(_ns(repo=repo)))
 
-    model_download = model_sub.add_parser("download", help="download the configured model repo")
-    model_download.add_argument("--repo", default="", help="Hugging Face repo id; defaults to code-pruner")
-    model_download.set_defaults(func=_model_download)
 
-    model_clean = model_sub.add_parser("clean", help="remove the local model directory")
-    model_clean.add_argument("--yes", action="store_true", help="actually remove the model directory")
-    model_clean.set_defaults(func=_model_clean)
+@model_app.command("download")
+def model_download(
+    repo: str = typer.Option(
+        "",
+        "--repo",
+        help="Hugging Face repo id; defaults to code-pruner.",
+    ),
+) -> None:
+    """Download the configured model repo."""
+    _exit_with(_model_download(_ns(repo=repo)))
 
-    return parser
+
+@model_app.command("clean")
+def model_clean(
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        help="Actually remove the model directory.",
+    ),
+) -> None:
+    """Remove the local model directory."""
+    _exit_with(_model_clean(_ns(yes=yes)))
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    return args.func(args)
+    try:
+        result = app(args=argv, prog_name="needle", standalone_mode=False)
+    except typer.Exit as exc:
+        return int(exc.exit_code or 0)
+    except click.ClickException as exc:
+        exc.show(file=sys.stderr)
+        return int(exc.exit_code)
+    except click.Abort:
+        print("Aborted!", file=sys.stderr)
+        return 1
+    if isinstance(result, int):
+        return result
+    return 0

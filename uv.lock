@@ -307,6 +307,9 @@ wheels = [
 name = "needle"
 version = "0.1.0"
 source = { editable = "." }
+dependencies = [
+    { name = "typer" },
+]
 
 [package.optional-dependencies]
 backend-code-pruner-mlx = [
@@ -324,6 +327,7 @@ requires-dist = [
     { name = "mlx-lm", marker = "extra == 'backend-code-pruner-mlx'" },
     { name = "numpy", marker = "extra == 'backend-code-pruner-mlx'" },
     { name = "transformers", marker = "extra == 'backend-code-pruner-mlx'" },
+    { name = "typer", specifier = ">=0.12,<1" },
 ]
 provides-extras = ["backend-code-pruner-mlx"]
 
