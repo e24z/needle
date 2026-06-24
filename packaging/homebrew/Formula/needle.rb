@@ -2,8 +2,8 @@ class Needle < Formula
   include Language::Python::Virtualenv
 
   desc "Local context-pruning for agent coding tools"
-  homepage "https://github.com/e24z/hay"
-  head "https://github.com/e24z/hay.git", branch: "pi-native-pruning"
+  homepage "https://github.com/e24z/needle"
+  head "https://github.com/e24z/needle.git", branch: "pi-native-pruning"
 
   depends_on "python@3.13"
 

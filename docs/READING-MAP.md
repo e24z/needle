@@ -77,7 +77,7 @@ It's the sealed box: `prune_text(text, query) -> text`. Treat it as given.
 
 ```bash
 # no-model Pi canary: extension path, read prune, bash prune, pass-through, status
-cd /path/to/hay
+cd /path/to/needle
 npm run demo:pi-canary
 
 # package/evidence checks

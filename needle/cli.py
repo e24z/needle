@@ -87,6 +87,26 @@ def _ns(**kwargs: object) -> argparse.Namespace:
     return argparse.Namespace(**kwargs)
 
 
+_HOST_LABELS = {
+    "pi/native-tools": "Pi native tools",
+    "mcp/bash": "MCP bash",
+}
+
+_CAPABILITY_LABELS = {
+    "e24z/soft-lamr": "Soft LAMR (SWE-Pruner plus Python AST repair)",
+    "swe-pruner/reference": "SWE-Pruner reference (no AST repair)",
+}
+
+_BACKEND_LABELS = {
+    "e24z/code-pruner-mlx": "local MLX backend",
+}
+
+
+def _package_label(value: object, labels: dict[str, str]) -> str:
+    text = str(value or "?")
+    return labels.get(text, text)
+
+
 def _package_list(args: argparse.Namespace) -> int:
     try:
         summaries = package_summaries(host_binding=args.host_binding)
@@ -102,13 +122,26 @@ def _package_list(args: argparse.Namespace) -> int:
             print(f"{marker} {item['id']}  INVALID  {item.get('error', '')}")
             continue
         capabilities = ",".join(item.get("capabilities", []))
-        print(
-            f"{marker} {item['id']}  "
-            f"implements={capabilities}  "
-            f"protocol={item.get('protocol', '?')}  "
-            f"uses={item.get('backend', '?')}  "
-            f"host={item.get('host_binding', '?')}"
+        if args.verbose:
+            print(
+                f"{marker} {item['id']}  "
+                f"implements={capabilities}  "
+                f"protocol={item.get('protocol', '?')}  "
+                f"uses={item.get('backend', '?')}  "
+                f"host={item.get('host_binding', '?')}"
+            )
+            continue
+        capability_labels = ", ".join(
+            _package_label(capability, _CAPABILITY_LABELS)
+            for capability in item.get("capabilities", [])
         )
+        print(f"{marker} {item['id']} - {item.get('display_name') or item['id']}")
+        print(f"    host:     {_package_label(item.get('host_binding'), _HOST_LABELS)}")
+        print(f"    behavior: {capability_labels or 'unknown'}")
+        print(f"    backend:  {_package_label(item.get('backend'), _BACKEND_LABELS)}")
+    if not args.verbose:
+        print("")
+        print("* = active package for this host/config. Use --verbose for registry ids.")
     return 0
 
 
@@ -554,7 +587,7 @@ def _print_setup_checklist(
         print(f"      setup:   {meta['setup']}")
         print(f"      native:  {_format_command(_setup_native_command(key, 'local'))}")
         print(f"      verify:  {meta['verify']}")
-        print("      model:   real pruning needs the MLX backend dependencies and model files")
+        print("      model:   run `needle model dir`; use `needle model download` after installing backend deps")
     print("")
     print("Needle will not change Pi or Claude Code until you confirm an install.")
     if dry_run:
@@ -669,7 +702,7 @@ def _setup_wizard(args: argparse.Namespace) -> int:
     print(f"Host: {chosen_host} ({meta['label']})")
     print(f"Package: {package_id}")
     print(f"Native command: {_format_command(_setup_native_command(chosen_host, args.scope))}")
-    print("Real pruning readiness: install the MLX backend dependencies and model files.")
+    print("Real pruning readiness: check `needle model dir`; download the model after installing backend deps.")
     print(f"Verify after install: {meta['verify']}")
     print("")
     if not typer.confirm("Install this host integration now?", default=True):
@@ -902,9 +935,15 @@ def package_list(
         "--host-binding",
         help="Optional host binding filter, for example pi/native-tools.",
     ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Show raw registry protocol, capability, backend, and host ids.",
+    ),
 ) -> None:
     """List registry packages."""
-    _exit_with(_package_list(_ns(host_binding=host_binding)))
+    _exit_with(_package_list(_ns(host_binding=host_binding, verbose=verbose)))
 
 
 @package_app.command("current")
@@ -985,7 +1024,11 @@ def uninstall(
         help="Actually remove local runtime/config/model files.",
     ),
 ) -> None:
-    """Stop Needle and remove Needle-owned local state."""
+    """Stop Needle and remove Needle-owned local state.
+
+    Host adapters stay host-native: preview with `needle uninstall`, then run
+    `needle setup pi --uninstall` or `needle setup claude-code --uninstall`.
+    """
     _exit_with(_uninstall(_ns(yes=yes)))
 
 

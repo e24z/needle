@@ -9,7 +9,7 @@ path done.
 | Surface | Pi native | Claude Code via MCP |
 | --- | --- | --- |
 | Install entrypoint | `needle setup pi` | `needle setup claude-code` |
-| First-run path | `brew install e24z/tap/needle` triggers `needle setup --from-homebrew`, then the wizard can choose Pi | `brew install e24z/tap/needle` triggers `needle setup --from-homebrew`, then the wizard can choose Claude Code |
+| First-run path | `brew install --HEAD e24z/tap/needle` triggers `needle setup --from-homebrew`, then the wizard can choose Pi | `brew install --HEAD e24z/tap/needle` triggers `needle setup --from-homebrew`, then the wizard can choose Claude Code |
 | Uninstall entrypoint | `needle setup pi --uninstall` | `needle setup claude-code --uninstall` |
 | Native owner | Pi owns package install/uninstall | Claude Code owns MCP config |
 | Default package | `e24z/mlx-pi-soft-lamr` | `e24z/mlx-mcp-bash-reference` |

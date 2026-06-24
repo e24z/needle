@@ -94,6 +94,14 @@ def test_package_cli_lists_and_selects_packages() -> None:
             assert code == 0, err
             assert "e24z/mlx-pi-reference" in out
             assert "e24z/mlx-pi-soft-lamr" in out
+            assert "MLX Pi Soft LAMR" in out
+            assert "host:     Pi native tools" in out
+            assert "behavior: Soft LAMR" in out
+            assert "backend:  local MLX backend" in out
+            assert "Use --verbose for registry ids" in out
+
+            code, out, err = _run(["package", "list", "--host-binding", "pi/native-tools", "--verbose"])
+            assert code == 0, err
             assert "implements=swe-pruner/reference" in out
             assert "protocol=needle/text-transform" in out
             assert "uses=e24z/code-pruner-mlx" in out
@@ -132,7 +140,7 @@ def test_package_cli_lists_and_selects_packages() -> None:
             code, out, err = _run(["package", "list", "--host-binding", "mcp/bash"])
             assert code == 0, err
             assert "e24z/mlx-mcp-bash-reference" in out
-            assert "host=mcp/bash" in out
+            assert "host:     MCP bash" in out
         finally:
             if old_config is None:
                 os.environ.pop("HAY_CONFIG", None)
@@ -281,7 +289,8 @@ def test_setup_root_dry_run_lists_hosts_without_mutating() -> None:
     assert "setup:   needle setup claude-code" in out
     assert "native:  pi install" in out
     assert "native:  claude mcp add --transport stdio --scope local needle-bash -- needle mcp serve" in out
-    assert "real pruning needs the MLX backend dependencies and model files" in out
+    assert "needle model dir" in out
+    assert "needle model download" in out
     assert "Needle will not change Pi or Claude Code" in out
     assert "dry run: no changes made" in out
 

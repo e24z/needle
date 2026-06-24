@@ -21,14 +21,20 @@ spending model context on irrelevant file sections or noisy command output.
 1. She installs the extension:
 
    ```bash
-   brew install e24z/tap/needle
+   brew install --HEAD e24z/tap/needle
+   ```
+
+   Homebrew starts setup during install when it can run interactively. If setup
+   is deferred, she resumes with:
+
+   ```bash
    needle setup pi
    ```
 
-   Until the Homebrew tap exists, the developer path is:
+   The developer-from-clone path is only for people working on Needle itself:
 
    ```bash
-   cd /path/to/hay
+   cd /path/to/needle
    uv tool install --editable .
    needle setup pi
    ```
@@ -160,14 +166,20 @@ Claude Code's native tools.
 1. Maya installs Needle:
 
    ```bash
-   brew install e24z/tap/needle
+   brew install --HEAD e24z/tap/needle
+   ```
+
+   Homebrew starts setup during install when it can run interactively. If setup
+   is deferred, she resumes with:
+
+   ```bash
    needle setup claude-code
    ```
 
-   Until the Homebrew tap exists:
+   The developer-from-clone path is:
 
    ```bash
-   cd /path/to/hay
+   cd /path/to/needle
    uv tool install --editable .
    needle setup claude-code
    ```

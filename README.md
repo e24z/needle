@@ -15,27 +15,18 @@ Code uses a bash-minimal MCP server that exposes one observation tool,
 shortens large textual observations when the tool call includes a
 `context_focus_question`.
 
-## Install For Current Testers
+## Install
 
-Until the Homebrew tap exists, use the developer path from a clone of this repo.
-This path requires Python 3.13 or newer and `uv`.
-
-```bash
-uv tool install --editable .
-needle setup
-```
-
-## Planned Homebrew Install
-
-The intended public Mac install is Homebrew. Until the first stable tag is cut,
-the tap is pre-release/head-only:
+The current Mac tester path is Homebrew. Until the first stable tag is cut, the
+tap is pre-release/head-only:
 
 ```bash
 brew install --HEAD e24z/tap/needle
 ```
 
-Homebrew starts `needle setup` during install when it can run interactively. If
-setup is deferred, resume it with:
+Homebrew starts `needle setup` during install when it can run interactively. It
+will not change Pi or Claude Code until you confirm a host install. If setup is
+deferred, resume it with:
 
 ```bash
 needle setup
@@ -44,6 +35,14 @@ needle setup
 The Homebrew formula installs the Python runtime and base CLI/MCP dependencies
 for you. A future stable formula will drop the `--HEAD` once a real release
 tarball SHA exists.
+
+The developer-from-clone path is only for people working on Needle itself. It
+requires Python 3.13 or newer and `uv`:
+
+```bash
+uv tool install --editable .
+needle setup
+```
 
 Needle's Pi setup expects Pi's CLI to be available:
 
@@ -67,6 +66,17 @@ Run the no-model canary:
 
 ```bash
 npm run demo:pi-canary
+```
+
+The Pi canary and setup flow work without the model. Real pruning with the local
+MLX backend also needs backend dependencies and model files; that packaging path
+is still developer preview. From a clone, install the backend extra and download
+the model:
+
+```bash
+uv tool install --editable '.[backend-code-pruner-mlx]'
+needle model dir
+needle model download
 ```
 
 ## Uninstall
