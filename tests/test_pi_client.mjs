@@ -697,7 +697,7 @@ test("Pi status formatter is honest about cold and degraded states", () => {
 
 test("Pi codeVersion matches the Python engine hash", async () => {
 	const jsVersion = await codeVersion(process.cwd());
-	const py = spawnSync("python3", ["-c", "from pruner.naming import code_version; print(code_version())"], {
+	const py = spawnSync("python3", ["-c", "from needle.runtime.naming import code_version; print(code_version())"], {
 		cwd: process.cwd(),
 		env: { ...process.env, PYTHONPATH: "." },
 		encoding: "utf8",

@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from pruner import naming
+from .runtime import naming
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

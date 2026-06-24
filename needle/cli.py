@@ -14,8 +14,6 @@ import shutil
 import sys
 from pathlib import Path
 
-from pruner import client, events, naming
-
 from .registry import (
     PackageConfigError,
     active_package_selection,
@@ -25,6 +23,7 @@ from .registry import (
     runtime_launch_plan,
     set_configured_package_id,
 )
+from .runtime import client, events, naming
 
 
 def _print_error(message: object) -> None:

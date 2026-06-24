@@ -57,8 +57,9 @@ But the repo has not yet fully become the Needle 1.0 architecture:
 - The first backend-launch slice can make Pi consume backend launcher metadata,
   but the runtime module is still the old `pruner` entrypoint until the runtime
   re-home happens.
-- `pruner` still owns runtime naming, backend selection, events, manager,
-  socket protocol, and compatibility imports.
+- New Needle code can import through `needle.runtime`, but the implementation
+  and backend launcher still use the legacy `pruner` entrypoint until the
+  physical re-home lands.
 - Backend dependency ownership exists for the MLX backend, but only as the first
   backend manifest; HTTP/CUDA backends are still conceptual.
 - Registry validation now checks the main package/capability/backend/binding
@@ -85,7 +86,7 @@ or more ontology prose.
 | Registry validation | `needle/registry.py`, `tests/test_package_config.py` | First slice landed | Main package graph fields are checked; full evidence-pack resolution and package-local step references remain. |
 | Backend dependency ownership | `backends/e24z/code-pruner-mlx.yaml` declares `backend-code-pruner-mlx` | First slice landed | Need carry the same pattern to HTTP/CUDA backends and docs. |
 | Backend launch | Pi can resolve a runtime launch plan from active package/backend metadata | First slice landed | Still launches the legacy `pruner` module until runtime re-home. |
-| Runtime naming | `pruner/naming.py` still defaults to `hay`; `needle` imports `pruner` | Transitional | Need decide when to re-home runtime under `needle.runtime` and migrate `~/.hay` to `~/.needle`. |
+| Runtime naming | `needle.runtime.*` exists as a migration namespace; implementation still lives under `pruner` | Transitional | Need finish physical re-home and decide when to migrate `~/.hay` to `~/.needle`. |
 | Backend selection | `NEEDLE_BACKEND=e24z/code-pruner-mlx` is recognized; `HAY_BACKEND=code-pruner` remains an alias | Transitional | Legacy names should become compatibility shims, not primary docs. |
 | Reference vs Soft-LaMR | Capability files and repair config tests exist | Mostly landed | Need ensure active package controls repair in every runtime path and CLI doctor reports it plainly. |
 | HTTP/CUDA backend | PRD describes target | Missing | Need at least a documented backend contract, and maybe a minimal HTTP backend stub if "point Needle at HTTP" remains 1.0. |
@@ -138,6 +139,7 @@ Likely files:
 ### B. Runtime re-home and compatibility shim
 
 Priority: P0
+Status: namespace shim landed; physical re-home remains.
 
 Problem:
 `pruner` still means runtime, CLI, backend, old product identity, and manager

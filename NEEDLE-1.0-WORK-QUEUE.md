@@ -33,17 +33,22 @@ without relying on chat memory.
   - Validated host binding tool mappings by artifact kind.
   - Validated backend compute/interface/runtime/launcher shape.
   - Validated capability recipes and claim card trust fields.
+- `refactor(needle): add runtime namespace`
+  - Added `needle.runtime.*` wrappers around the existing manager/client/session
+    runtime.
+  - Moved Needle-owned CLI and registry imports onto `needle.runtime`.
+  - Kept `pruner` as the compatibility entrypoint for now.
 
 ## Now
 
-### 1. Re-home Runtime Under Needle Names
+### 1. Finish Runtime Re-home
 
 Goal:
 Stop making `pruner` the conceptual center of the product.
 
 Acceptance:
 
-- New imports can use `needle.runtime.*`.
+- New imports can use `needle.runtime.*`. (First slice landed.)
 - The old `pruner` package remains as a compatibility shim.
 - Runtime docs and status text prefer Needle language.
 - The backend launcher can later move from `-m pruner manage` to a Needle-owned
