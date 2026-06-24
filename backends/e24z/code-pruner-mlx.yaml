@@ -3,7 +3,8 @@
   "id": "e24z/code-pruner-mlx",
   "display_name": "Code Pruner MLX",
   "supports": [
-    "swe-pruner/reference"
+    "swe-pruner/reference",
+    "e24z/soft-lamr"
   ],
   "compute": {
     "default": "local_mlx",

@@ -7,6 +7,7 @@ import numpy as np
 from mlx_lm import load
 
 from ... import naming
+from .config import repair_enabled_for_active_package
 from .lines import aggregate_token_scores_to_lines, prune_code_lines
 
 # The optional C++ Viterbi extension never shipped to Hay; the numpy decoder
@@ -615,11 +616,11 @@ def _looks_like_python(text: str) -> bool:
 
 
 def _real_content_chars(pruned: str) -> int:
-    """Chars of actual kept code, ignoring the [pruned ...] placeholder lines."""
+    """Chars of actual kept code, ignoring filtered placeholder lines."""
     return sum(
         len(line)
         for line in pruned.splitlines()
-        if line.strip() and not line.strip().startswith("[pruned")
+        if line.strip() and not _is_filter_marker(line)
     )
 
 
@@ -655,9 +656,14 @@ def _apply_floor(text: str, pruned: str) -> str:
 
 def _without_filter_markers(text: str) -> str:
     return "\n".join(
-        "pass" if line.strip().startswith("[pruned ") else line
+        "pass" if _is_filter_marker(line) else line
         for line in text.splitlines()
     )
+
+
+def _is_filter_marker(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("[pruned") or stripped.startswith("(filtered ")
 
 
 # ---------------------------------------------------------------------------
@@ -698,7 +704,7 @@ class CodePrunerBackend:
     name = "code-pruner"
 
     def __init__(self, model_dir: str | None = None) -> None:
-        repair = os.environ.get("HAY_REPAIR", "1").lower() not in {"0", "false", "no"}
+        repair = repair_enabled_for_active_package()
         _set_mlx_limit("set_cache_limit", _env_mb("HAY_MLX_CACHE_LIMIT_MB"))
         _set_mlx_limit("set_wired_limit", _env_mb("HAY_MLX_WIRED_LIMIT_MB"))
         self._clear_cache_after_prune = _env_flag(

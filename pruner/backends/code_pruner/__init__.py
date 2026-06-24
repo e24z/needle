@@ -1,9 +1,10 @@
 """The code-pruner backend: the real SWE-pruner / code-pruner relevance model.
 
-Self-contained package — the model (model.py), its line-mask helpers (lines.py),
-and the OPTIONAL structural repair layer (repair/, off unless HAY_REPAIR). The
-rest of Hay only ever sees `CodePrunerBackend.prune(text, query) -> str`; how the
-mask is rendered (plain vs AST-repaired) is this package's private business.
+Self-contained package — the model (model.py), package-aware runtime config
+(config.py), its line-mask helpers (lines.py), and the OPTIONAL structural repair
+layer (repair/). The rest of Hay only ever sees
+`CodePrunerBackend.prune(text, query) -> str`; how the mask is rendered (plain vs
+AST-repaired) is this package's private business.
 
 `model.py` imports mlx/numpy/transformers, so it only imports cleanly in the
 manager's uv-provisioned interpreter. This package __init__ stays import-light on
