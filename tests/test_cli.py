@@ -109,6 +109,17 @@ def test_package_cli_rejects_unknown_package() -> None:
     assert "missing package object" in err
 
 
+def test_evidence_check_lists_fixture_cases() -> None:
+    code, out, err = _run(["evidence", "check", "e24z/pi-local-mac", "--host-binding", "pi/native-tools"])
+    assert code == 0, err
+    assert "package: e24z/pi-local-mac" in out
+    assert "evidence: ok" in out
+    assert "fixture_pack:swe-pruner-reference" in out
+    assert "case: read-visible-prune  tool=read  behavior=visible_prune" in out
+    assert "case: bash-visible-prune  tool=bash  behavior=visible_prune" in out
+    assert "case: read-missing-focus-passthrough  tool=read  behavior=passthrough_original" in out
+
+
 def test_uninstall_dry_run_and_yes_use_needle_owned_paths() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -191,6 +202,7 @@ def test_pruner_cli_does_not_own_packages() -> None:
 def main() -> int:
     test_package_cli_lists_and_selects_packages()
     test_package_cli_rejects_unknown_package()
+    test_evidence_check_lists_fixture_cases()
     test_uninstall_dry_run_and_yes_use_needle_owned_paths()
     test_model_dir_command_reports_needle_model_path()
     test_pruner_cli_does_not_own_packages()

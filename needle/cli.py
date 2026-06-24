@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import json
 import os
 import shutil
 import sys
@@ -110,6 +111,34 @@ def _package_doctor(args: argparse.Namespace) -> int:
     for ref, path in loaded.evidence_paths.items():
         lines.append(f"evidence: {ref} -> {path}")
     print("\n".join(lines))
+    return 0
+
+
+def _evidence_check(args: argparse.Namespace) -> int:
+    try:
+        loaded = load_active_package(
+            package_id=args.package_id or None,
+            host_binding=args.host_binding or None,
+        )
+    except PackageConfigError as exc:
+        _print_error(exc)
+        return 1
+
+    print(f"package: {loaded.package_id}")
+    print(f"claim card: {loaded.claim_card['id']}")
+    print("evidence: ok")
+    for ref, path in loaded.evidence_paths.items():
+        print(f"- {ref}")
+        print(f"  manifest: {path}")
+        with path.open("r", encoding="utf-8") as fh:
+            manifest = json.load(fh)
+        for case in manifest.get("cases", []):
+            print(
+                f"  case: {case['id']}  "
+                f"tool={case['tool']}  "
+                f"behavior={case['expected_behavior']}  "
+                f"file={path.parent / case['file']}"
+            )
     return 0
 
 
@@ -337,6 +366,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="optional host binding scope, for example pi/native-tools",
     )
     package_doctor.set_defaults(func=_package_doctor)
+
+    evidence = sub.add_parser("evidence", help="inspect package evidence fixtures")
+    evidence_sub = evidence.add_subparsers(dest="evidence_cmd", required=True)
+
+    evidence_check = evidence_sub.add_parser("check", help="validate and list package evidence")
+    evidence_check.add_argument("package_id", nargs="?", default="", help="package id to inspect; defaults to active")
+    evidence_check.add_argument(
+        "--host-binding",
+        default="",
+        help="optional host binding scope, for example pi/native-tools",
+    )
+    evidence_check.set_defaults(func=_evidence_check)
 
     status = sub.add_parser("status", help="operator snapshot: residency + recent events")
     status.add_argument("--events", "-n", type=int, default=12, help="recent events to show")

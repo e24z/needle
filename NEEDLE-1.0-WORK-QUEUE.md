@@ -53,6 +53,10 @@ without relying on chat memory.
   - Validated fixture-pack manifests, case files, and read/bash/missing-focus
     coverage during package loading.
   - Surfaced evidence refs in `needle package doctor`.
+- `feat(needle): add evidence check command`
+  - Added `needle evidence check [package]`.
+  - Listed fixture manifests and read/bash/pass-through cases for testers.
+  - Documented the command in the Pi README and tester handoff.
 
 ## Now
 
@@ -71,6 +75,8 @@ Acceptance:
 - Claim-card evidence refs resolve to local files instead of placeholders.
   (Landed.)
 - `needle package doctor` or a dedicated validator reports evidence status.
+  (Landed.)
+- `needle evidence check` prints the fixture cases in a tester-facing form.
   (Landed.)
 
 ### 2. Convert Work Queue Into GitHub Issues

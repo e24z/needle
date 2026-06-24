@@ -69,6 +69,7 @@ List, inspect, and select Needle runtime packages with the host-neutral CLI:
 needle package list --host-binding pi/native-tools
 needle package current --host-binding pi/native-tools
 needle package doctor --host-binding pi/native-tools
+needle evidence check --host-binding pi/native-tools
 needle package use e24z/pi-local-mac-soft-lamr
 ```
 

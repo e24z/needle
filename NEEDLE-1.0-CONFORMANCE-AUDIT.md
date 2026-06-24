@@ -91,7 +91,7 @@ or more ontology prose.
 | Backend selection | `NEEDLE_BACKEND=e24z/code-pruner-mlx` is recognized; `HAY_BACKEND=code-pruner` remains an alias | Transitional | Legacy names should become compatibility shims, not primary docs. |
 | Reference vs Soft-LaMR | Capability files and repair config tests exist | Mostly landed | Need ensure active package controls repair in every runtime path and CLI doctor reports it plainly. |
 | HTTP/CUDA backend | PRD describes target | Missing | Need at least a documented backend contract, and maybe a minimal HTTP backend stub if "point Needle at HTTP" remains 1.0. |
-| Evidence/claims | Claim cards and `evidence/fixture-packs/*` exist | Mostly landed | Fixture packs are validated, but a polished tester-facing demo script still needs to wrap them. |
+| Evidence/claims | Claim cards, `evidence/fixture-packs/*`, and `needle evidence check` exist | Mostly landed | Fixture packs are validated and listable; a live Pi demo script can still wrap an actual session later. |
 | Claude | `archive/claude/` | Archived | Not a 1.0 host. Revive only through a new host binding, package card, claim card, and active tests. |
 | CLI shape | `needle/cli.py` uses argparse | Working but straining | Typer likely fits the nested product surface better, but it is secondary to ownership. |
 | Issue tracking | `NEEDLE-1.0-ISSUE-MAP.md` is a local Markdown queue | Transitional | Useful for staging, but not a real project tracker. GitHub issues should become the durable public/internal coordination layer once the work is ready to externalize. |
@@ -322,7 +322,7 @@ These are product/architecture calls, not chores.
 2. Deepen registry validation so bad package graphs fail early.
 3. Re-home runtime/backend modules under Needle names, keeping `pruner` shims.
 4. Convert CLI to Typer and add `backend`/`runtime` doctor views.
-5. Add a polished tester-facing demo command/script around the evidence packs.
+5. Add a live Pi demo script around an actual session, if needed.
 6. Migrate the accepted next issue set into GitHub issues.
 7. Refresh PRD/current-state sections, issue map, tester handoff, and reading
    map.

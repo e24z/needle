@@ -73,12 +73,17 @@ spending model context on irrelevant file sections or noisy command output.
    needle package list --host-binding pi/native-tools
    needle package current --host-binding pi/native-tools
    needle package doctor --host-binding pi/native-tools
+   needle evidence check --host-binding pi/native-tools
    ```
 
    The default package is `e24z/pi-local-mac`. It implements
    `swe-pruner/reference`, which means no AST repair. The alternative package is
    `e24z/pi-local-mac-soft-lamr`. It implements `e24z/soft-lamr`, which extends
    the reference behavior with Python AST repair.
+
+   `needle evidence check` validates and lists the local fixture pack behind the
+   package claim: one read prune case, one bash prune case, and one missing-focus
+   pass-through case.
 
 7. If she wants Soft-LaMR as her default package, she selects it with the CLI:
 
