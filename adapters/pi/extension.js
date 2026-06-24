@@ -10,6 +10,7 @@ import {
 	ensureManager,
 	heartbeat,
 	managerSocketPath,
+	packageInventory,
 	pathFromModuleUrl,
 	prune,
 	release,
@@ -381,20 +382,23 @@ function registerHayCommand(pi, counters, runtime) {
 	pi.registerCommand?.("hay", {
 		description: "Show Hay manager status",
 		getArgumentCompletions: (prefix) => {
-			const items = ["status", "doctor", "events"].filter((item) => item.startsWith(prefix));
+			const items = ["status", "doctor", "events", "packages"].filter((item) => item.startsWith(prefix));
 			return items.length ? items.map((value) => ({ value, label: value })) : null;
 		},
 		handler: async (args, ctx) => {
 			const parsed = parseHayArgs(args);
 			if (!parsed.ok) {
-				ctx.ui?.notify?.("Usage: /hay [status|doctor|events] [count]", "warning");
+				ctx.ui?.notify?.("Usage: /hay [status|doctor|events|packages] [count]", "warning");
 				return;
 			}
-			const content = await buildOperatorStatus(counters, {
-				events: parsed.events,
-				includeSource: parsed.mode === "doctor",
-				...runtime,
-			});
+			const content =
+				parsed.mode === "packages"
+					? await buildPackageStatus(runtime.repoRoot)
+					: await buildOperatorStatus(counters, {
+							events: parsed.events,
+							includeSource: parsed.mode === "doctor",
+							...runtime,
+						});
 			if (typeof pi.sendMessage === "function") {
 				pi.sendMessage({
 					customType: "hay-status",
@@ -412,11 +416,38 @@ function registerHayCommand(pi, counters, runtime) {
 function parseHayArgs(args) {
 	const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
 	const sub = parts[0] || "status";
-	if (!["status", "doctor", "events"].includes(sub)) return { ok: false };
+	if (!["status", "doctor", "events", "packages"].includes(sub)) return { ok: false };
 	const fallback = sub === "doctor" ? 20 : 12;
 	const rawCount = parts[1];
 	const events = rawCount === undefined ? fallback : Number.parseInt(rawCount, 10);
 	return { ok: true, mode: sub, events: Number.isFinite(events) && events >= 0 ? events : fallback };
+}
+
+export async function buildPackageStatus(repoRoot = repoRootFromModuleUrl(import.meta.url)) {
+	const packages = await packageInventory(repoRoot, { hostBinding: "pi/native-tools" });
+	return renderPackageStatus(packages);
+}
+
+export function renderPackageStatus(packages) {
+	const lines = ["hay packages:"];
+	if (!packages.length) {
+		lines.push("  none found");
+		return lines.join("\n");
+	}
+	for (const pkg of packages) {
+		const marker = pkg.active ? "*" : "-";
+		const capability = pkg.capabilities?.length ? pkg.capabilities.join(", ") : "?";
+		const backend = pkg.backend || "?";
+		const repair = pkg.capabilities?.includes("e24z/soft-lamr") ? "python AST repair" : "no AST repair";
+		lines.push(`  ${marker} ${pkg.id}`);
+		lines.push(`      capability ${capability}`);
+		lines.push(`      backend ${backend} | ${repair}`);
+	}
+	lines.push("");
+	lines.push("select for next Pi session:");
+	lines.push("  HAY_PACKAGE=<package-id> pi");
+	lines.push("restart the Hay manager if it is already resident.");
+	return lines.join("\n");
 }
 
 export async function buildOperatorStatus(counters = {}, options = {}) {

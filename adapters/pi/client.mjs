@@ -176,6 +176,22 @@ export async function packageIdentity(
 	}
 }
 
+export async function packageInventory(repoRoot, options = {}) {
+	const root = registryRoot(repoRoot);
+	const ids = await registryObjectIds(root, "packages");
+	const activeId = process.env.HAY_PACKAGE || process.env.NEEDLE_PACKAGE || "e24z/pi-local-mac";
+	const packages = [];
+	for (const id of ids) {
+		const pkg = await packageIdentity(repoRoot, id);
+		if (options.hostBinding && pkg.hostBinding !== options.hostBinding) continue;
+		packages.push({
+			...pkg,
+			active: pkg.id === activeId,
+		});
+	}
+	return packages.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
 export function registryRoot(repoRoot) {
 	return process.env.HAY_REGISTRY_ROOT || process.env.NEEDLE_REGISTRY_ROOT || repoRoot;
 }
@@ -189,6 +205,30 @@ async function readRegistryJson(repoRoot, dir, objectId) {
 function registryPath(repoRoot, dir, objectId) {
 	if (objectId.startsWith(`${dir}/`)) return join(repoRoot, `${objectId}.yaml`);
 	return join(repoRoot, dir, `${objectId}.yaml`);
+}
+
+async function registryObjectIds(repoRoot, dir) {
+	const root = join(repoRoot, dir);
+	const out = [];
+	async function visit(current, prefix = "") {
+		let entries;
+		try {
+			entries = await readdir(current, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			const path = join(current, entry.name);
+			const idPart = prefix ? `${prefix}/${entry.name}` : entry.name;
+			if (entry.isDirectory()) {
+				await visit(path, idPart);
+			} else if (entry.isFile() && entry.name.endsWith(".yaml")) {
+				out.push(idPart.slice(0, -".yaml".length));
+			}
+		}
+	}
+	await visit(root);
+	return out;
 }
 
 async function gitIdentity(repoRoot, options = {}) {

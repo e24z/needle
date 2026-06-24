@@ -130,6 +130,9 @@ def main() -> int:
         assert second.wait(2), "second manager did not defer to the first"
         assert _call(tmp, {"op": "stats"})["ok"], "first manager stopped serving"
 
+        assert _call(tmp, {"op": "stop"})["ok"], "manager did not accept stop"
+        assert _wait_until(lambda: not tmp.exists()), "manager socket was not removed"
+
         print("test_manager OK")
         return 0
     finally:

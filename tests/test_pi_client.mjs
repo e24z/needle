@@ -6,9 +6,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { codeVersion, packageIdentity, prune, socketIsLive, sourceIdentity, tailEvents } from "../adapters/pi/client.mjs";
+import {
+	codeVersion,
+	packageIdentity,
+	packageInventory,
+	prune,
+	socketIsLive,
+	sourceIdentity,
+	tailEvents,
+} from "../adapters/pi/client.mjs";
 import {
 	buildBashResultPatch,
+	buildPackageStatus,
 	buildToolResultPatch,
 	decideStatusState,
 	extractFocusQuestion,
@@ -16,6 +25,7 @@ import {
 	formatIndicator,
 	formatStatus,
 	installHayPiExtension,
+	renderPackageStatus,
 	renderOperatorStatus,
 } from "../adapters/pi/extension.js";
 
@@ -323,6 +333,65 @@ test("Pi package identity can load from an external registry root", async () => 
 			process.env.HAY_REGISTRY_ROOT = oldRoot;
 		}
 	}
+});
+
+test("Pi package inventory lists reference and Soft-LaMR packages", async () => {
+	const oldPackage = process.env.HAY_PACKAGE;
+	try {
+		process.env.HAY_PACKAGE = "e24z/pi-local-mac-soft-lamr";
+		const packages = await packageInventory(process.cwd());
+		const ids = packages.map((pkg) => pkg.id);
+		assert.ok(ids.includes("e24z/pi-local-mac"), ids);
+		assert.ok(ids.includes("e24z/pi-local-mac-soft-lamr"), ids);
+		assert.equal(packages.find((pkg) => pkg.id === "e24z/pi-local-mac-soft-lamr").active, true);
+		assert.deepEqual(
+			packages.find((pkg) => pkg.id === "e24z/pi-local-mac-soft-lamr").capabilities,
+			["e24z/soft-lamr"],
+		);
+	} finally {
+		if (oldPackage === undefined) {
+			delete process.env.HAY_PACKAGE;
+		} else {
+			process.env.HAY_PACKAGE = oldPackage;
+		}
+	}
+});
+
+test("Pi package inventory can filter to Pi host packages", async () => {
+	const packages = await packageInventory(process.cwd(), { hostBinding: "pi/native-tools" });
+	const ids = packages.map((pkg) => pkg.id);
+	assert.ok(ids.includes("e24z/pi-local-mac"), ids);
+	assert.ok(ids.includes("e24z/pi-local-mac-soft-lamr"), ids);
+	assert.ok(!ids.includes("e24z/mcp-bash-local"), ids);
+});
+
+test("Pi package status explains package selection", async () => {
+	const rendered = renderPackageStatus([
+		{
+			available: true,
+			active: true,
+			id: "e24z/pi-local-mac",
+			capabilities: ["swe-pruner/reference"],
+			backend: "e24z/code-pruner-mlx",
+		},
+		{
+			available: true,
+			active: false,
+			id: "e24z/pi-local-mac-soft-lamr",
+			capabilities: ["e24z/soft-lamr"],
+			backend: "e24z/code-pruner-mlx",
+		},
+	]);
+	assert.match(rendered, /\* e24z\/pi-local-mac/);
+	assert.match(rendered, /- e24z\/pi-local-mac-soft-lamr/);
+	assert.match(rendered, /no AST repair/);
+	assert.match(rendered, /python AST repair/);
+	assert.match(rendered, /HAY_PACKAGE=<package-id> pi/);
+
+	const live = await buildPackageStatus(process.cwd());
+	assert.match(live, /e24z\/pi-local-mac/);
+	assert.match(live, /e24z\/pi-local-mac-soft-lamr/);
+	assert.doesNotMatch(live, /e24z\/mcp-bash-local/);
 });
 
 test("Pi client reads the local Hay event log", async () => {

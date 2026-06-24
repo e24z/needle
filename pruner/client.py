@@ -64,3 +64,7 @@ def release(
 
 def stats(socket_path: str | Path | None = None, timeout: float = 5.0) -> dict[str, Any]:
     return _request({"op": "stats"}, socket_path, timeout)
+
+
+def stop(socket_path: str | Path | None = None, timeout: float = 5.0) -> dict[str, Any]:
+    return _request({"op": "stop"}, socket_path, timeout)

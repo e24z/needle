@@ -104,6 +104,34 @@ def test_default_active_package_is_reference_without_repair() -> None:
                 os.environ[name] = value
 
 
+def test_soft_lamr_active_package_enables_repair() -> None:
+    old_env = {
+        name: os.environ.get(name)
+        for name in (
+            "HAY_PACKAGE",
+            "NEEDLE_PACKAGE",
+            "HAY_REGISTRY_ROOT",
+            "NEEDLE_REGISTRY_ROOT",
+            "HAY_REPAIR",
+            "NEEDLE_REPAIR",
+        )
+    }
+    os.environ["HAY_REGISTRY_ROOT"] = str(ROOT)
+    os.environ["HAY_PACKAGE"] = "e24z/pi-local-mac-soft-lamr"
+    os.environ.pop("NEEDLE_PACKAGE", None)
+    os.environ.pop("NEEDLE_REGISTRY_ROOT", None)
+    os.environ.pop("HAY_REPAIR", None)
+    os.environ.pop("NEEDLE_REPAIR", None)
+    try:
+        assert repair_enabled_for_active_package()
+    finally:
+        for name, value in old_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def test_repair_expands_enclosing_scope() -> None:
     """Repair is an alternative render of the mask: given only an inner line, it
     pulls in the enclosing def so the output still parses."""
@@ -134,6 +162,7 @@ def main() -> int:
     test_soft_lamr_capability_opts_into_repair()
     test_repair_env_override_wins()
     test_default_active_package_is_reference_without_repair()
+    test_soft_lamr_active_package_enables_repair()
     test_repair_expands_enclosing_scope()
     test_plain_renderer_uses_upstream_filtered_marker()
     test_plain_renderer_keeps_tiny_gaps_when_marker_is_longer()

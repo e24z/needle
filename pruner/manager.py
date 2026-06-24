@@ -160,6 +160,11 @@ class Manager:
                 "pressure": self._pressure,
                 "available_mb": self._avail,
             }
+        if op == "stop":
+            self._emit("stop")
+            if self._stop is not None:
+                self._stop.set()
+            return {"ok": True}
         return {"ok": False, "error": f"unknown op: {op!r}"}
 
     # -- periodic maintenance (called between accepts) --------------------

@@ -35,7 +35,9 @@ pressure, lease count, current Pi-session exact chars trimmed, socket/home
 paths, and recent local events. `/hay doctor` also shows the exact extension
 path, active Needle package, capability, backend, model directory, package
 version, pyproject version, Git branch/commit, and dirty/clean state.
-`/hay events 30` changes the event count.
+`/hay events 30` changes the event count. `/hay packages` lists installed
+Needle runtime packages and the command shape for selecting one on the next Pi
+session.
 
 Install from this repo as a Pi package:
 
@@ -53,3 +55,33 @@ During local development, prefer `pi -e .` for the active working tree and
 
 The bash path uses the same explicit focus contract as read. Missing
 `context_focus_question` passes through unchanged.
+
+Choose a pruning package with an environment variable before launching Pi:
+
+```bash
+HAY_PACKAGE=e24z/pi-local-mac pi
+HAY_PACKAGE=e24z/pi-local-mac-soft-lamr pi
+```
+
+`e24z/pi-local-mac` is the default SWE-Pruner reference package: no AST repair.
+`e24z/pi-local-mac-soft-lamr` extends the reference capability with Python AST
+repair. If a Hay manager is already resident, restart it after changing
+`HAY_PACKAGE` so the backend policy and `/hay doctor` agree.
+
+Stop the resident manager cleanly with:
+
+```bash
+uv run -m pruner stop
+```
+
+Remove the Pi extension from Pi's settings with:
+
+```bash
+pi uninstall ./local/path/to/hay
+```
+
+Remove model files only when you mean to reclaim local disk:
+
+```bash
+rm -rf ~/.hay/models
+```

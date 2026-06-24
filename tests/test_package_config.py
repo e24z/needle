@@ -47,6 +47,18 @@ def test_soft_lamr_is_separate_capability() -> None:
     assert soft["overrides"]["ast_repair"] == "python"
 
 
+def test_soft_lamr_package_resolves_parent_protocol() -> None:
+    loaded = load_active_package(ROOT, "e24z/pi-local-mac-soft-lamr")
+    assert loaded.package_id == "e24z/pi-local-mac-soft-lamr"
+    assert loaded.protocol["id"] == "needle/text-transform"
+    assert loaded.capability_ids == ["e24z/soft-lamr"]
+    assert loaded.capabilities["e24z/soft-lamr"]["extends"] == "swe-pruner/reference"
+    assert loaded.backend_id == "e24z/code-pruner-mlx"
+    assert loaded.binding_id == "pi/native-tools"
+    assert loaded.claim_card["capability"] == "e24z/soft-lamr"
+    assert loaded.package_card_path.exists()
+
+
 def test_missing_backend_reference_fails_clearly() -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
@@ -127,6 +139,7 @@ def main() -> int:
     test_default_package_graph_loads()
     test_reference_capability_has_no_ast_repair()
     test_soft_lamr_is_separate_capability()
+    test_soft_lamr_package_resolves_parent_protocol()
     test_missing_backend_reference_fails_clearly()
     test_backend_must_support_package_capabilities()
     test_registry_root_and_package_can_come_from_environment()

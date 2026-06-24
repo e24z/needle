@@ -4,6 +4,7 @@
   session  hold a session lease against the manager (what the monitor runs)
   prune    pipe stdin through the manager, print the result
   status   operator snapshot: live residency + recent events (stdlib; works broken)
+  stop     ask the resident manager to shut down cleanly
 
 For now invoked as `python3 -m pruner <cmd>`; a `hay` console-script alias can
 come later."""
@@ -109,6 +110,19 @@ def _status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _stop(args: argparse.Namespace) -> int:
+    try:
+        resp = client.stop(timeout=0.5)
+    except OSError as exc:
+        print(f"{naming.APP_NAME}: manager not running ({exc})", file=sys.stderr)
+        return 1
+    if not resp.get("ok"):
+        print(f"error: {resp.get('error')}", file=sys.stderr)
+        return 1
+    print(f"{naming.APP_NAME}: manager stopping", file=sys.stderr)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog=naming.APP_NAME,
@@ -133,6 +147,9 @@ def main(argv: list[str] | None = None) -> int:
     stp = sub.add_parser("status", help="operator snapshot: residency + recent events")
     stp.add_argument("--events", "-n", type=int, default=12, help="recent events to show")
     stp.set_defaults(func=_status)
+
+    stop_p = sub.add_parser("stop", help="ask the resident manager to shut down cleanly")
+    stop_p.set_defaults(func=_stop)
 
     args = p.parse_args(argv)
     return args.func(args)

@@ -1,0 +1,39 @@
+{
+  "schema": "needle.package.v1",
+  "id": "e24z/pi-local-mac-soft-lamr",
+  "display_name": "Needle for Pi - Local Mac Soft-LaMR",
+  "implements": [
+    "e24z/soft-lamr"
+  ],
+  "host_binding": "pi/native-tools",
+  "uses": {
+    "backend": "e24z/code-pruner-mlx"
+  },
+  "focus_contract": {
+    "prompt_bundle": "pi/context-focus-question@0.1",
+    "missing_focus_behavior": "passthrough_original"
+  },
+  "compute": {
+    "default": "local_mlx",
+    "alternatives": [
+      "http_pruner"
+    ]
+  },
+  "runtime": "local_manager",
+  "privacy": {
+    "default": "local_only",
+    "remote_requires_explicit_endpoint": true
+  },
+  "accounting": {
+    "status": "exact_chars",
+    "async": [
+      "tokens_removed_est",
+      "cost_equivalent_est"
+    ]
+  },
+  "package_card": "package-cards/e24z/pi-local-mac-soft-lamr",
+  "claim_card": "claims/pi-local-mac-soft-lamr",
+  "evidence": [
+    "fixture_pack:needle-soft-lamr"
+  ]
+}
