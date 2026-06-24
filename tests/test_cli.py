@@ -279,6 +279,9 @@ def test_setup_root_dry_run_lists_hosts_without_mutating() -> None:
     assert "package: e24z/mlx-pi-soft-lamr" in out
     assert "setup:   needle setup pi" in out
     assert "setup:   needle setup claude-code" in out
+    assert "native:  pi install" in out
+    assert "native:  claude mcp add --transport stdio --scope local needle-bash -- needle mcp serve" in out
+    assert "real pruning needs the MLX backend dependencies and model files" in out
     assert "Needle will not change Pi or Claude Code" in out
     assert "dry run: no changes made" in out
 

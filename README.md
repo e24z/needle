@@ -15,9 +15,19 @@ Code uses a bash-minimal MCP server that exposes one observation tool,
 shortens large textual observations when the tool call includes a
 `context_focus_question`.
 
-## Install
+## Install For Current Testers
 
-The intended public Mac install is Homebrew:
+Until the Homebrew tap exists, use the developer path from a clone of this repo.
+This path requires Python 3.13 or newer and `uv`.
+
+```bash
+uv tool install --editable .
+needle setup
+```
+
+## Planned Homebrew Install
+
+The intended public Mac install is Homebrew once `e24z/homebrew-tap` exists:
 
 ```bash
 brew install e24z/tap/needle
@@ -30,14 +40,7 @@ setup is deferred, resume it with:
 needle setup
 ```
 
-The tap is not published yet. Until the first tagged release, use the developer
-path from a clone of this repo. This path requires Python 3.13 or newer and
-`uv`; the future Homebrew formula will install the Python runtime for you.
-
-```bash
-uv tool install --editable .
-needle setup
-```
+The future Homebrew formula will install the Python runtime for you.
 
 Needle's Pi setup expects Pi's CLI to be available:
 

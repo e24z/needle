@@ -552,7 +552,9 @@ def _print_setup_checklist(
         print(f"  {marker} {key}: {meta['label']}")
         print(f"      package: {package_id if key == host and package_id else meta['package']}")
         print(f"      setup:   {meta['setup']}")
+        print(f"      native:  {_format_command(_setup_native_command(key, 'local'))}")
         print(f"      verify:  {meta['verify']}")
+        print("      model:   real pruning needs the MLX backend dependencies and model files")
     print("")
     print("Needle will not change Pi or Claude Code until you confirm an install.")
     if dry_run:
@@ -601,6 +603,12 @@ def _run_setup_host(
     if host == "pi":
         return _setup_pi(_ns(dry_run=dry_run, uninstall=False, skip_canary=skip_canary))
     return _setup_claude_code(_ns(dry_run=dry_run, uninstall=False, scope=scope))
+
+
+def _setup_native_command(host: str, scope: str) -> list[str]:
+    if host == "pi":
+        return ["pi", "install", str(_pi_package_dir())]
+    return _claude_code_add_command(scope)
 
 
 def _prompt_setup_host(default: str = "pi") -> str:
@@ -660,6 +668,8 @@ def _setup_wizard(args: argparse.Namespace) -> int:
     print("")
     print(f"Host: {chosen_host} ({meta['label']})")
     print(f"Package: {package_id}")
+    print(f"Native command: {_format_command(_setup_native_command(chosen_host, args.scope))}")
+    print("Real pruning readiness: install the MLX backend dependencies and model files.")
     print(f"Verify after install: {meta['verify']}")
     print("")
     if not typer.confirm("Install this host integration now?", default=True):
@@ -851,8 +861,13 @@ def _model_download(args: argparse.Namespace) -> int:
         from huggingface_hub import snapshot_download
     except ImportError:
         print(
-            "error: this Needle install does not include the MLX backend dependencies; "
-            "developer preview path: `uv tool install --editable '.[backend-code-pruner-mlx]'`",
+            "error: this Needle install can set up host adapters, but it does not include "
+            "the MLX backend/model download dependencies needed for real pruning.",
+            file=sys.stderr,
+        )
+        print(
+            "developer preview path: `uv tool install --editable '.[backend-code-pruner-mlx]'`, "
+            "then run `needle model download`",
             file=sys.stderr,
         )
         return 1
@@ -1203,6 +1218,12 @@ def main(argv: list[str] | None = None) -> int:
     except click.ClickException as exc:
         exc.show(file=sys.stderr)
         return int(exc.exit_code)
+    except EOFError:
+        print("Aborted: setup needs an interactive answer. Re-run with `--dry-run` to inspect first.", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("Aborted.", file=sys.stderr)
+        return 1
     except click.Abort:
         print("Aborted!", file=sys.stderr)
         return 1
