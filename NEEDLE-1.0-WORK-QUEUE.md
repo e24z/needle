@@ -64,6 +64,11 @@ without relying on chat memory.
   - Changed default runtime state from `~/.hay` to `~/.needle`.
   - Kept `HAY_*` env vars as compatibility aliases behind `NEEDLE_*`.
   - Added `NEEDLE_NO_EVENTS`/`NEEDLE_EVENTS*` aliases.
+- `refactor(needle): physically re-home runtime modules`
+  - Moved the resident runtime implementation into `needle/runtime`.
+  - Left `pruner.*` as compatibility wrappers.
+  - Updated active tests to import `needle.runtime` unless they are explicitly
+    testing compatibility.
 
 ## Now
 
@@ -95,7 +100,7 @@ Issue Set:
 
 - #1 Build Pi-native Hay pruning contract from SWE-Pruner parity principles
 - #2 Build bash-minimal Needle MCP package
-- #3 Finish Needle runtime re-home under Needle namespaces
+- #3 Finish Needle runtime re-home under Needle namespaces (runtime landed on branch)
 - #4 Migrate runtime state from `~/.hay` to `~/.needle` (landed on branch)
 - #5 Convert needle CLI to Typer with stable command names
 - #6 Define HTTP backend contract and registry metadata
@@ -113,7 +118,7 @@ Acceptance:
 
 - Pick one issue and branch/PR against it instead of expanding this local queue.
 - Convert the CLI to Typer once command ownership is stable enough.
-- Finish physical runtime re-home under `needle.runtime`/`needle.backends`.
+- Finish backend physical re-home under `needle.backends`.
 - Refresh the PRD current-state sections after the structural slices land.
 
 ## Decisions Needed

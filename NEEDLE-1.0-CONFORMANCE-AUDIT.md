@@ -56,10 +56,8 @@ But the repo has not yet fully become the Needle 1.0 architecture:
 
 - Pi consumes backend launcher metadata and starts the resident runtime through
   `python -m needle.runtime manage`.
-- New Needle code can import through `needle.runtime`, and package/backend
-  manifests now launch the resident manager through `python -m needle.runtime`.
-  The implementation still delegates to the legacy `pruner` module until the
-  physical re-home lands.
+- The resident runtime implementation now lives under `needle.runtime`, while
+  `pruner.*` remains as compatibility wrappers.
 - Backend dependency ownership exists for the MLX backend, but only as the first
   backend manifest; HTTP/CUDA backends are still conceptual.
 - Registry validation now checks the main package/capability/backend/binding,
@@ -86,8 +84,8 @@ or more ontology prose.
 | Package registry | `protocols/`, `capabilities/`, `backends/`, `bindings/`, `packages/`, `claims/`, `package-cards/` | Landed as static graph | The graph is metadata more than execution spine. |
 | Registry validation | `needle/registry.py`, `tests/test_package_config.py` | First slice landed | Main package graph fields are checked; full evidence-pack resolution and package-local step references remain. |
 | Backend dependency ownership | `backends/e24z/code-pruner-mlx.yaml` declares `backend-code-pruner-mlx` | First slice landed | Need carry the same pattern to HTTP/CUDA backends and docs. |
-| Backend launch | Pi can resolve a runtime launch plan from active package/backend metadata and launch `needle.runtime` | Mostly landed | Implementation still delegates to `pruner.cli` until physical re-home. |
-| Runtime naming/state | `needle.runtime.*` exists and runtime state defaults to `~/.needle` | Transitional | Need finish physical re-home; `pruner` and `HAY_*` remain compatibility shims. |
+| Backend launch | Pi can resolve a runtime launch plan from active package/backend metadata and launch `needle.runtime` | Landed | Backend implementation still lives under `pruner/backends` until backend re-home. |
+| Runtime naming/state | `needle.runtime.*` owns runtime implementation and state defaults to `~/.needle` | Mostly landed | `pruner` and `HAY_*` remain compatibility shims; backend code still needs a Needle namespace. |
 | Backend selection | `NEEDLE_BACKEND=e24z/code-pruner-mlx` is recognized; `HAY_BACKEND=code-pruner` remains an alias | Transitional | Legacy names should become compatibility shims, not primary docs. |
 | Reference vs Soft-LaMR | Capability files and repair config tests exist | Mostly landed | Need ensure active package controls repair in every runtime path and CLI doctor reports it plainly. |
 | HTTP/CUDA backend | PRD describes target | Missing | Need at least a documented backend contract, and maybe a minimal HTTP backend stub if "point Needle at HTTP" remains 1.0. |
@@ -149,7 +147,7 @@ protocol. This keeps the code mentally anchored in the old architecture.
 
 Target:
 
-- Move runtime modules toward `needle.runtime`.
+- Move runtime modules toward `needle.runtime`. (Landed for resident runtime.)
 - Move backend code toward `needle.backends.code_pruner_mlx`.
 - Keep `pruner` as a thin compatibility import/entrypoint while the branch is
   in transition.

@@ -1,13 +1,12 @@
 """Needle-owned module entrypoint for the resident runtime.
 
-The implementation still delegates to the legacy pruner CLI while the runtime
-is being re-homed. Keep this module as the active launcher so package manifests
-and host adapters no longer need to name the compatibility package.
+Package manifests and host adapters launch this module instead of the legacy
+`pruner` compatibility package.
 """
 
 from __future__ import annotations
 
-from pruner.cli import main
+from .cli import main
 
 
 if __name__ == "__main__":

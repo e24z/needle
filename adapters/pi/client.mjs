@@ -426,9 +426,9 @@ export async function ensureManager(options = {}) {
 }
 
 export async function codeVersion(repoRoot) {
-	const prunerRoot = join(repoRoot, "pruner");
-	const files = (await walkPython(prunerRoot)).sort((a, b) =>
-		relative(prunerRoot, a).localeCompare(relative(prunerRoot, b)),
+	const runtimeRoot = join(repoRoot, "needle", "runtime");
+	const files = (await walkPython(runtimeRoot)).sort((a, b) =>
+		relative(runtimeRoot, a).localeCompare(relative(runtimeRoot, b)),
 	);
 	const hash = createHash("sha1");
 	for (const file of files) {

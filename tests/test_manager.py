@@ -19,8 +19,8 @@ from pathlib import Path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # runnable bare, like its siblings
 
-from pruner.manager import serve_manager  # noqa: E402
-from pruner.protocol import decode, encode  # noqa: E402
+from needle.runtime.manager import serve_manager  # noqa: E402
+from needle.runtime.protocol import decode, encode  # noqa: E402
 
 
 class SpyBackend:

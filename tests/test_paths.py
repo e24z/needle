@@ -28,7 +28,7 @@ def _reload_naming(**env):
     ):
         os.environ.pop(k, None)
     os.environ.update(env)
-    import pruner.naming as naming
+    import needle.runtime.naming as naming
 
     importlib.reload(naming)
     return naming

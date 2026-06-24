@@ -14,8 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pruner import events  # noqa: E402
-from pruner.manager import Manager  # noqa: E402
+from needle.runtime import events  # noqa: E402
+from needle.runtime.manager import Manager  # noqa: E402
 
 
 def test_emit_tail_roundtrip() -> None:
