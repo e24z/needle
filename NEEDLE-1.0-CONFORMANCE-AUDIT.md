@@ -61,9 +61,9 @@ But the repo has not yet fully become the Needle 1.0 architecture:
   socket protocol, and compatibility imports.
 - Backend dependency ownership exists for the MLX backend, but only as the first
   backend manifest; HTTP/CUDA backends are still conceptual.
-- Registry validation proves basic references, but not every required package
-  field, evidence reference, accounting mode, runtime, backend interface, or
-  package-local step.
+- Registry validation now checks the main package/capability/backend/binding
+  and claim-card fields, but full evidence-pack resolution is still a later
+  demo/evidence slice.
 - Claude remains in the active tree even though it is not the 1.0 ship target.
 - The demo/evidence path is mostly described, not executable.
 - The PRD and issue map contain stale "current branch" statements.
@@ -82,7 +82,7 @@ or more ontology prose.
 | Status ontology | Pi footer/status functions and tests | Partial | Runtime stats do not expose enough active/load/backend/package detail; adapter still infers some state. |
 | Exact chars | Pi counters and tester handoff use chars | Mostly landed | Token estimation/cost methods are not designed or exposed in detailed status yet. |
 | Package registry | `protocols/`, `capabilities/`, `backends/`, `bindings/`, `packages/`, `claims/`, `package-cards/` | Landed as static graph | The graph is metadata more than execution spine. |
-| Registry validation | `needle/registry.py`, `tests/test_package_config.py` | Partial | Validator is shallow compared with PRD gate: evidence, accounting, runtime, interface, package-local steps, and backend dependency metadata are not fully checked. |
+| Registry validation | `needle/registry.py`, `tests/test_package_config.py` | First slice landed | Main package graph fields are checked; full evidence-pack resolution and package-local step references remain. |
 | Backend dependency ownership | `backends/e24z/code-pruner-mlx.yaml` declares `backend-code-pruner-mlx` | First slice landed | Need carry the same pattern to HTTP/CUDA backends and docs. |
 | Backend launch | Pi can resolve a runtime launch plan from active package/backend metadata | First slice landed | Still launches the legacy `pruner` module until runtime re-home. |
 | Runtime naming | `pruner/naming.py` still defaults to `hay`; `needle` imports `pruner` | Transitional | Need decide when to re-home runtime under `needle.runtime` and migrate `~/.hay` to `~/.needle`. |
@@ -179,6 +179,7 @@ Then `e24z/code-pruner-mlx` declares that extra. The CLI stays lightweight.
 ### D. Registry validation deepening
 
 Priority: P0
+Status: first slice landed; keep open for evidence-pack resolution.
 
 Problem:
 The loader validates graph references but not enough of the product contract.

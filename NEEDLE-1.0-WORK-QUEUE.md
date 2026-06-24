@@ -27,39 +27,16 @@ without relying on chat memory.
   - Renamed the MLX extra to `backend-code-pruner-mlx`.
   - Made Pi resolve runtime launch from active package/backend metadata.
   - Made `NEEDLE_BACKEND=e24z/code-pruner-mlx` a real backend selector.
+- `feat(needle): deepen registry validation`
+  - Validated package focus, compute, runtime, privacy, accounting, and
+    evidence fields.
+  - Validated host binding tool mappings by artifact kind.
+  - Validated backend compute/interface/runtime/launcher shape.
+  - Validated capability recipes and claim card trust fields.
 
 ## Now
 
-### 1. Deepen Registry Validation
-
-Goal:
-Make invalid package graphs fail before runtime, with errors useful enough for
-`/needle doctor` and future GitHub issues.
-
-Acceptance:
-
-- Packages validate `focus_contract`, `compute`, `runtime`, `privacy`,
-  `accounting`, and `evidence`.
-- Host bindings validate tool mappings by artifact kind, not only by host tool
-  name.
-- Backends validate `compute`, `interface`, `runtime`, and `launcher`.
-- Capabilities validate `conforms_to` / `extends`, behavior recipe steps, focus,
-  gates, rendering, and claim scope enough to catch obvious drift.
-- Claim cards validate package/capability identity, metrics, known limits,
-  must-not-claim text, and privacy notes.
-- Evidence references either resolve to a checked local file or use a clearly
-  recognized placeholder form that is surfaced as a remaining gap.
-
-Verification:
-
-```bash
-PYTHONPATH=. python3 tests/test_package_config.py
-for f in tests/test_*.py; do PYTHONPATH=. python3 "$f"; done
-node tests/test_pi_client.mjs
-git diff --check
-```
-
-### 2. Re-home Runtime Under Needle Names
+### 1. Re-home Runtime Under Needle Names
 
 Goal:
 Stop making `pruner` the conceptual center of the product.
@@ -72,7 +49,7 @@ Acceptance:
 - The backend launcher can later move from `-m pruner manage` to a Needle-owned
   module without changing package manifests again.
 
-### 3. Archive Claude From The Active 1.0 Path
+### 2. Archive Claude From The Active 1.0 Path
 
 Goal:
 Make the active tree reflect that Pi is the 1.0 host.
@@ -103,4 +80,3 @@ These should be surfaced before they block code:
    should those remain adapter-local overrides with package-visible defaults?
 5. How strict should the first evidence validation be: checked local fixture
    files now, or recognized placeholder references until the demo slice?
-

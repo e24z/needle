@@ -41,6 +41,10 @@ _SCHEMAS = {
     "claim": "needle.claim_card.v1",
 }
 
+_KNOWN_ARTIFACT_KINDS = {"file_text", "process_output"}
+_KNOWN_EVIDENCE_PREFIXES = ("fixture_pack:",)
+_KNOWN_RUNTIMES = {"local_manager"}
+
 
 class PackageConfigError(ValueError):
     """Raised when registry objects are missing or internally inconsistent."""
@@ -316,19 +320,24 @@ def _load_object(root: Path, kind: str, object_id: str) -> dict[str, Any]:
 
 
 def _validate_package_graph(root: Path, package: dict[str, Any]) -> LoadedPackage:
+    _validate_package_manifest(package)
+
     implemented_ids = _string_list(package, "implements")
     if not implemented_ids:
         raise PackageConfigError(f"package {package['id']!r} must implement at least one capability")
 
     capabilities = {cap_id: _load_object(root, "capability", cap_id) for cap_id in implemented_ids}
+    for capability in capabilities.values():
+        _validate_capability(capability)
     protocols = {_capability_protocol(root, cap) for cap in capabilities.values()}
     if len(protocols) != 1:
         raise PackageConfigError(f"package {package['id']!r} mixes protocols: {sorted(protocols)}")
     protocol = _load_object(root, "protocol", protocols.pop())
+    _validate_protocol(protocol)
 
     backend_id = _nested_string(package, ("uses", "backend"))
     backend = _load_object(root, "backend", backend_id)
-    _validate_backend_launcher(backend)
+    _validate_backend(backend)
     supported = set(_string_list(backend, "supports"))
     missing_support = sorted(set(implemented_ids) - supported)
     if missing_support:
@@ -337,6 +346,7 @@ def _validate_package_graph(root: Path, package: dict[str, Any]) -> LoadedPackag
         )
 
     binding = _load_object(root, "binding", _required_string(package, "host_binding"))
+    _validate_binding(binding)
 
     card_id = _required_string(package, "package_card")
     card_path = package_card_path(root, card_id)
@@ -344,6 +354,7 @@ def _validate_package_graph(root: Path, package: dict[str, Any]) -> LoadedPackag
         raise PackageConfigError(f"missing package card {card_id!r} at {card_path}")
 
     claim_card = _load_object(root, "claim", _claim_object_id(package))
+    _validate_claim_card(claim_card)
     if claim_card.get("package") != package["id"]:
         raise PackageConfigError(
             f"claim card {claim_card['id']!r} points to package {claim_card.get('package')!r}, "
@@ -365,6 +376,192 @@ def _validate_package_graph(root: Path, package: dict[str, Any]) -> LoadedPackag
         claim_card=claim_card,
         package_card_path=card_path,
     )
+
+
+def _validate_protocol(protocol: dict[str, Any]) -> None:
+    protocol_id = _required_string(protocol, "id")
+    input_obj = _required_mapping(protocol, "input")
+    if input_obj.get("text") != "string":
+        raise PackageConfigError(f"protocol {protocol_id!r} input.text must be 'string'")
+    output_obj = _required_mapping(protocol, "output")
+    if output_obj.get("text") != "string":
+        raise PackageConfigError(f"protocol {protocol_id!r} output.text must be 'string'")
+    failure = _required_mapping(protocol, "failure")
+    if not isinstance(failure.get("default"), str) or not failure["default"]:
+        raise PackageConfigError(f"protocol {protocol_id!r} failure.default must be a string")
+    accounting = _required_mapping(protocol, "accounting")
+    _string_list(accounting, "minimum")
+
+
+def _validate_capability(capability: dict[str, Any]) -> None:
+    cap_id = _required_string(capability, "id")
+    has_parent = "extends" in capability
+    has_protocol = "conforms_to" in capability
+    if has_parent == has_protocol:
+        raise PackageConfigError(
+            f"capability {cap_id!r} must declare exactly one of 'extends' or 'conforms_to'"
+        )
+    _required_string(capability, "extends" if has_parent else "conforms_to")
+    _required_string(capability, "version")
+    _required_string(capability, "description")
+
+    focus = capability.get("focus")
+    if focus is not None:
+        if not isinstance(focus, dict):
+            raise PackageConfigError(f"capability {cap_id!r} focus must be a mapping")
+        _required_string(focus, "field")
+        _required_string(focus, "missing")
+
+    gates = capability.get("gates")
+    if gates is not None:
+        if not isinstance(gates, dict):
+            raise PackageConfigError(f"capability {cap_id!r} gates must be a mapping")
+        min_chars = gates.get("min_chars")
+        if min_chars is not None and not isinstance(min_chars, int):
+            raise PackageConfigError(f"capability {cap_id!r} gates.min_chars must be an integer")
+
+    rendering = capability.get("rendering")
+    if rendering is not None:
+        if not isinstance(rendering, dict):
+            raise PackageConfigError(f"capability {cap_id!r} rendering must be a mapping")
+        for key in ("omitted_spans", "marker_format"):
+            _required_string(rendering, key)
+
+    claim_scope = capability.get("claim_scope")
+    if claim_scope is not None and not isinstance(claim_scope, dict):
+        raise PackageConfigError(f"capability {cap_id!r} claim_scope must be a mapping")
+
+    impl = _required_mapping(capability, "implementation")
+    recipe = _required_mapping(impl, "behavior_recipe")
+    _validate_recipe_steps(cap_id, recipe)
+
+
+def _validate_recipe_steps(owner_id: str, recipe: dict[str, Any]) -> None:
+    steps = recipe.get("steps")
+    if not isinstance(steps, list) or not steps:
+        raise PackageConfigError(f"{owner_id!r} behavior_recipe.steps must be a non-empty list")
+    seen: set[str] = set()
+    for step in steps:
+        if not isinstance(step, dict):
+            raise PackageConfigError(f"{owner_id!r} behavior_recipe.steps entries must be mappings")
+        step_id = _required_string(step, "id")
+        if step_id in seen:
+            raise PackageConfigError(f"{owner_id!r} behavior_recipe step {step_id!r} is duplicated")
+        seen.add(step_id)
+        _required_string(step, "kind")
+        params = step.get("params")
+        if params is not None and not isinstance(params, dict):
+            raise PackageConfigError(f"{owner_id!r} behavior_recipe step {step_id!r} params must be a mapping")
+
+
+def _validate_backend(backend: dict[str, Any]) -> None:
+    backend_id = _required_string(backend, "id")
+    _string_list(backend, "supports")
+    compute = _required_mapping(backend, "compute")
+    _required_string(compute, "default")
+    _string_list(compute, "requires")
+    interface = _required_mapping(backend, "interface")
+    accepts = _string_list(interface, "accepts")
+    returns = _string_list(interface, "returns")
+    if "text" not in accepts or "text" not in returns:
+        raise PackageConfigError(f"backend {backend_id!r} interface must accept and return text")
+    runtime = _required_string(backend, "runtime")
+    if runtime not in _KNOWN_RUNTIMES:
+        raise PackageConfigError(f"backend {backend_id!r} runtime {runtime!r} is unknown")
+    _validate_backend_launcher(backend)
+
+
+def _validate_binding(binding: dict[str, Any]) -> None:
+    binding_id = _required_string(binding, "id")
+    _required_string(binding, "host")
+    tools = _required_mapping(binding, "tools")
+    if not tools:
+        raise PackageConfigError(f"binding {binding_id!r} tools must not be empty")
+    for tool_name, tool in tools.items():
+        if not isinstance(tool_name, str) or not tool_name:
+            raise PackageConfigError(f"binding {binding_id!r} tool names must be non-empty strings")
+        if not isinstance(tool, dict):
+            raise PackageConfigError(f"binding {binding_id!r} tool {tool_name!r} must be a mapping")
+        artifact_kind = _required_string(tool, "artifact_kind")
+        if artifact_kind not in _KNOWN_ARTIFACT_KINDS:
+            raise PackageConfigError(
+                f"binding {binding_id!r} tool {tool_name!r} artifact_kind {artifact_kind!r} is unknown"
+            )
+        for key in ("focus_param", "text_extract", "text_patch"):
+            _required_string(tool, key)
+
+    fallbacks = _required_mapping(binding, "fallbacks")
+    for key in ("missing_focus", "unsupported_result_shape"):
+        _required_string(fallbacks, key)
+
+
+def _validate_package_manifest(package: dict[str, Any]) -> None:
+    package_id = _required_string(package, "id")
+    _required_string(package, "display_name")
+    _nested_string(package, ("uses", "backend"))
+    focus = _required_mapping(package, "focus_contract")
+    _required_string(focus, "prompt_bundle")
+    _required_string(focus, "missing_focus_behavior")
+    compute = _required_mapping(package, "compute")
+    _required_string(compute, "default")
+    if "alternatives" in compute:
+        _string_list(compute, "alternatives")
+    runtime = _required_string(package, "runtime")
+    if runtime not in _KNOWN_RUNTIMES:
+        raise PackageConfigError(f"package {package_id!r} runtime {runtime!r} is unknown")
+    privacy = _required_mapping(package, "privacy")
+    _required_string(privacy, "default")
+    if not isinstance(privacy.get("remote_requires_explicit_endpoint"), bool):
+        raise PackageConfigError(
+            f"package {package_id!r} privacy.remote_requires_explicit_endpoint must be a boolean"
+        )
+    accounting = _required_mapping(package, "accounting")
+    _required_string(accounting, "status")
+    if "async" in accounting:
+        _string_list(accounting, "async")
+    for ref in _string_list(package, "evidence"):
+        _validate_evidence_ref(package_id, ref)
+    _required_string(package, "package_card")
+    _required_string(package, "claim_card")
+
+
+def _validate_evidence_ref(package_id: str, ref: str) -> None:
+    if any(ref.startswith(prefix) and ref != prefix for prefix in _KNOWN_EVIDENCE_PREFIXES):
+        return
+    if ref.startswith("evidence/"):
+        _validate_id(ref)
+        return
+    raise PackageConfigError(
+        f"package {package_id!r} evidence reference {ref!r} must start with "
+        f"{', '.join(_KNOWN_EVIDENCE_PREFIXES)} or 'evidence/'"
+    )
+
+
+def _validate_claim_card(claim: dict[str, Any]) -> None:
+    claim_id = _required_string(claim, "id")
+    _required_string(claim, "package")
+    _required_string(claim, "capability")
+    _required_string(claim, "claim")
+    _required_string(claim, "evidence_level")
+    tested = _required_mapping(claim, "tested")
+    _required_string(tested, "host")
+    _string_list(tested, "tools")
+    _required_string(tested, "compute")
+    _required_string(tested, "capability")
+    metrics = _required_mapping(claim, "metrics")
+    _string_list(metrics, "exact")
+    if "estimates" in metrics:
+        _string_list(metrics, "estimates")
+    _string_list(claim, "known_limits")
+    _string_list(claim, "must_not_claim")
+    privacy_notes = _required_mapping(claim, "privacy_notes")
+    _required_string(privacy_notes, "default")
+    _required_string(privacy_notes, "remote_compute")
+    if claim["capability"] != tested["capability"]:
+        raise PackageConfigError(
+            f"claim card {claim_id!r} capability {claim['capability']!r} "
+            f"does not match tested.capability {tested['capability']!r}"
+        )
 
 
 def _validate_backend_launcher(backend: dict[str, Any]) -> dict[str, Any]:
@@ -424,6 +621,13 @@ def _required_string(obj: dict[str, Any], key: str) -> str:
     value = obj.get(key)
     if not isinstance(value, str) or not value:
         raise PackageConfigError(f"{obj.get('id', '<object>')!r} requires string field {key!r}")
+    return value
+
+
+def _required_mapping(obj: dict[str, Any], key: str) -> dict[str, Any]:
+    value = obj.get(key)
+    if not isinstance(value, dict):
+        raise PackageConfigError(f"{obj.get('id', '<object>')!r} requires mapping field {key!r}")
     return value
 
 
