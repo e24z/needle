@@ -81,3 +81,7 @@ user benefit.
 11. Run `needle setup pi`, open Pi, and verify `/needle doctor`.
 12. Run `needle setup claude-code`, open Claude Code, and verify `/mcp`.
 13. Run `needle statusline claude-code --plain`.
+
+For pre-release Homebrew smoke tests, copy `packaging/homebrew/Formula/needle.rb`
+into a throwaway tap and install `--HEAD` from that tap. Homebrew 6 rejects
+direct formula-file installs outside a tap.
