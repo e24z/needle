@@ -87,7 +87,7 @@ or more ontology prose.
 | Registry validation | `needle/registry.py`, `tests/test_package_config.py` | First slice landed | Main package graph fields are checked; full evidence-pack resolution and package-local step references remain. |
 | Backend dependency ownership | `backends/e24z/code-pruner-mlx.yaml` declares `backend-code-pruner-mlx` | First slice landed | Need carry the same pattern to HTTP/CUDA backends and docs. |
 | Backend launch | Pi can resolve a runtime launch plan from active package/backend metadata and launch `needle.runtime` | Mostly landed | Implementation still delegates to `pruner.cli` until physical re-home. |
-| Runtime naming | `needle.runtime.*` exists as a migration namespace; implementation still lives under `pruner` | Transitional | Need finish physical re-home and decide when to migrate `~/.hay` to `~/.needle`. |
+| Runtime naming/state | `needle.runtime.*` exists and runtime state defaults to `~/.needle` | Transitional | Need finish physical re-home; `pruner` and `HAY_*` remain compatibility shims. |
 | Backend selection | `NEEDLE_BACKEND=e24z/code-pruner-mlx` is recognized; `HAY_BACKEND=code-pruner` remains an alias | Transitional | Legacy names should become compatibility shims, not primary docs. |
 | Reference vs Soft-LaMR | Capability files and repair config tests exist | Mostly landed | Need ensure active package controls repair in every runtime path and CLI doctor reports it plainly. |
 | HTTP/CUDA backend | PRD describes target | Missing | Need at least a documented backend contract, and maybe a minimal HTTP backend stub if "point Needle at HTTP" remains 1.0. |
@@ -279,8 +279,8 @@ These are product/architecture calls, not chores.
      make a polished provider recipe post-1.0.
 
 2. Do we rename runtime state from `~/.hay` to `~/.needle` before public testers?
-   - Recommendation: yes before public release, with migration or clear cleanup.
-     Do not strand early testers on a permanent codename path.
+   - Answer: yes. Runtime state now defaults to `~/.needle`; `HAY_*` remains a
+     compatibility alias.
 
 3. Was Claude archived for 1.0?
    - Answer: yes. The active repo now shows the Pi 1.0 product, while

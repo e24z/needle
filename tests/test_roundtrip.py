@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-os.environ["HAY_NO_EVENTS"] = "1"  # serve_manager builds a real Manager; don't write ~/.hay log
+os.environ["HAY_NO_EVENTS"] = "1"  # compatibility alias; don't write the real local event log
 
 import sys  # noqa: E402
 import tempfile  # noqa: E402

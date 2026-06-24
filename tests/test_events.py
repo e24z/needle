@@ -20,23 +20,34 @@ from pruner.manager import Manager  # noqa: E402
 
 def test_emit_tail_roundtrip() -> None:
     with tempfile.TemporaryDirectory() as d:
-        os.environ["HAY_HOME"] = d
+        os.environ["NEEDLE_HOME"] = d
         os.environ.pop("HAY_NO_EVENTS", None)
+        os.environ.pop("NEEDLE_NO_EVENTS", None)
         events.emit("alpha", n=1)
         events.emit("beta", reason="x")
         got = events.tail(10)
         assert [e["event"] for e in got] == ["alpha", "beta"], got
         assert got[0]["n"] == 1 and got[1]["reason"] == "x"
         assert all("ts" in e for e in got)
-    os.environ.pop("HAY_HOME", None)
+    os.environ.pop("NEEDLE_HOME", None)
 
 
 def test_kill_switch() -> None:
     with tempfile.TemporaryDirectory() as d:
+        os.environ["NEEDLE_HOME"] = d
+        os.environ["NEEDLE_NO_EVENTS"] = "1"
+        events.emit("should_not_write")
+        assert events.tail(10) == [], "NEEDLE_NO_EVENTS=1 must suppress the local log"
+    os.environ.pop("NEEDLE_NO_EVENTS", None)
+    os.environ.pop("NEEDLE_HOME", None)
+
+
+def test_legacy_event_env_aliases_still_work() -> None:
+    with tempfile.TemporaryDirectory() as d:
         os.environ["HAY_HOME"] = d
         os.environ["HAY_NO_EVENTS"] = "1"
         events.emit("should_not_write")
-        assert events.tail(10) == [], "HAY_NO_EVENTS=1 must suppress the local log"
+        assert events.tail(10) == [], "HAY_NO_EVENTS=1 must remain a compatibility alias"
     os.environ.pop("HAY_NO_EVENTS", None)
     os.environ.pop("HAY_HOME", None)
 
@@ -74,6 +85,7 @@ def test_manager_emits_lifecycle() -> None:
 def main() -> int:
     test_emit_tail_roundtrip()
     test_kill_switch()
+    test_legacy_event_env_aliases_still_work()
     test_manager_emits_lifecycle()
     print("test_events OK")
     return 0

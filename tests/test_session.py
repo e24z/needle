@@ -19,7 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-os.environ["HAY_NO_EVENTS"] = "1"  # in-thread/spawned managers here must not write the real ~/.hay log
+os.environ["HAY_NO_EVENTS"] = "1"  # compatibility alias; don't write the real local event log
 
 from needle.runtime import client, naming  # noqa: E402
 from needle.runtime.backends import FakePruner  # noqa: E402
@@ -43,7 +43,7 @@ def test_manage_subprocess_serves(tmp_sock: Path) -> None:
         os.environ,
         HAY_MANAGER_SOCKET=str(tmp_sock),
         HAY_BACKEND="fake",
-        HAY_NO_EVENTS="1",  # don't write the real ~/.hay event log from tests
+        HAY_NO_EVENTS="1",  # don't write the real local event log from tests
         PYTHONPATH=_ROOT,
     )
     proc = subprocess.Popen(

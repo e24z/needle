@@ -124,8 +124,8 @@ spending model context on irrelevant file sections or noisy command output.
 
    `pi uninstall .` removes the Pi extension through Pi's native package flow.
    `needle uninstall --yes` removes Needle-owned local runtime/config/model
-   files. `uv tool uninstall needle` removes the CLI entrypoint installed in
-   step 1.
+   files, which default to `~/.needle`. `uv tool uninstall needle` removes the
+   CLI entrypoint installed in step 1.
 
 10. If she wants to preview cleanup first:
 
@@ -139,6 +139,8 @@ spending model context on irrelevant file sections or noisy command output.
 - It requires an explicit `context_focus_question`.
 - It reports exact character reduction locally.
 - The default package keeps tool text on the local Mac.
+- Runtime state defaults to `~/.needle`; old `HAY_*` env vars are compatibility
+  aliases, not the preferred public surface.
 
 ## What Needle Does Not Claim
 

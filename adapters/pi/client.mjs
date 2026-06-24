@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile);
 const PI_HOST_BINDING = "pi/native-tools";
 
 export function appName() {
-	return process.env.NEEDLE_APP_NAME || process.env.HAY_APP_NAME || "hay";
+	return process.env.NEEDLE_APP_NAME || process.env.HAY_APP_NAME || "needle";
 }
 
 export function appHome() {

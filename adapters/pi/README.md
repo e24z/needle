@@ -63,6 +63,11 @@ and `/needle doctor` to confirm which checkout/ref Pi is actually running. The
 The bash path uses the same explicit focus contract as read. Missing
 `context_focus_question` passes through unchanged.
 
+Needle-owned runtime state defaults to `~/.needle`: config, socket, event log,
+and local model files. `HAY_*` environment variables remain compatibility
+aliases for early local installs, but new docs and commands should prefer
+`NEEDLE_*`.
+
 List, inspect, and select Needle runtime packages with the host-neutral CLI:
 
 ```bash

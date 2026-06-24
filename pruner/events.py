@@ -1,13 +1,13 @@
 """Local event log: the foundation for telemetry, but LOCAL ONLY.
 
 Append-only newline-delimited JSON, one manager lifecycle event per line, in
-~/.hay/events.jsonl. Nothing here transmits anything off the machine -- a future
+~/.needle/events.jsonl. Nothing here transmits anything off the machine -- a future
 remote sink (Cloudflare/Supabase) would plug into `emit()` behind an explicit,
 default-off opt-in. This file is just a local log, like manager.log.
 
-On by default so a tester's box is diagnosable out of the box; `HAY_NO_EVENTS=1`
-disables it. Fail-silent (logging must never break the manager) and stdlib-only
-(so readers like `pruner status` work under bare python3).
+On by default so a tester's box is diagnosable out of the box;
+`NEEDLE_NO_EVENTS=1` disables it. `HAY_NO_EVENTS=1` remains a compatibility
+alias. Fail-silent (logging must never break the manager) and stdlib-only.
 """
 
 from __future__ import annotations
@@ -19,16 +19,27 @@ from pathlib import Path
 
 from . import naming
 
+def _env(*names: str) -> str | None:
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return None
+
+
 # Rotate at ~1 MB to one backup (.jsonl.1) so the log can't grow unbounded.
-MAX_BYTES = int(os.environ.get("HAY_EVENTS_MAX_BYTES", str(1 << 20)))
+MAX_BYTES = int(_env("NEEDLE_EVENTS_MAX_BYTES", "HAY_EVENTS_MAX_BYTES") or str(1 << 20))
 
 
 def _path() -> Path:
+    env = _env("NEEDLE_EVENTS", "HAY_EVENTS")
+    if env:
+        return Path(env).expanduser()
     return naming.app_home() / "events.jsonl"
 
 
 def enabled() -> bool:
-    return os.environ.get("HAY_NO_EVENTS", "").lower() not in {"1", "true", "yes"}
+    return (_env("NEEDLE_NO_EVENTS", "HAY_NO_EVENTS") or "").lower() not in {"1", "true", "yes"}
 
 
 def emit(event: str, **fields: object) -> None:

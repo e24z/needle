@@ -60,6 +60,10 @@ without relying on chat memory.
 - `docs(needle): migrate work queue to github issues`
   - Created GitHub issues #3-#8 for the remaining Needle 1.0 slices.
   - Kept issue #1 as the broad Pi-native parent and issue #2 as the MCP lane.
+- `feat(needle): default runtime state to needle home`
+  - Changed default runtime state from `~/.hay` to `~/.needle`.
+  - Kept `HAY_*` env vars as compatibility aliases behind `NEEDLE_*`.
+  - Added `NEEDLE_NO_EVENTS`/`NEEDLE_EVENTS*` aliases.
 
 ## Now
 
@@ -92,7 +96,7 @@ Issue Set:
 - #1 Build Pi-native Hay pruning contract from SWE-Pruner parity principles
 - #2 Build bash-minimal Needle MCP package
 - #3 Finish Needle runtime re-home under Needle namespaces
-- #4 Migrate runtime state from `~/.hay` to `~/.needle`
+- #4 Migrate runtime state from `~/.hay` to `~/.needle` (landed on branch)
 - #5 Convert needle CLI to Typer with stable command names
 - #6 Define HTTP backend contract and registry metadata
 - #7 Add live Pi demo canary around evidence fixtures
@@ -117,8 +121,7 @@ Acceptance:
 These should be surfaced before they block code:
 
 1. Should HTTP backend support be a 1.0 promise or a post-1.0 documented path?
-2. Should runtime state migrate from `~/.hay` to `~/.needle` before testers?
-3. Should package policy own min chars and minimum savings ratio directly, or
+2. Should package policy own min chars and minimum savings ratio directly, or
    should those remain adapter-local overrides with package-visible defaults?
-4. How strict should the first evidence validation be: checked local fixture
+3. How strict should the first evidence validation be: checked local fixture
    files now, or recognized placeholder references until the demo slice?

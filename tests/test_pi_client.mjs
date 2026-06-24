@@ -321,7 +321,7 @@ test("Pi source identity reads package, pyproject, git state, and active Needle 
 		assert.equal(identity.packageName, "needle");
 		assert.equal(identity.packageVersion, "0.1.0");
 		assert.equal(identity.pyprojectVersion, "0.1.0");
-		assert.match(identity.modelRoot, /\/\.hay\/models$/);
+		assert.match(identity.modelRoot, /\/\.needle\/models$/);
 		assert.equal(identity.activePackage.id, "e24z/pi-local-mac");
 		assert.deepEqual(identity.activePackage.capabilities, ["swe-pruner/reference"]);
 		assert.equal(identity.activePackage.backend, "e24z/code-pruner-mlx");

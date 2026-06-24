@@ -1,8 +1,7 @@
-"""Single source of truth for the codename and where runtime files live.
+"""Single source of truth for the product name and where runtime files live.
 
-The product name is deliberately confined to this one module. Rename the
-project by changing APP_NAME here (or setting HAY_APP_NAME); paths, the socket,
-and CLI display all follow. Do not hardcode "hay" anywhere else.
+The product name is deliberately confined to this one module. NEEDLE_* env vars
+are canonical; HAY_* remains as a compatibility alias for early installs.
 """
 
 from __future__ import annotations
@@ -12,8 +11,8 @@ import os
 import socket
 from pathlib import Path
 
-# Codename. The ONLY place the product name appears in code.
-APP_NAME = os.environ.get("NEEDLE_APP_NAME") or os.environ.get("HAY_APP_NAME", "hay")
+# Product name. The ONLY place the default product name appears in runtime code.
+APP_NAME = os.environ.get("NEEDLE_APP_NAME") or os.environ.get("HAY_APP_NAME", "needle")
 
 
 def app_home() -> Path:
@@ -33,7 +32,7 @@ def model_root() -> Path:
 
 
 def model_dir_for_repo(repo: str) -> Path:
-    """Stable local directory for a Hugging Face repo under Hay's model root."""
+    """Stable local directory for a Hugging Face repo under Needle's model root."""
     safe = "".join(
         ch if ch.isalnum() or ch in "._-" else "-"
         for ch in repo.replace("/", "--")
@@ -42,7 +41,7 @@ def model_dir_for_repo(repo: str) -> Path:
 
 
 def manager_socket_path() -> Path:
-    """The machine-wide manager socket. One per machine (per HAY_HOME), NOT keyed
+    """The machine-wide manager socket. One per machine (per NEEDLE_HOME), NOT keyed
     by project: the whole point of the manager is a single resident model shared
     by every session. NEEDLE_MANAGER_SOCKET overrides (tests, manual runs)."""
     env = os.environ.get("NEEDLE_MANAGER_SOCKET") or os.environ.get("HAY_MANAGER_SOCKET")
@@ -66,7 +65,7 @@ def socket_is_live(path: Path) -> bool:
 
 
 def code_version() -> str:
-    """Short hash of the pruner package source. A detached manager records the
+    """Short hash of the runtime package source. A detached manager records the
     version it started on; a session announces its version when it leases. A
     mismatch means the code was edited since the manager launched -- so the old
     manager steps aside and a fresh one starts on the new code. Without this, a
