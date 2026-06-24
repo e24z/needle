@@ -103,7 +103,7 @@ Practical contract:
 {
   "text": "large tool output",
   "intent": "What is the model looking for?",
-  "package": "e24z/pi-local-mac",
+  "package": "e24z/mlx-pi-reference",
   "source": {
     "host": "pi",
     "tool": "read"
@@ -150,11 +150,11 @@ The public model has four registry object kinds:
   `e24z/code-pruner-mlx` and `e24z/code-pruner-http`.
 - Package: the installable delivery vehicle. A package implements capabilities,
   uses a backend, and carries host binding, lifecycle, privacy, accounting,
-  status, docs, and evidence. Example: `e24z/pi-local-mac`.
+  status, docs, and evidence. Example: `e24z/mlx-pi-reference`.
 
 Registry names use publisher or project namespaces at every layer. The namespace
 does not determine the object kind. `swe-pruner/reference` can be a capability,
-`e24z/code-pruner-mlx` can be a backend, and `e24z/pi-local-mac` can be a
+`e24z/code-pruner-mlx` can be a backend, and `e24z/mlx-pi-reference` can be a
 package. The object kind belongs in metadata and registry path, not inside the
 canonical id.
 
@@ -180,7 +180,7 @@ flowchart BT
     Soft["Capability<br/>e24z/soft-lamr<br/>SWE-Pruner + AST repair"]
     MLX["Backend<br/>e24z/code-pruner-mlx"]
     HTTP["Backend<br/>e24z/code-pruner-http"]
-    Package["Package<br/>e24z/pi-local-mac"]
+    Package["Package<br/>e24z/mlx-pi-reference"]
 
     Ref -->|"conforms_to"| Protocol
     Soft -->|"extends"| Ref
@@ -206,7 +206,7 @@ End users should mostly encounter a Package Card, not the ontology:
 
 ```mermaid
 flowchart TD
-    Discover["User finds<br/>e24z/pi-local-mac"]
+    Discover["User finds<br/>e24z/mlx-pi-reference"]
     Promise["Package Card says<br/>Prunes large Pi read/bash outputs<br/>Runs locally by default"]
     Install["Install package"]
     FirstUse["Native Pi tools keep working<br/>Focused large outputs get shorter"]
@@ -268,8 +268,8 @@ interface:
 
 ```yaml
 schema: needle.package.v1
-id: e24z/pi-local-mac
-display_name: "Needle for Pi - Local Mac"
+id: e24z/mlx-pi-reference
+display_name: "MLX Pi Reference"
 implements:
   - swe-pruner/reference
 uses:
@@ -455,10 +455,10 @@ Default Pi package:
 
 ```yaml
 schema: needle.package.v1
-id: e24z/pi-local-mac
-display_name: "Needle for Pi - Local Mac"
+id: e24z/mlx-pi-soft-lamr
+display_name: "MLX Pi Soft LAMR"
 implements:
-  - swe-pruner/reference
+  - e24z/soft-lamr
 host_binding: pi/native-tools
 uses:
   backend: e24z/code-pruner-mlx
@@ -473,10 +473,13 @@ runtime: local_manager
 accounting:
   status: exact_chars
   async: [tokens_removed_est, cost_equivalent_est]
-claim_card: claims/pi-local-mac-swe-pruner-reference
+claim_card: claims/mlx-pi-soft-lamr
 evidence:
-  - fixture_pack:swe-pruner-reference
+  - fixture_pack:mlx-pi-soft-lamr
 ```
+
+The no-AST comparison package is `e24z/mlx-pi-reference`; it implements
+`swe-pruner/reference` with the same MLX backend and Pi host binding.
 
 The exact defaults can change after tests, but the capability and package files
 must make them explicit. The user should not need to infer the active capability
@@ -548,7 +551,7 @@ flowchart TD
     User["Developer using Pi"] --> Pi["Pi agent"]
     Pi --> Tools["Native tools: read, bash, edit, write"]
     Tools --> Binding["Pi host binding: read/bash -> text artifacts"]
-    Package["Package: e24z/pi-local-mac"] -. configures .-> Binding
+    Package["Package: e24z/mlx-pi-reference"] -. configures .-> Binding
     Package -. implements .-> Capability["Capability: swe-pruner/reference"]
     Capability -. conforms_to .-> Protocol["Protocol: needle/text-transform"]
     Package -. uses .-> Runtime
@@ -966,8 +969,8 @@ Example:
 
 ```yaml
 schema: needle.claim_card.v1
-id: claims/pi-local-mac-swe-pruner-reference
-package: e24z/pi-local-mac
+id: claims/mlx-pi-reference
+package: e24z/mlx-pi-reference
 capability: swe-pruner/reference
 claim: "Task-aware pruning for large Pi read/bash outputs with explicit focus questions."
 evidence_level: demo_fixture
@@ -1105,7 +1108,7 @@ Before LinkedIn/Twitter/public tester launch:
 - The package applies the capability to package artifact kinds such as
   `file_text` and `process_output`, not host tool names.
 - A Pi host binding maps `read` and `bash` to those artifact kinds.
-- A Package such as `e24z/pi-local-mac` composes the binding, implemented
+- A Package such as `e24z/mlx-pi-reference` composes the binding, implemented
   capabilities, backend, compute target, accounting, lifecycle, Package Card,
   claim card, and evidence pack.
 - `context_focus_question` is first-class.
@@ -1170,7 +1173,7 @@ Landed structural work:
 
 1. Convert the PRD plan into GitHub issues.
 2. Add `needle/text-transform`, `swe-pruner/reference`, `e24z/soft-lamr`,
-   `pi/native-tools`, `e24z/pi-local-mac`, package cards, claim cards, and
+   `pi/native-tools`, `e24z/mlx-pi-reference`, package cards, claim cards, and
    fixture evidence packs.
 3. Move the resident runtime under `needle.runtime` with `pruner.*`
    compatibility wrappers.
@@ -1255,7 +1258,7 @@ and teach the agent, through a bundled skill/prompt contract, to use
 The first MCP claim should be modest:
 
 ```text
-Package: e24z/mcp-bash-local
+Package: e24z/mlx-mcp-bash-reference
 Capability: swe-pruner/reference
 Backend: e24z/code-pruner-mlx or another compatible backend
 Tool surface: needle_bash(command, context_focus_question?)

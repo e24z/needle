@@ -49,8 +49,8 @@ Needle has crossed from "idea" into a real Pi slice:
   `needle model ...` exist.
 - Pi read and bash wrappers exist and accept `context_focus_question`.
 - Status now reports exact characters trimmed instead of fake tokens.
-- The default package can mean no AST repair, while Soft-LaMR can opt into AST
-  repair.
+- The default Pi package is now Soft-LaMR, while the no-AST MLX Pi reference
+  package remains available for paper-reference comparison.
 
 But the repo has not yet fully become the Needle 1.0 architecture:
 
@@ -284,9 +284,9 @@ These are product/architecture calls, not chores.
    - Answer: yes. The active repo now shows the Pi 1.0 product, while
      `archive/claude/` preserves the older adapter work.
 
-4. Is `e24z/pi-local-mac` still the default public package?
-   - Recommendation: yes, with `swe-pruner/reference` and no AST repair. Keep
-     Soft-LaMR as explicit alternate until evidence says otherwise.
+4. Is `e24z/mlx-pi-reference` still the default public package?
+   - Answer: no. `e24z/mlx-pi-soft-lamr` is the default Pi package; keep
+     `e24z/mlx-pi-reference` as the no-AST comparison package.
 
 5. Should package policy own min chars / min savings threshold?
    - Recommendation: yes. Adapter env vars can override locally, but defaults

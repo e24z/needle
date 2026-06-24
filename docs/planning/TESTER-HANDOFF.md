@@ -49,8 +49,8 @@ spending model context on irrelevant file sections or noisy command output.
    The important lines are:
 
    ```text
-   active package e24z/pi-local-mac
-   capability swe-pruner/reference
+   active package e24z/mlx-pi-soft-lamr
+   capability e24z/soft-lamr
    backend e24z/code-pruner-mlx
    compute local_mlx | privacy local_only
    ```
@@ -86,10 +86,10 @@ spending model context on irrelevant file sections or noisy command output.
    needle evidence check --host-binding pi/native-tools
    ```
 
-   The default package is `e24z/pi-local-mac`. It implements
-   `swe-pruner/reference`, which means no AST repair. The alternative package is
-   `e24z/pi-local-mac-soft-lamr`. It implements `e24z/soft-lamr`, which extends
-   the reference behavior with Python AST repair.
+   The default package is `e24z/mlx-pi-soft-lamr`. It implements
+   `e24z/soft-lamr`, which extends the reference behavior with Python AST
+   repair. The comparison package is `e24z/mlx-pi-reference`; it implements
+   `swe-pruner/reference`, which means no AST repair.
 
    `needle evidence check` validates and lists the local fixture pack behind the
    package claim: one read prune case, one bash prune case, and one missing-focus
@@ -108,14 +108,14 @@ spending model context on irrelevant file sections or noisy command output.
    and local accounting. It does not prove MLX model quality, SWE-bench
    acceptance, token savings, or dollar savings.
 
-7. If she wants Soft-LaMR as her default package, she selects it with the CLI:
+7. If she wants to make the default explicit, she selects it with the CLI:
 
    ```bash
-   needle package use e24z/pi-local-mac-soft-lamr
+   needle package use e24z/mlx-pi-soft-lamr
    ```
 
    If she has not installed the CLI yet, she can run the same command from the
-   repo as `uv run needle package use e24z/pi-local-mac-soft-lamr`.
+   repo as `uv run needle package use e24z/mlx-pi-soft-lamr`.
 
    If a manager is already resident, she stops it first so the new package
    policy and `/needle doctor` agree:
@@ -127,7 +127,7 @@ spending model context on irrelevant file sections or noisy command output.
    For a one-off run, she can still use an environment override:
 
    ```bash
-   NEEDLE_PACKAGE=e24z/pi-local-mac-soft-lamr pi
+   NEEDLE_PACKAGE=e24z/mlx-pi-soft-lamr pi
    ```
 
 8. If she wants to disable Needle for one Pi run without uninstalling it:

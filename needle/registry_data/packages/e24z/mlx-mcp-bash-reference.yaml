@@ -1,7 +1,7 @@
 {
   "schema": "needle.package.v1",
-  "id": "e24z/mcp-bash-local",
-  "display_name": "Needle MCP Bash - Local",
+  "id": "e24z/mlx-mcp-bash-reference",
+  "display_name": "MLX MCP Bash Reference",
   "implements": [
     "swe-pruner/reference"
   ],
@@ -31,10 +31,10 @@
       "cost_equivalent_est"
     ]
   },
-  "package_card": "package-cards/e24z/mcp-bash-local",
-  "claim_card": "claims/mcp-bash-local-swe-pruner-reference",
+  "package_card": "package-cards/e24z/mlx-mcp-bash-reference",
+  "claim_card": "claims/mlx-mcp-bash-reference",
   "evidence": [
-    "fixture_pack:mcp-bash-reference"
+    "fixture_pack:mlx-mcp-bash-reference"
   ]
 }
 

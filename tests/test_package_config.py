@@ -47,22 +47,36 @@ def _copy_registry(tmp: Path) -> None:
             shutil.copytree(src, tmp / name)
 
 
-def test_default_package_graph_loads() -> None:
-    loaded = load_active_package(REGISTRY_ROOT, "e24z/pi-local-mac")
-    assert loaded.package_id == "e24z/pi-local-mac"
+def test_default_package_graph_loads_soft_lamr() -> None:
+    loaded = load_active_package(REGISTRY_ROOT)
+    assert loaded.package_id == "e24z/mlx-pi-soft-lamr"
+    assert loaded.protocol["id"] == "needle/text-transform"
+    assert loaded.capability_ids == ["e24z/soft-lamr"]
+    assert loaded.capabilities["e24z/soft-lamr"]["extends"] == "swe-pruner/reference"
+    assert loaded.backend_id == "e24z/code-pruner-mlx"
+    assert loaded.binding_id == "pi/native-tools"
+    assert loaded.claim_card["capability"] == "e24z/soft-lamr"
+    assert loaded.package_card_path.exists()
+    assert loaded.evidence_refs == ["fixture_pack:mlx-pi-soft-lamr"]
+    assert loaded.evidence_paths["fixture_pack:mlx-pi-soft-lamr"].exists()
+
+
+def test_reference_package_graph_loads() -> None:
+    loaded = load_active_package(REGISTRY_ROOT, "e24z/mlx-pi-reference")
+    assert loaded.package_id == "e24z/mlx-pi-reference"
     assert loaded.protocol["id"] == "needle/text-transform"
     assert loaded.capability_ids == ["swe-pruner/reference"]
     assert loaded.backend_id == "e24z/code-pruner-mlx"
     assert loaded.binding_id == "pi/native-tools"
     assert loaded.claim_card["capability"] == "swe-pruner/reference"
     assert loaded.package_card_path.exists()
-    assert loaded.evidence_refs == ["fixture_pack:swe-pruner-reference"]
-    assert loaded.evidence_paths["fixture_pack:swe-pruner-reference"].exists()
+    assert loaded.evidence_refs == ["fixture_pack:mlx-pi-reference"]
+    assert loaded.evidence_paths["fixture_pack:mlx-pi-reference"].exists()
 
 
 def test_default_package_resolves_runtime_launch_plan() -> None:
-    plan = runtime_launch_plan(REGISTRY_ROOT, "e24z/pi-local-mac")
-    assert plan.package_id == "e24z/pi-local-mac"
+    plan = runtime_launch_plan(REGISTRY_ROOT)
+    assert plan.package_id == "e24z/mlx-pi-soft-lamr"
     assert plan.backend_id == "e24z/code-pruner-mlx"
     assert plan.kind == "needle-cli"
     assert plan.command == [
@@ -91,7 +105,7 @@ def test_http_backend_contract_validates_without_server() -> None:
 
 
 def test_reference_capability_has_no_ast_repair() -> None:
-    loaded = load_active_package(REGISTRY_ROOT, "e24z/pi-local-mac")
+    loaded = load_active_package(REGISTRY_ROOT, "e24z/mlx-pi-reference")
     ref = loaded.capabilities["swe-pruner/reference"]
     assert ref["claim_scope"]["ast_repair"] == "absent"
     assert ref["focus"]["field"] == "context_focus_question"
@@ -107,8 +121,8 @@ def test_soft_lamr_is_separate_capability() -> None:
 
 
 def test_soft_lamr_package_resolves_parent_protocol() -> None:
-    loaded = load_active_package(REGISTRY_ROOT, "e24z/pi-local-mac-soft-lamr")
-    assert loaded.package_id == "e24z/pi-local-mac-soft-lamr"
+    loaded = load_active_package(REGISTRY_ROOT, "e24z/mlx-pi-soft-lamr")
+    assert loaded.package_id == "e24z/mlx-pi-soft-lamr"
     assert loaded.protocol["id"] == "needle/text-transform"
     assert loaded.capability_ids == ["e24z/soft-lamr"]
     assert loaded.capabilities["e24z/soft-lamr"]["extends"] == "swe-pruner/reference"
@@ -116,13 +130,13 @@ def test_soft_lamr_package_resolves_parent_protocol() -> None:
     assert loaded.binding_id == "pi/native-tools"
     assert loaded.claim_card["capability"] == "e24z/soft-lamr"
     assert loaded.package_card_path.exists()
-    assert loaded.evidence_refs == ["fixture_pack:needle-soft-lamr"]
-    assert loaded.evidence_paths["fixture_pack:needle-soft-lamr"].exists()
+    assert loaded.evidence_refs == ["fixture_pack:mlx-pi-soft-lamr"]
+    assert loaded.evidence_paths["fixture_pack:mlx-pi-soft-lamr"].exists()
 
 
 def test_mcp_bash_package_loads_as_reference_host_binding() -> None:
-    loaded = load_active_package(REGISTRY_ROOT, "e24z/mcp-bash-local", host_binding="mcp/bash")
-    assert loaded.package_id == "e24z/mcp-bash-local"
+    loaded = load_active_package(REGISTRY_ROOT, "e24z/mlx-mcp-bash-reference", host_binding="mcp/bash")
+    assert loaded.package_id == "e24z/mlx-mcp-bash-reference"
     assert loaded.protocol["id"] == "needle/text-transform"
     assert loaded.capability_ids == ["swe-pruner/reference"]
     assert loaded.backend_id == "e24z/code-pruner-mlx"
@@ -131,8 +145,53 @@ def test_mcp_bash_package_loads_as_reference_host_binding() -> None:
     assert loaded.claim_card["capability"] == "swe-pruner/reference"
     assert loaded.claim_card["tested"]["host"] == "mcp"
     assert loaded.package_card_path.exists()
-    assert loaded.evidence_refs == ["fixture_pack:mcp-bash-reference"]
-    assert loaded.evidence_paths["fixture_pack:mcp-bash-reference"].exists()
+    assert loaded.evidence_refs == ["fixture_pack:mlx-mcp-bash-reference"]
+    assert loaded.evidence_paths["fixture_pack:mlx-mcp-bash-reference"].exists()
+
+
+def test_mlx_package_family_has_explicit_surface_parity() -> None:
+    reference = load_active_package(REGISTRY_ROOT, "e24z/mlx-pi-reference", host_binding="pi/native-tools")
+    soft_lamr = load_active_package(REGISTRY_ROOT, "e24z/mlx-pi-soft-lamr", host_binding="pi/native-tools")
+    mcp_bash = load_active_package(REGISTRY_ROOT, "e24z/mlx-mcp-bash-reference", host_binding="mcp/bash")
+
+    old_config = os.environ.get("HAY_CONFIG")
+    old_needle_config = os.environ.get("NEEDLE_CONFIG")
+    old_package = os.environ.get("HAY_PACKAGE")
+    old_needle_package = os.environ.get("NEEDLE_PACKAGE")
+    with tempfile.TemporaryDirectory() as td:
+        os.environ["NEEDLE_CONFIG"] = str(Path(td) / "missing.json")
+        os.environ.pop("HAY_CONFIG", None)
+        os.environ.pop("HAY_PACKAGE", None)
+        os.environ.pop("NEEDLE_PACKAGE", None)
+        try:
+            assert active_package_selection(host_binding="pi/native-tools") == ("e24z/mlx-pi-soft-lamr", "default")
+        finally:
+            if old_config is None:
+                os.environ.pop("HAY_CONFIG", None)
+            else:
+                os.environ["HAY_CONFIG"] = old_config
+            if old_needle_config is None:
+                os.environ.pop("NEEDLE_CONFIG", None)
+            else:
+                os.environ["NEEDLE_CONFIG"] = old_needle_config
+            if old_package is None:
+                os.environ.pop("HAY_PACKAGE", None)
+            else:
+                os.environ["HAY_PACKAGE"] = old_package
+            if old_needle_package is None:
+                os.environ.pop("NEEDLE_PACKAGE", None)
+            else:
+                os.environ["NEEDLE_PACKAGE"] = old_needle_package
+    assert reference.backend_id == soft_lamr.backend_id == mcp_bash.backend_id == "e24z/code-pruner-mlx"
+    assert set(reference.binding["tools"]) == {"read", "bash"}
+    assert set(soft_lamr.binding["tools"]) == {"read", "bash"}
+    assert set(mcp_bash.binding["tools"]) == {"needle_bash"}
+    assert reference.package["focus_contract"]["missing_focus_behavior"] == "passthrough_original"
+    assert soft_lamr.package["focus_contract"]["missing_focus_behavior"] == "passthrough_original"
+    assert mcp_bash.package["focus_contract"]["missing_focus_behavior"] == "passthrough_original"
+    assert reference.capability_ids == ["swe-pruner/reference"]
+    assert soft_lamr.capability_ids == ["e24z/soft-lamr"]
+    assert mcp_bash.capability_ids == ["swe-pruner/reference"]
 
 
 def test_missing_backend_reference_fails_clearly() -> None:
@@ -140,7 +199,7 @@ def test_missing_backend_reference_fails_clearly() -> None:
         tmp = Path(td)
         _copy_registry(tmp)
 
-        package_path = tmp / "packages/e24z/pi-local-mac.yaml"
+        package_path = tmp / "packages/e24z/mlx-pi-soft-lamr.yaml"
         package = json.loads(package_path.read_text(encoding="utf-8"))
         package["uses"]["backend"] = "e24z/missing-backend"
         package_path.write_text(json.dumps(package, indent=2), encoding="utf-8")
@@ -163,7 +222,7 @@ def test_backend_must_support_package_capabilities() -> None:
 
         backend_path = tmp / "backends/e24z/code-pruner-mlx.yaml"
         backend = json.loads(backend_path.read_text(encoding="utf-8"))
-        backend["supports"] = ["e24z/soft-lamr"]
+        backend["supports"] = ["swe-pruner/reference"]
         backend_path.write_text(json.dumps(backend, indent=2), encoding="utf-8")
 
         try:
@@ -174,7 +233,7 @@ def test_backend_must_support_package_capabilities() -> None:
             raise AssertionError("expected unsupported capability to fail")
 
     assert "does not support package capabilities" in msg
-    assert "swe-pruner/reference" in msg
+    assert "e24z/soft-lamr" in msg
 
 
 def test_registry_root_and_package_can_come_from_environment() -> None:
@@ -185,7 +244,7 @@ def test_registry_root_and_package_can_come_from_environment() -> None:
         old_root = os.environ.get("HAY_REGISTRY_ROOT")
         old_package = os.environ.get("HAY_PACKAGE")
         os.environ["HAY_REGISTRY_ROOT"] = str(tmp)
-        os.environ["HAY_PACKAGE"] = "e24z/pi-local-mac"
+        os.environ["HAY_PACKAGE"] = "e24z/mlx-pi-reference"
         try:
             loaded = load_active_package()
         finally:
@@ -198,8 +257,17 @@ def test_registry_root_and_package_can_come_from_environment() -> None:
             else:
                 os.environ["HAY_PACKAGE"] = old_package
 
-    assert loaded.package_id == "e24z/pi-local-mac"
+    assert loaded.package_id == "e24z/mlx-pi-reference"
     assert loaded.backend_id == "e24z/code-pruner-mlx"
+
+
+def test_legacy_package_ids_resolve_to_canonical_names() -> None:
+    assert load_active_package(REGISTRY_ROOT, "e24z/pi-local-mac").package_id == "e24z/mlx-pi-reference"
+    assert load_active_package(REGISTRY_ROOT, "e24z/pi-local-mac-soft-lamr").package_id == "e24z/mlx-pi-soft-lamr"
+    assert (
+        load_active_package(REGISTRY_ROOT, "e24z/mcp-bash-local", host_binding="mcp/bash").package_id
+        == "e24z/mlx-mcp-bash-reference"
+    )
 
 
 def test_package_selection_can_come_from_user_config() -> None:
@@ -214,23 +282,23 @@ def test_package_selection_can_come_from_user_config() -> None:
         os.environ.pop("HAY_PACKAGE", None)
         os.environ.pop("NEEDLE_PACKAGE", None)
         try:
-            selected = set_configured_package_id("e24z/pi-local-mac-soft-lamr", root=REGISTRY_ROOT)
-            assert selected.package_id == "e24z/pi-local-mac-soft-lamr"
-            assert configured_package_id() == "e24z/pi-local-mac-soft-lamr"
-            assert configured_package_id(host_binding="pi/native-tools") == "e24z/pi-local-mac-soft-lamr"
-            assert active_package_selection()[0] == "e24z/pi-local-mac-soft-lamr"
-            assert active_package_selection(host_binding="pi/native-tools")[0] == "e24z/pi-local-mac-soft-lamr"
-            assert load_active_package(REGISTRY_ROOT, host_binding="pi/native-tools").package_id == "e24z/pi-local-mac-soft-lamr"
+            selected = set_configured_package_id("e24z/mlx-pi-soft-lamr", root=REGISTRY_ROOT)
+            assert selected.package_id == "e24z/mlx-pi-soft-lamr"
+            assert configured_package_id() == "e24z/mlx-pi-soft-lamr"
+            assert configured_package_id(host_binding="pi/native-tools") == "e24z/mlx-pi-soft-lamr"
+            assert active_package_selection()[0] == "e24z/mlx-pi-soft-lamr"
+            assert active_package_selection(host_binding="pi/native-tools")[0] == "e24z/mlx-pi-soft-lamr"
+            assert load_active_package(REGISTRY_ROOT, host_binding="pi/native-tools").package_id == "e24z/mlx-pi-soft-lamr"
 
-            os.environ["HAY_PACKAGE"] = "e24z/pi-local-mac"
-            os.environ["NEEDLE_PACKAGE"] = "e24z/pi-local-mac-soft-lamr"
+            os.environ["HAY_PACKAGE"] = "e24z/mlx-pi-reference"
+            os.environ["NEEDLE_PACKAGE"] = "e24z/mlx-pi-soft-lamr"
             package_id, source = active_package_selection()
-            assert package_id == "e24z/pi-local-mac-soft-lamr"
+            assert package_id == "e24z/mlx-pi-soft-lamr"
             assert source == "env:NEEDLE_PACKAGE"
 
             os.environ.pop("NEEDLE_PACKAGE", None)
             package_id, source = active_package_selection()
-            assert package_id == "e24z/pi-local-mac"
+            assert package_id == "e24z/mlx-pi-reference"
             assert source == "env:HAY_PACKAGE"
         finally:
             if old_config is None:
@@ -254,14 +322,14 @@ def test_package_selection_can_come_from_user_config() -> None:
 def test_package_summaries_can_filter_by_host_binding() -> None:
     summaries = package_summaries(REGISTRY_ROOT, host_binding="pi/native-tools")
     ids = {item["id"] for item in summaries}
-    assert "e24z/pi-local-mac" in ids
-    assert "e24z/pi-local-mac-soft-lamr" in ids
+    assert "e24z/mlx-pi-reference" in ids
+    assert "e24z/mlx-pi-soft-lamr" in ids
     assert all(item["host_binding"] == "pi/native-tools" for item in summaries)
 
 
 def test_package_summaries_can_filter_mcp_binding() -> None:
     summaries = package_summaries(REGISTRY_ROOT, host_binding="mcp/bash")
-    assert [item["id"] for item in summaries] == ["e24z/mcp-bash-local"]
+    assert [item["id"] for item in summaries] == ["e24z/mlx-mcp-bash-reference"]
     assert summaries[0]["host_binding"] == "mcp/bash"
     assert summaries[0]["capabilities"] == ["swe-pruner/reference"]
 
@@ -295,13 +363,13 @@ def test_host_scoped_load_rejects_wrong_binding() -> None:
             ),
             encoding="utf-8",
         )
-        package_path = tmp / "packages/e24z/pi-local-mac-soft-lamr.yaml"
+        package_path = tmp / "packages/e24z/mlx-pi-soft-lamr.yaml"
         package = json.loads(package_path.read_text(encoding="utf-8"))
         package["host_binding"] = "example/other"
         package_path.write_text(json.dumps(package, indent=2), encoding="utf-8")
 
         try:
-            load_active_package(tmp, "e24z/pi-local-mac-soft-lamr", host_binding="pi/native-tools")
+            load_active_package(tmp, "e24z/mlx-pi-soft-lamr", host_binding="pi/native-tools")
         except PackageConfigError as exc:
             msg = str(exc)
         else:
@@ -314,7 +382,7 @@ def test_package_requires_focus_contract() -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         _copy_registry(tmp)
-        package_path = tmp / "packages/e24z/pi-local-mac.yaml"
+        package_path = tmp / "packages/e24z/mlx-pi-soft-lamr.yaml"
         package = json.loads(package_path.read_text(encoding="utf-8"))
         del package["focus_contract"]
         package_path.write_text(json.dumps(package, indent=2), encoding="utf-8")
@@ -352,7 +420,7 @@ def test_package_rejects_unknown_evidence_reference() -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         _copy_registry(tmp)
-        package_path = tmp / "packages/e24z/pi-local-mac.yaml"
+        package_path = tmp / "packages/e24z/mlx-pi-soft-lamr.yaml"
         package = json.loads(package_path.read_text(encoding="utf-8"))
         package["evidence"] = ["somewhere:squishy"]
         package_path.write_text(json.dumps(package, indent=2), encoding="utf-8")
@@ -371,7 +439,7 @@ def test_package_rejects_missing_evidence_reference() -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         _copy_registry(tmp)
-        evidence_path = tmp / "evidence/fixture-packs/swe-pruner-reference/manifest.json"
+        evidence_path = tmp / "evidence/fixture-packs/mlx-pi-soft-lamr/manifest.json"
         evidence_path.unlink()
 
         try:
@@ -381,14 +449,14 @@ def test_package_rejects_missing_evidence_reference() -> None:
         else:
             raise AssertionError("expected missing evidence manifest to fail")
 
-    assert "missing evidence reference 'fixture_pack:swe-pruner-reference'" in msg
+    assert "missing evidence reference 'fixture_pack:mlx-pi-soft-lamr'" in msg
 
 
 def test_fixture_pack_must_cover_required_pi_cases() -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         _copy_registry(tmp)
-        manifest_path = tmp / "evidence/fixture-packs/swe-pruner-reference/manifest.json"
+        manifest_path = tmp / "evidence/fixture-packs/mlx-pi-soft-lamr/manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["cases"] = [case for case in manifest["cases"] if case["tool"] != "bash"]
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -408,13 +476,13 @@ def test_fixture_pack_must_match_package_binding() -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         _copy_registry(tmp)
-        manifest_path = tmp / "evidence/fixture-packs/mcp-bash-reference/manifest.json"
+        manifest_path = tmp / "evidence/fixture-packs/mlx-mcp-bash-reference/manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["host_binding"] = "pi/native-tools"
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
         try:
-            load_active_package(tmp, "e24z/mcp-bash-local", host_binding="mcp/bash")
+            load_active_package(tmp, "e24z/mlx-mcp-bash-reference", host_binding="mcp/bash")
         except PackageConfigError as exc:
             msg = str(exc)
         else:
@@ -427,7 +495,7 @@ def test_mcp_fixture_pack_must_cover_needle_bash_cases() -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         _copy_registry(tmp)
-        manifest_path = tmp / "evidence/fixture-packs/mcp-bash-reference/manifest.json"
+        manifest_path = tmp / "evidence/fixture-packs/mlx-mcp-bash-reference/manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest["cases"] = [
             case for case in manifest["cases"] if case["expected_behavior"] != "passthrough_original"
@@ -435,7 +503,7 @@ def test_mcp_fixture_pack_must_cover_needle_bash_cases() -> None:
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
         try:
-            load_active_package(tmp, "e24z/mcp-bash-local", host_binding="mcp/bash")
+            load_active_package(tmp, "e24z/mlx-mcp-bash-reference", host_binding="mcp/bash")
         except PackageConfigError as exc:
             msg = str(exc)
         else:
@@ -449,9 +517,9 @@ def test_claim_card_tested_capability_must_match_claim() -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         _copy_registry(tmp)
-        claim_path = tmp / "claims/pi-local-mac-swe-pruner-reference.yaml"
+        claim_path = tmp / "claims/mlx-pi-soft-lamr.yaml"
         claim = json.loads(claim_path.read_text(encoding="utf-8"))
-        claim["tested"]["capability"] = "e24z/soft-lamr"
+        claim["tested"]["capability"] = "swe-pruner/reference"
         claim_path.write_text(json.dumps(claim, indent=2), encoding="utf-8")
 
         try:
@@ -522,16 +590,19 @@ def test_http_backend_must_fail_open() -> None:
 
 
 def main() -> int:
-    test_default_package_graph_loads()
+    test_default_package_graph_loads_soft_lamr()
+    test_reference_package_graph_loads()
     test_default_package_resolves_runtime_launch_plan()
     test_http_backend_contract_validates_without_server()
     test_reference_capability_has_no_ast_repair()
     test_soft_lamr_is_separate_capability()
     test_soft_lamr_package_resolves_parent_protocol()
     test_mcp_bash_package_loads_as_reference_host_binding()
+    test_mlx_package_family_has_explicit_surface_parity()
     test_missing_backend_reference_fails_clearly()
     test_backend_must_support_package_capabilities()
     test_registry_root_and_package_can_come_from_environment()
+    test_legacy_package_ids_resolve_to_canonical_names()
     test_package_selection_can_come_from_user_config()
     test_package_summaries_can_filter_by_host_binding()
     test_package_summaries_can_filter_mcp_binding()

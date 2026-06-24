@@ -131,9 +131,9 @@ Proposed files:
 - `capabilities/e24z/soft-lamr.yaml`
 - `backends/e24z/code-pruner-mlx.yaml`
 - `bindings/pi/native-tools.yaml`
-- `packages/e24z/pi-local-mac.yaml`
-- `package-cards/e24z/pi-local-mac.md`
-- `claims/pi-local-mac-swe-pruner-reference.yaml`
+- `packages/e24z/mlx-pi-reference.yaml`
+- `package-cards/e24z/mlx-pi-reference.md`
+- `claims/mlx-pi-reference.yaml`
 
 Acceptance:
 
@@ -161,9 +161,9 @@ for p in [
     "capabilities/e24z/soft-lamr.yaml",
     "backends/e24z/code-pruner-mlx.yaml",
     "bindings/pi/native-tools.yaml",
-    "packages/e24z/pi-local-mac.yaml",
-    "package-cards/e24z/pi-local-mac.md",
-    "claims/pi-local-mac-swe-pruner-reference.yaml",
+    "packages/e24z/mlx-pi-reference.yaml",
+    "package-cards/e24z/mlx-pi-reference.md",
+    "claims/mlx-pi-reference.yaml",
 ]:
     assert Path(p).exists(), p
 PY
@@ -452,7 +452,7 @@ Labels: `p1-1.0-support`, `lane-mcp`
 
 Problem:
 The PRD now has a bonus design note for a portable MCP reference package:
-`e24z/mcp-bash-local`, exposing `needle_bash(command,
+`e24z/mlx-mcp-bash-reference`, exposing `needle_bash(command,
 context_focus_question?)`. This could become a strong cross-agent story, but it
 must not accidentally replace the Pi-local 1.0 path or turn
 `swe-pruner/reference` into an MCP-specific capability.
@@ -479,9 +479,9 @@ PYTHONPATH=. python3 tests/test_mcp_bash.py
 
 File ownership:
 
-- `needle/registry_data/packages/e24z/mcp-bash-local.yaml`
+- `needle/registry_data/packages/e24z/mlx-mcp-bash-reference.yaml`
 - `needle/registry_data/bindings/mcp/bash.yaml`
-- `needle/registry_data/package-cards/e24z/mcp-bash-local.md`
+- `needle/registry_data/package-cards/e24z/mlx-mcp-bash-reference.md`
 - `needle/hosts/mcp/`
 - `tests/test_mcp_bash.py`
 

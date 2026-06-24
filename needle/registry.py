@@ -20,7 +20,7 @@ from .runtime import naming
 PACKAGE_ROOT = Path(__file__).resolve().parent
 REPO_ROOT = PACKAGE_ROOT.parent
 BUILTIN_REGISTRY_ROOT = PACKAGE_ROOT / "registry_data"
-DEFAULT_PACKAGE_ID = "e24z/pi-local-mac"
+DEFAULT_PACKAGE_ID = naming.DEFAULT_PACKAGE_ID
 REGISTRY_ROOT_ENVS = ("NEEDLE_REGISTRY_ROOT", "HAY_REGISTRY_ROOT")
 PACKAGE_ID_ENVS = ("NEEDLE_PACKAGE", "HAY_PACKAGE")
 CONFIG_PATH_ENVS = ("NEEDLE_CONFIG", "HAY_CONFIG")
@@ -104,7 +104,9 @@ def load_active_package(
 ) -> LoadedPackage:
     """Load and validate the active package graph."""
     registry_root = root or default_registry_root()
-    active_package_id = package_id or default_package_id(registry_root, host_binding=host_binding)
+    active_package_id = canonical_package_id(
+        package_id or default_package_id(registry_root, host_binding=host_binding)
+    )
     package = _load_object(registry_root, "package", active_package_id)
     if host_binding and package.get("host_binding") != host_binding:
         raise PackageConfigError(
@@ -221,10 +223,10 @@ def active_package_selection(
     for name in PACKAGE_ID_ENVS:
         value = os.environ.get(name)
         if value:
-            return value, f"env:{name}"
+            return canonical_package_id(value), f"env:{name}"
     configured = configured_package_id(host_binding=host_binding)
     if configured:
-        return configured, f"config:{package_config_path()}"
+        return canonical_package_id(configured), f"config:{package_config_path()}"
     if host_binding:
         return _default_package_for_host_binding(root or default_registry_root(), host_binding), "default"
     return DEFAULT_PACKAGE_ID, "default"
@@ -235,6 +237,10 @@ def package_config_path(path: Path | None = None) -> Path:
         return path
     env = _first_env(CONFIG_PATH_ENVS)
     return Path(env).expanduser() if env else naming.app_home() / "config.json"
+
+
+def canonical_package_id(package_id: str) -> str:
+    return naming.canonical_package_id(package_id)
 
 
 def configured_package_id(
@@ -248,15 +254,15 @@ def configured_package_id(
         if isinstance(packages, dict):
             value = packages.get(host_binding)
             if isinstance(value, str) and value:
-                return value
+                return canonical_package_id(value)
     value = config.get("package")
     if isinstance(value, str) and value:
-        return value
+        return canonical_package_id(value)
     packages = config.get("packages")
     if isinstance(packages, dict):
         values = sorted({value for value in packages.values() if isinstance(value, str) and value})
         if len(values) == 1:
-            return values[0]
+            return canonical_package_id(values[0])
     return None
 
 

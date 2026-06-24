@@ -1,6 +1,6 @@
-# Needle MCP Bash - Local
+# MLX MCP Bash Reference
 
-Package: `e24z/mcp-bash-local`
+Package: `e24z/mlx-mcp-bash-reference`
 
 Needle MCP Bash exposes one portable MCP tool for shell-shaped observation:
 
@@ -17,7 +17,7 @@ native edit, write, or apply-patch tools.
 - Host binding: `mcp/bash`
 - Privacy default: local-only
 - Status metric: exact characters trimmed
-- Evidence: `fixture_pack:mcp-bash-reference`
+- Evidence: `fixture_pack:mlx-mcp-bash-reference`
 
 If `context_focus_question` is missing, the package passes the original command
 observation through unchanged.

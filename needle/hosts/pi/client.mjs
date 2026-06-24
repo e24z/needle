@@ -10,6 +10,17 @@ import { promisify } from "node:util";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const execFileAsync = promisify(execFile);
 const PI_HOST_BINDING = "pi/native-tools";
+const DEFAULT_PACKAGE_ID = "e24z/mlx-pi-soft-lamr";
+// Transitional mirror of needle.runtime.naming while the Pi adapter runs in Node.
+const PACKAGE_ALIASES = new Map([
+	["e24z/pi-local-mac", "e24z/mlx-pi-reference"],
+	["e24z/pi-local-mac-soft-lamr", "e24z/mlx-pi-soft-lamr"],
+	["e24z/mcp-bash-local", "e24z/mlx-mcp-bash-reference"],
+]);
+
+export function canonicalPackageId(packageId) {
+	return PACKAGE_ALIASES.get(packageId) || packageId;
+}
 
 export function appName() {
 	return process.env.NEEDLE_APP_NAME || process.env.HAY_APP_NAME || "needle";
@@ -165,7 +176,7 @@ export async function packageIdentity(
 	packageId = undefined,
 	options = {},
 ) {
-	packageId = packageId || (await activePackageId({ hostBinding: options.hostBinding }));
+	packageId = canonicalPackageId(packageId || (await activePackageId({ hostBinding: options.hostBinding })));
 	try {
 		const root = registryRoot(repoRoot);
 		const pkg = await readRegistryJson(root, "packages", packageId);
@@ -229,7 +240,9 @@ export async function backendIdentity(repoRoot, backendId) {
 }
 
 export async function runtimeLaunchPlan(repoRoot, options = {}) {
-	const packageId = options.packageId || (await activePackageId({ hostBinding: options.hostBinding }));
+	const packageId = canonicalPackageId(
+		options.packageId || (await activePackageId({ hostBinding: options.hostBinding })),
+	);
 	const pkg = await packageIdentity(repoRoot, packageId, { hostBinding: options.hostBinding });
 	if (!pkg.available) throw new Error(`package ${packageId} unavailable: ${pkg.reason || "unknown reason"}`);
 	if (!pkg.backend) throw new Error(`package ${pkg.id} does not declare uses.backend`);
@@ -247,7 +260,9 @@ export async function runtimeLaunchPlan(repoRoot, options = {}) {
 export async function packageInventory(repoRoot, options = {}) {
 	const root = registryRoot(repoRoot);
 	const ids = await registryObjectIds(root, "packages");
-	const activeId = options.activePackageId || (await activePackageId({ hostBinding: options.hostBinding }));
+	const activeId = canonicalPackageId(
+		options.activePackageId || (await activePackageId({ hostBinding: options.hostBinding })),
+	);
 	const packages = [];
 	for (const id of ids) {
 		const pkg = await packageIdentity(repoRoot, id);
@@ -261,19 +276,19 @@ export async function packageInventory(repoRoot, options = {}) {
 }
 
 export async function activePackageId(options = {}) {
-	if (process.env.NEEDLE_PACKAGE) return process.env.NEEDLE_PACKAGE;
-	if (process.env.HAY_PACKAGE) return process.env.HAY_PACKAGE;
+	if (process.env.NEEDLE_PACKAGE) return canonicalPackageId(process.env.NEEDLE_PACKAGE);
+	if (process.env.HAY_PACKAGE) return canonicalPackageId(process.env.HAY_PACKAGE);
 	try {
 		const config = JSON.parse(await readFile(packageConfigPath(), "utf8"));
 		if (options.hostBinding && typeof config.packages === "object" && config.packages) {
 			const scoped = config.packages[options.hostBinding];
-			if (typeof scoped === "string" && scoped) return scoped;
+			if (typeof scoped === "string" && scoped) return canonicalPackageId(scoped);
 		}
-		if (typeof config.package === "string" && config.package) return config.package;
+		if (typeof config.package === "string" && config.package) return canonicalPackageId(config.package);
 	} catch {
 		// Missing or invalid user config falls back to the built-in default.
 	}
-	return "e24z/pi-local-mac";
+	return DEFAULT_PACKAGE_ID;
 }
 
 export function registryRoot(repoRoot) {

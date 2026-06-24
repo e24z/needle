@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -83,7 +84,40 @@ def test_repair_env_override_wins() -> None:
     )
 
 
-def test_default_active_package_is_reference_without_repair() -> None:
+def test_default_active_package_enables_repair() -> None:
+    old_env = {
+        name: os.environ.get(name)
+        for name in (
+            "HAY_CONFIG",
+            "NEEDLE_CONFIG",
+            "HAY_PACKAGE",
+            "NEEDLE_PACKAGE",
+            "HAY_REGISTRY_ROOT",
+            "NEEDLE_REGISTRY_ROOT",
+            "HAY_REPAIR",
+            "NEEDLE_REPAIR",
+        )
+    }
+    with tempfile.TemporaryDirectory() as td:
+        os.environ["HAY_REGISTRY_ROOT"] = str(REGISTRY_ROOT)
+        os.environ["NEEDLE_CONFIG"] = str(Path(td) / "missing.json")
+        os.environ.pop("HAY_CONFIG", None)
+        os.environ.pop("HAY_PACKAGE", None)
+        os.environ.pop("NEEDLE_PACKAGE", None)
+        os.environ.pop("NEEDLE_REGISTRY_ROOT", None)
+        os.environ.pop("HAY_REPAIR", None)
+        os.environ.pop("NEEDLE_REPAIR", None)
+        try:
+            assert repair_enabled_for_active_package()
+        finally:
+            for name, value in old_env.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+
+def test_reference_active_package_disables_repair() -> None:
     old_env = {
         name: os.environ.get(name)
         for name in (
@@ -96,7 +130,7 @@ def test_default_active_package_is_reference_without_repair() -> None:
         )
     }
     os.environ["HAY_REGISTRY_ROOT"] = str(REGISTRY_ROOT)
-    os.environ["HAY_PACKAGE"] = "e24z/pi-local-mac"
+    os.environ["HAY_PACKAGE"] = "e24z/mlx-pi-reference"
     os.environ.pop("NEEDLE_PACKAGE", None)
     os.environ.pop("NEEDLE_REGISTRY_ROOT", None)
     os.environ.pop("HAY_REPAIR", None)
@@ -124,7 +158,7 @@ def test_soft_lamr_active_package_enables_repair() -> None:
         )
     }
     os.environ["HAY_REGISTRY_ROOT"] = str(REGISTRY_ROOT)
-    os.environ["HAY_PACKAGE"] = "e24z/pi-local-mac-soft-lamr"
+    os.environ["HAY_PACKAGE"] = "e24z/mlx-pi-soft-lamr"
     os.environ.pop("NEEDLE_PACKAGE", None)
     os.environ.pop("NEEDLE_REGISTRY_ROOT", None)
     os.environ.pop("HAY_REPAIR", None)
@@ -169,7 +203,8 @@ def main() -> int:
     test_reference_capability_leaves_repair_off()
     test_soft_lamr_capability_opts_into_repair()
     test_repair_env_override_wins()
-    test_default_active_package_is_reference_without_repair()
+    test_default_active_package_enables_repair()
+    test_reference_active_package_disables_repair()
     test_soft_lamr_active_package_enables_repair()
     test_repair_expands_enclosing_scope()
     test_plain_renderer_uses_upstream_filtered_marker()

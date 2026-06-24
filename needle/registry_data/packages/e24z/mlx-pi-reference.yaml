@@ -1,9 +1,9 @@
 {
   "schema": "needle.package.v1",
-  "id": "e24z/pi-local-mac-soft-lamr",
-  "display_name": "Needle for Pi - Local Mac Soft-LaMR",
+  "id": "e24z/mlx-pi-reference",
+  "display_name": "MLX Pi Reference",
   "implements": [
-    "e24z/soft-lamr"
+    "swe-pruner/reference"
   ],
   "host_binding": "pi/native-tools",
   "uses": {
@@ -31,9 +31,9 @@
       "cost_equivalent_est"
     ]
   },
-  "package_card": "package-cards/e24z/pi-local-mac-soft-lamr",
-  "claim_card": "claims/pi-local-mac-soft-lamr",
+  "package_card": "package-cards/e24z/mlx-pi-reference",
+  "claim_card": "claims/mlx-pi-reference",
   "evidence": [
-    "fixture_pack:needle-soft-lamr"
+    "fixture_pack:mlx-pi-reference"
   ]
 }

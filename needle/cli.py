@@ -495,7 +495,7 @@ def _setup_claude_code(args: argparse.Namespace) -> int:
     command = _claude_code_add_command(scope)
     loaded = None
     try:
-        loaded = load_active_package(package_id="e24z/mcp-bash-local", host_binding="mcp/bash")
+        loaded = load_active_package(package_id="e24z/mlx-mcp-bash-reference", host_binding="mcp/bash")
     except PackageConfigError as exc:
         _print_error(exc)
         return 1
@@ -601,7 +601,7 @@ def package_current(
 
 @package_app.command("use")
 def package_use(
-    package_id: str = typer.Argument(..., help="Package id, for example e24z/pi-local-mac."),
+    package_id: str = typer.Argument(..., help="Package id, for example e24z/mlx-pi-soft-lamr."),
     host_binding: str = typer.Option(
         "",
         "--host-binding",

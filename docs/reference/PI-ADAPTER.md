@@ -85,16 +85,17 @@ needle package list --host-binding pi/native-tools
 needle package current --host-binding pi/native-tools
 needle package doctor --host-binding pi/native-tools
 needle evidence check --host-binding pi/native-tools
-needle package use e24z/pi-local-mac-soft-lamr
+needle package use e24z/mlx-pi-soft-lamr
 ```
 
 Without the tool install, run the same commands from the repo with
 `uv run needle ...`.
 
-`e24z/pi-local-mac` is the default SWE-Pruner reference package: no AST repair.
-`e24z/pi-local-mac-soft-lamr` extends the reference capability with Python AST
-repair. If the resident runtime is already running, restart it after changing
-the selected package so the backend policy and `/needle doctor` agree.
+`e24z/mlx-pi-soft-lamr` is the default Pi package. It extends the reference
+capability with Python AST repair. `e24z/mlx-pi-reference` remains available as
+the no-AST reference comparison package. If the resident runtime is already
+running, restart it after changing the selected package so the backend policy
+and `/needle doctor` agree.
 
 Run the Pi demo canary without Docker, paid APIs, SWE-bench, or live MLX:
 
@@ -112,8 +113,8 @@ quality, SWE-bench acceptance, token savings, or dollar savings.
 For one run only, an environment variable can override the configured package:
 
 ```bash
-NEEDLE_PACKAGE=e24z/pi-local-mac pi
-NEEDLE_PACKAGE=e24z/pi-local-mac-soft-lamr pi
+NEEDLE_PACKAGE=e24z/mlx-pi-reference pi
+NEEDLE_PACKAGE=e24z/mlx-pi-soft-lamr pi
 ```
 
 Stop the resident manager cleanly with:

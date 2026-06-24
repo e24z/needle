@@ -1,18 +1,17 @@
 {
   "schema": "needle.claim_card.v1",
-  "id": "claims/pi-local-mac-soft-lamr",
-  "package": "e24z/pi-local-mac-soft-lamr",
-  "capability": "e24z/soft-lamr",
-  "claim": "Task-aware pruning for large Pi read/bash outputs with explicit focus questions and Python AST repair.",
+  "id": "claims/mlx-mcp-bash-reference",
+  "package": "e24z/mlx-mcp-bash-reference",
+  "capability": "swe-pruner/reference",
+  "claim": "Task-aware pruning for large MCP bash observations with explicit focus questions.",
   "evidence_level": "demo_fixture",
   "tested": {
-    "host": "pi",
+    "host": "mcp",
     "tools": [
-      "read",
-      "bash"
+      "needle_bash"
     ],
     "compute": "local_mlx",
-    "capability": "e24z/soft-lamr"
+    "capability": "swe-pruner/reference"
   },
   "metrics": {
     "exact": [
@@ -27,16 +26,18 @@
   "known_limits": [
     "Token and dollar savings are estimates unless paired or billing-backed.",
     "Missing context_focus_question passes through.",
-    "AST repair may return more text than the reference package.",
-    "Local MLX performance depends on machine memory and model residency."
+    "Local MLX performance depends on machine memory and model residency.",
+    "MCP configuration alone does not force an agent to prefer needle_bash over native tools."
   ],
   "must_not_claim": [
     "Exact user dollar savings.",
-    "SWE-Pruner paper parity with AST repair enabled.",
+    "Paper parity if AST expansion is enabled.",
+    "Mutation or file editing through the MCP package.",
     "Support for tools not listed in the package."
   ],
   "privacy_notes": {
-    "default": "Tool text stays on the local Mac.",
+    "default": "Tool text stays on the local machine.",
     "remote_compute": "Remote endpoints may receive tool text."
   }
 }
+

@@ -1,10 +1,10 @@
 {
   "schema": "needle.fixture_pack.v1",
-  "id": "needle-soft-lamr",
-  "package": "e24z/pi-local-mac-soft-lamr",
-  "capability": "e24z/soft-lamr",
+  "id": "mlx-pi-reference",
+  "package": "e24z/mlx-pi-reference",
+  "capability": "swe-pruner/reference",
   "host_binding": "pi/native-tools",
-  "description": "Minimal Pi evidence pack for the Soft-LaMR package: same host contract, with AST repair belonging to the capability.",
+  "description": "Minimal Pi evidence pack for the paper-reference package: read prune, bash prune, and missing-focus pass-through.",
   "cases": [
     {
       "id": "read-visible-prune",

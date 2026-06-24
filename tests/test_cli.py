@@ -80,32 +80,32 @@ def test_package_cli_lists_and_selects_packages() -> None:
         try:
             code, out, err = _run(["package", "list", "--host-binding", "pi/native-tools"])
             assert code == 0, err
-            assert "e24z/pi-local-mac" in out
-            assert "e24z/pi-local-mac-soft-lamr" in out
+            assert "e24z/mlx-pi-reference" in out
+            assert "e24z/mlx-pi-soft-lamr" in out
             assert "implements=swe-pruner/reference" in out
             assert "protocol=needle/text-transform" in out
             assert "uses=e24z/code-pruner-mlx" in out
 
-            code, out, err = _run(["package", "use", "e24z/pi-local-mac-soft-lamr"])
+            code, out, err = _run(["package", "use", "e24z/mlx-pi-soft-lamr"])
             assert code == 0, err
-            assert "selected package: e24z/pi-local-mac-soft-lamr" in out
+            assert "selected package: e24z/mlx-pi-soft-lamr" in out
             assert "runtime command: needle runtime manage" in out
             assert "restart the resident runtime" in out
 
             code, out, err = _run(["package", "current"])
             assert code == 0, err
-            assert out.splitlines()[0] == "e24z/pi-local-mac-soft-lamr"
+            assert out.splitlines()[0] == "e24z/mlx-pi-soft-lamr"
             assert "source: config:" in out
 
             code, out, err = _run(["package", "current", "--host-binding", "pi/native-tools"])
             assert code == 0, err
-            assert out.splitlines()[0] == "e24z/pi-local-mac-soft-lamr"
+            assert out.splitlines()[0] == "e24z/mlx-pi-soft-lamr"
             assert "source: config:" in out
             assert "host binding: pi/native-tools" in out
 
             code, out, err = _run(["package", "doctor", "--host-binding", "pi/native-tools"])
             assert code == 0, err
-            assert "package: e24z/pi-local-mac-soft-lamr" in out
+            assert "package: e24z/mlx-pi-soft-lamr" in out
             assert "protocol: needle/text-transform" in out
             assert "implements: e24z/soft-lamr" in out
             assert "uses backend: e24z/code-pruner-mlx" in out
@@ -114,12 +114,12 @@ def test_package_cli_lists_and_selects_packages() -> None:
             assert "package graph: ok" in out
             assert "backend requirements: apple_silicon, mlx" in out
             assert "backend readiness:" in out
-            assert "evidence: fixture_pack:needle-soft-lamr" in out
-            assert "evidence/fixture-packs/needle-soft-lamr/manifest.json" in out
+            assert "evidence: fixture_pack:mlx-pi-soft-lamr" in out
+            assert "evidence/fixture-packs/mlx-pi-soft-lamr/manifest.json" in out
 
             code, out, err = _run(["package", "list", "--host-binding", "mcp/bash"])
             assert code == 0, err
-            assert "e24z/mcp-bash-local" in out
+            assert "e24z/mlx-mcp-bash-reference" in out
             assert "host=mcp/bash" in out
         finally:
             if old_config is None:
@@ -156,22 +156,22 @@ def test_package_cli_rejects_unknown_package() -> None:
 
 
 def test_evidence_check_lists_fixture_cases() -> None:
-    code, out, err = _run(["evidence", "check", "e24z/pi-local-mac", "--host-binding", "pi/native-tools"])
+    code, out, err = _run(["evidence", "check", "e24z/mlx-pi-reference", "--host-binding", "pi/native-tools"])
     assert code == 0, err
-    assert "package: e24z/pi-local-mac" in out
+    assert "package: e24z/mlx-pi-reference" in out
     assert "evidence: ok (fixture manifests only)" in out
     assert "proof level: local fixtures" in out
-    assert "fixture_pack:swe-pruner-reference" in out
+    assert "fixture_pack:mlx-pi-reference" in out
     assert "case: read-visible-prune  tool=read  behavior=visible_prune" in out
     assert "case: bash-visible-prune  tool=bash  behavior=visible_prune" in out
     assert "case: read-missing-focus-passthrough  tool=read  behavior=passthrough_original" in out
 
 
 def test_evidence_check_lists_mcp_fixture_cases() -> None:
-    code, out, err = _run(["evidence", "check", "e24z/mcp-bash-local", "--host-binding", "mcp/bash"])
+    code, out, err = _run(["evidence", "check", "e24z/mlx-mcp-bash-reference", "--host-binding", "mcp/bash"])
     assert code == 0, err
-    assert "package: e24z/mcp-bash-local" in out
-    assert "fixture_pack:mcp-bash-reference" in out
+    assert "package: e24z/mlx-mcp-bash-reference" in out
+    assert "fixture_pack:mlx-mcp-bash-reference" in out
     assert "case: needle-bash-visible-prune  tool=needle_bash  behavior=visible_prune" in out
     assert (
         "case: needle-bash-missing-focus-passthrough  "
@@ -187,7 +187,7 @@ def test_uninstall_dry_run_and_yes_use_needle_owned_paths() -> None:
         config = root / "config.json"
         home.mkdir()
         models.mkdir()
-        config.write_text('{"package": "e24z/pi-local-mac"}\n', encoding="utf-8")
+        config.write_text('{"package": "e24z/mlx-pi-reference"}\n', encoding="utf-8")
         (home / "events.jsonl").write_text("", encoding="utf-8")
         old_env = {
             name: os.environ.get(name)
@@ -262,7 +262,7 @@ def test_setup_claude_code_dry_run_prints_native_mcp_setup() -> None:
     code, out, err = _run(["setup", "claude-code", "--dry-run"])
     assert code == 0, err
     assert "Needle Claude Code MCP setup" in out
-    assert "package: e24z/mcp-bash-local" in out
+    assert "package: e24z/mlx-mcp-bash-reference" in out
     assert "host binding: mcp/bash" in out
     assert "server command: needle mcp serve" in out
     assert "Claude command: claude mcp add --transport stdio --scope local needle-bash -- needle mcp serve" in out

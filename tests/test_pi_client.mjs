@@ -265,7 +265,7 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 				modelRoot: "/tmp/hay/models",
 				activePackage: {
 					available: true,
-					id: "e24z/pi-local-mac",
+					id: "e24z/mlx-pi-reference",
 					capabilities: ["swe-pruner/reference"],
 					backend: "e24z/code-pruner-mlx",
 					backendLauncher: {
@@ -273,8 +273,8 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 						command: ["needle", "runtime", "manage"],
 					},
 					hostBinding: "pi/native-tools",
-					packageCard: "package-cards/e24z/pi-local-mac",
-					claimCard: "claims/pi-local-mac-swe-pruner-reference",
+					packageCard: "package-cards/e24z/mlx-pi-reference",
+					claimCard: "claims/mlx-pi-reference",
 					compute: "local_mlx",
 					privacy: "local_only",
 					promptBundle: "pi/context-focus-question@0.1",
@@ -289,15 +289,15 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 	assert.match(rendered, /this Pi session 4.1k chars trimmed  \|  3 prunes  \|  last tool grep/);
 	assert.match(rendered, /extension \/tmp\/hay\/needle\/hosts\/pi\/extension\.js/);
 	assert.match(rendered, /model dir \/tmp\/hay\/models/);
-	assert.match(rendered, /active package e24z\/pi-local-mac/);
+	assert.match(rendered, /active package e24z\/mlx-pi-reference/);
 	assert.match(rendered, /capability swe-pruner\/reference/);
 	assert.match(rendered, /backend e24z\/code-pruner-mlx/);
 	assert.match(rendered, /backend launch needle runtime manage/);
 	assert.match(rendered, /host binding pi\/native-tools/);
 	assert.match(rendered, /compute local_mlx \| privacy local_only/);
 	assert.match(rendered, /prompt bundle pi\/context-focus-question@0\.1/);
-	assert.match(rendered, /package card package-cards\/e24z\/pi-local-mac/);
-	assert.match(rendered, /claim card claims\/pi-local-mac-swe-pruner-reference/);
+	assert.match(rendered, /package card package-cards\/e24z\/mlx-pi-reference/);
+	assert.match(rendered, /claim card claims\/mlx-pi-reference/);
 	assert.match(rendered, /version package needle@0\.1\.0 \| pyproject 0\.1\.0/);
 	assert.match(rendered, /git pi-adapter@abcdef123456 \(dirty, 2 files\)/);
 	assert.match(rendered, /passthrough\s+reason=low-memory chars=1200/);
@@ -321,14 +321,14 @@ test("Pi source identity reads package, pyproject, git state, and active Needle 
 		assert.equal(identity.packageVersion, "0.1.0");
 		assert.equal(identity.pyprojectVersion, "0.1.0");
 		assert.match(identity.modelRoot, /\/\.needle\/models$/);
-		assert.equal(identity.activePackage.id, "e24z/pi-local-mac");
-		assert.deepEqual(identity.activePackage.capabilities, ["swe-pruner/reference"]);
+		assert.equal(identity.activePackage.id, "e24z/mlx-pi-soft-lamr");
+		assert.deepEqual(identity.activePackage.capabilities, ["e24z/soft-lamr"]);
 		assert.equal(identity.activePackage.backend, "e24z/code-pruner-mlx");
 		assert.equal(identity.activePackage.backendRuntime, "local_manager");
 		assert.equal(identity.activePackage.backendLauncher.kind, "needle-cli");
 		assert.deepEqual(identity.activePackage.backendLauncher.command, ["needle", "runtime", "manage"]);
 		assert.equal(identity.activePackage.hostBinding, "pi/native-tools");
-		assert.equal(identity.activePackage.claimCard, "claims/pi-local-mac-swe-pruner-reference");
+		assert.equal(identity.activePackage.claimCard, "claims/mlx-pi-soft-lamr");
 		assert.equal(typeof identity.git.available, "boolean");
 	} finally {
 		if (oldConfig === undefined) {
@@ -363,7 +363,7 @@ test("Pi resolves backend launch plan from the active package graph", async () =
 	assert.deepEqual(httpBackend.launcher.command, ["needle", "runtime", "manage"]);
 
 	const plan = await runtimeLaunchPlan(process.cwd(), { hostBinding: "pi/native-tools" });
-	assert.equal(plan.packageId, "e24z/pi-local-mac");
+	assert.equal(plan.packageId, "e24z/mlx-pi-soft-lamr");
 	assert.equal(plan.backendId, "e24z/code-pruner-mlx");
 	assert.deepEqual(plan.command, ["needle", "runtime", "manage"]);
 	assert.equal(plan.env.NEEDLE_BACKEND, "e24z/code-pruner-mlx");
@@ -408,7 +408,7 @@ test("Pi package identity can load from an external registry root", async () => 
 		delete process.env.NEEDLE_PACKAGE;
 		const identity = await packageIdentity(process.cwd());
 		assert.equal(identity.available, true);
-		assert.equal(identity.id, "e24z/pi-local-mac");
+		assert.equal(identity.id, "e24z/mlx-pi-soft-lamr");
 		assert.equal(identity.backend, "e24z/code-pruner-mlx");
 	} finally {
 		if (oldRoot === undefined) {
@@ -437,7 +437,7 @@ test("Pi package identity can load from an external registry root", async () => 
 test("Pi package identity reads CLI user config unless env overrides it", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "hay-config-"));
 	const configPath = join(dir, "config.json");
-	await writeFile(configPath, JSON.stringify({ packages: { "pi/native-tools": "e24z/pi-local-mac-soft-lamr" } }));
+	await writeFile(configPath, JSON.stringify({ packages: { "pi/native-tools": "e24z/mlx-pi-soft-lamr" } }));
 
 	const oldConfig = process.env.HAY_CONFIG;
 	const oldNeedleConfig = process.env.NEEDLE_CONFIG;
@@ -449,17 +449,17 @@ test("Pi package identity reads CLI user config unless env overrides it", async 
 		delete process.env.HAY_PACKAGE;
 		delete process.env.NEEDLE_PACKAGE;
 
-		assert.equal(await activePackageId({ hostBinding: "pi/native-tools" }), "e24z/pi-local-mac-soft-lamr");
+		assert.equal(await activePackageId({ hostBinding: "pi/native-tools" }), "e24z/mlx-pi-soft-lamr");
 		const identity = await packageIdentity(process.cwd(), undefined, { hostBinding: "pi/native-tools" });
-		assert.equal(identity.id, "e24z/pi-local-mac-soft-lamr");
+		assert.equal(identity.id, "e24z/mlx-pi-soft-lamr");
 		assert.deepEqual(identity.capabilities, ["e24z/soft-lamr"]);
 
-		process.env.HAY_PACKAGE = "e24z/pi-local-mac";
-		process.env.NEEDLE_PACKAGE = "e24z/pi-local-mac-soft-lamr";
-		assert.equal(await activePackageId(), "e24z/pi-local-mac-soft-lamr");
+		process.env.HAY_PACKAGE = "e24z/mlx-pi-reference";
+		process.env.NEEDLE_PACKAGE = "e24z/mlx-pi-soft-lamr";
+		assert.equal(await activePackageId(), "e24z/mlx-pi-soft-lamr");
 
 		delete process.env.NEEDLE_PACKAGE;
-		assert.equal(await activePackageId(), "e24z/pi-local-mac");
+		assert.equal(await activePackageId(), "e24z/mlx-pi-reference");
 	} finally {
 		if (oldConfig === undefined) {
 			delete process.env.HAY_CONFIG;
@@ -489,14 +489,14 @@ test("Pi package inventory lists reference and Soft-LaMR packages", async () => 
 	const oldNeedlePackage = process.env.NEEDLE_PACKAGE;
 	try {
 		delete process.env.HAY_PACKAGE;
-		process.env.NEEDLE_PACKAGE = "e24z/pi-local-mac-soft-lamr";
+		process.env.NEEDLE_PACKAGE = "e24z/mlx-pi-soft-lamr";
 		const packages = await packageInventory(process.cwd());
 		const ids = packages.map((pkg) => pkg.id);
-		assert.ok(ids.includes("e24z/pi-local-mac"), ids);
-		assert.ok(ids.includes("e24z/pi-local-mac-soft-lamr"), ids);
-		assert.equal(packages.find((pkg) => pkg.id === "e24z/pi-local-mac-soft-lamr").active, true);
+		assert.ok(ids.includes("e24z/mlx-pi-reference"), ids);
+		assert.ok(ids.includes("e24z/mlx-pi-soft-lamr"), ids);
+		assert.equal(packages.find((pkg) => pkg.id === "e24z/mlx-pi-soft-lamr").active, true);
 		assert.deepEqual(
-			packages.find((pkg) => pkg.id === "e24z/pi-local-mac-soft-lamr").capabilities,
+			packages.find((pkg) => pkg.id === "e24z/mlx-pi-soft-lamr").capabilities,
 			["e24z/soft-lamr"],
 		);
 	} finally {
@@ -516,9 +516,9 @@ test("Pi package inventory lists reference and Soft-LaMR packages", async () => 
 test("Pi package inventory can filter to Pi host packages", async () => {
 	const packages = await packageInventory(process.cwd(), { hostBinding: "pi/native-tools" });
 	const ids = packages.map((pkg) => pkg.id);
-	assert.ok(ids.includes("e24z/pi-local-mac"), ids);
-	assert.ok(ids.includes("e24z/pi-local-mac-soft-lamr"), ids);
-	assert.ok(!ids.includes("e24z/mcp-bash-local"), ids);
+	assert.ok(ids.includes("e24z/mlx-pi-reference"), ids);
+	assert.ok(ids.includes("e24z/mlx-pi-soft-lamr"), ids);
+	assert.ok(!ids.includes("e24z/mlx-mcp-bash-reference"), ids);
 });
 
 test("Pi package status explains package selection", async () => {
@@ -526,20 +526,20 @@ test("Pi package status explains package selection", async () => {
 		{
 			available: true,
 			active: true,
-			id: "e24z/pi-local-mac",
+			id: "e24z/mlx-pi-reference",
 			capabilities: ["swe-pruner/reference"],
 			backend: "e24z/code-pruner-mlx",
 		},
 		{
 			available: true,
 			active: false,
-			id: "e24z/pi-local-mac-soft-lamr",
+			id: "e24z/mlx-pi-soft-lamr",
 			capabilities: ["e24z/soft-lamr"],
 			backend: "e24z/code-pruner-mlx",
 		},
 	]);
-	assert.match(rendered, /\[active\] e24z\/pi-local-mac/);
-	assert.match(rendered, /\[ \] e24z\/pi-local-mac-soft-lamr/);
+	assert.match(rendered, /\[active\] e24z\/mlx-pi-reference/);
+	assert.match(rendered, /\[ \] e24z\/mlx-pi-soft-lamr/);
 	assert.match(rendered, /no AST repair/);
 	assert.match(rendered, /python AST repair/);
 	assert.match(rendered, /needle packages:/);
@@ -547,9 +547,9 @@ test("Pi package status explains package selection", async () => {
 	assert.match(rendered, /NEEDLE_PACKAGE=<package-id> pi/);
 
 	const live = await buildPackageStatus(process.cwd());
-	assert.match(live, /e24z\/pi-local-mac/);
-	assert.match(live, /e24z\/pi-local-mac-soft-lamr/);
-	assert.doesNotMatch(live, /e24z\/mcp-bash-local/);
+	assert.match(live, /e24z\/mlx-pi-reference/);
+	assert.match(live, /e24z\/mlx-pi-soft-lamr/);
+	assert.doesNotMatch(live, /e24z\/mlx-mcp-bash-reference/);
 });
 
 test("Pi demo canary prints proof report", () => {

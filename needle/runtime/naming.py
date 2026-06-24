@@ -14,6 +14,20 @@ from pathlib import Path
 # Product name. The ONLY place the default product name appears in runtime code.
 APP_NAME = os.environ.get("NEEDLE_APP_NAME") or os.environ.get("HAY_APP_NAME", "needle")
 
+# Built-in package names during the Hay -> Needle migration. Long-term, these
+# aliases should disappear once old alpha configs and env vars no longer exist.
+DEFAULT_PACKAGE_ID = "e24z/mlx-pi-soft-lamr"
+PACKAGE_ALIASES = {
+    "e24z/pi-local-mac": "e24z/mlx-pi-reference",
+    "e24z/pi-local-mac-soft-lamr": "e24z/mlx-pi-soft-lamr",
+    "e24z/mcp-bash-local": "e24z/mlx-mcp-bash-reference",
+}
+
+
+def canonical_package_id(package_id: str) -> str:
+    """Map early alpha package ids to their current public names."""
+    return PACKAGE_ALIASES.get(package_id, package_id)
+
 
 def app_home() -> Path:
     """Directory for runtime state (socket, logs). Override with NEEDLE_HOME."""

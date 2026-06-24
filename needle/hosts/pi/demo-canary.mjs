@@ -13,7 +13,7 @@ import { installNeedlePiExtension } from "./extension.js";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = repoRootFromModuleUrl(import.meta.url);
 const REGISTRY_ROOT = registryRoot(REPO_ROOT);
-const DEFAULT_PACK = "swe-pruner-reference";
+const DEFAULT_PACK = "mlx-pi-soft-lamr";
 
 async function main() {
 	const packId = process.argv[2] || DEFAULT_PACK;

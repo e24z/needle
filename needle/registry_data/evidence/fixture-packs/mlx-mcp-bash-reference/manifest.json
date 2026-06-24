@@ -1,7 +1,7 @@
 {
   "schema": "needle.fixture_pack.v1",
-  "id": "mcp-bash-reference",
-  "package": "e24z/mcp-bash-local",
+  "id": "mlx-mcp-bash-reference",
+  "package": "e24z/mlx-mcp-bash-reference",
   "capability": "swe-pruner/reference",
   "host_binding": "mcp/bash",
   "description": "Minimal MCP evidence pack for the bash-only reference package: needle_bash prune plus missing-focus pass-through.",

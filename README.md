@@ -96,12 +96,13 @@ Needle-owned runtime state defaults to `~/.needle`.
 Needle reports exact characters removed locally. Token and dollar savings are
 estimates unless backed by a paired benchmark or provider billing data.
 
-The default package is `e24z/pi-local-mac`, which implements the
-`swe-pruner/reference` capability without AST repair. The alternate
-`e24z/pi-local-mac-soft-lamr` package adds Python AST repair and should be
-treated as a separate capability, not paper-parity SWE-Pruner.
+The default package is `e24z/mlx-pi-soft-lamr`. It uses the MLX backend with
+Pi's `read` and `bash` tools, then adds Python AST repair on top of the
+SWE-Pruner scoring path. The comparison package `e24z/mlx-pi-reference`
+implements `swe-pruner/reference` without AST repair and should be treated as
+the no-AST reference path, not the default product path.
 
-The portable MCP package is `e24z/mcp-bash-local`. It also implements
+The portable MCP package is `e24z/mlx-mcp-bash-reference`. It also implements
 `swe-pruner/reference`, but its host binding is `mcp/bash` and its only tool is
 `needle_bash`.
 

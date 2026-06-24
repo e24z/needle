@@ -1,9 +1,9 @@
 {
   "schema": "needle.claim_card.v1",
-  "id": "claims/pi-local-mac-swe-pruner-reference",
-  "package": "e24z/pi-local-mac",
-  "capability": "swe-pruner/reference",
-  "claim": "Task-aware pruning for large Pi read/bash outputs with explicit focus questions.",
+  "id": "claims/mlx-pi-soft-lamr",
+  "package": "e24z/mlx-pi-soft-lamr",
+  "capability": "e24z/soft-lamr",
+  "claim": "Task-aware pruning for large Pi read/bash outputs with explicit focus questions and Python AST repair.",
   "evidence_level": "demo_fixture",
   "tested": {
     "host": "pi",
@@ -12,7 +12,7 @@
       "bash"
     ],
     "compute": "local_mlx",
-    "capability": "swe-pruner/reference"
+    "capability": "e24z/soft-lamr"
   },
   "metrics": {
     "exact": [
@@ -27,11 +27,12 @@
   "known_limits": [
     "Token and dollar savings are estimates unless paired or billing-backed.",
     "Missing context_focus_question passes through.",
+    "AST repair may return more text than the reference package.",
     "Local MLX performance depends on machine memory and model residency."
   ],
   "must_not_claim": [
     "Exact user dollar savings.",
-    "Paper parity if AST expansion is enabled.",
+    "SWE-Pruner paper parity with AST repair enabled.",
     "Support for tools not listed in the package."
   ],
   "privacy_notes": {
