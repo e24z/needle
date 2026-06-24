@@ -52,7 +52,7 @@ The root `package.json` is the Pi package manifest. It points Pi at
 `adapters/pi/extension.js`; the Python engine stays at the repo root so the
 extension can resolve the active package backend and start the manager with the
 backend-declared launcher, currently
-`uv run --extra backend-code-pruner-mlx -m pruner manage`.
+`uv run --extra backend-code-pruner-mlx -m needle.runtime manage`.
 For pre-1.0 distribution, prefer local or git installs pinned to a commit/tag.
 Keep `package.json` and `pyproject.toml` versions aligned when cutting a
 release. During local development, prefer `pi -e .` for the active working tree

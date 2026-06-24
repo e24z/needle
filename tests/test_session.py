@@ -21,10 +21,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 os.environ["HAY_NO_EVENTS"] = "1"  # in-thread/spawned managers here must not write the real ~/.hay log
 
-from pruner import client, naming  # noqa: E402
-from pruner.backends import FakePruner  # noqa: E402
-from pruner.manager import serve_manager  # noqa: E402
-from pruner.session import run_session  # noqa: E402
+from needle.runtime import client, naming  # noqa: E402
+from needle.runtime.backends import FakePruner  # noqa: E402
+from needle.runtime.manager import serve_manager  # noqa: E402
+from needle.runtime.session import run_session  # noqa: E402
 
 _ROOT = str(Path(__file__).resolve().parent.parent)
 
@@ -47,7 +47,7 @@ def test_manage_subprocess_serves(tmp_sock: Path) -> None:
         PYTHONPATH=_ROOT,
     )
     proc = subprocess.Popen(
-        [sys.executable, "-m", "pruner", "manage"],
+        [sys.executable, "-m", "needle.runtime", "manage"],
         cwd=_ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     try:

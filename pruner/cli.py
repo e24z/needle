@@ -5,8 +5,9 @@
   prune    pipe stdin through the manager, print the result
   status   operator snapshot: live residency + recent events (stdlib; works broken)
   stop     ask the resident manager to shut down cleanly
-`python3 -m pruner <cmd>` is the low-level runtime surface. Use
-`needle package ...` for package selection."""
+`python3 -m pruner <cmd>` remains as a compatibility surface. Prefer
+`python3 -m needle.runtime <cmd>` for runtime operations and `needle package ...`
+for package selection."""
 
 from __future__ import annotations
 

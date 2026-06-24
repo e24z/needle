@@ -28,7 +28,7 @@
   "launcher": {
     "kind": "uv-python-module",
     "extra": "backend-code-pruner-mlx",
-    "module": "pruner",
+    "module": "needle.runtime",
     "args": [
       "manage"
     ],

@@ -38,6 +38,11 @@ without relying on chat memory.
     runtime.
   - Moved Needle-owned CLI and registry imports onto `needle.runtime`.
   - Kept `pruner` as the compatibility entrypoint for now.
+- `refactor(needle): launch manager through runtime namespace`
+  - Added `python -m needle.runtime` as the active resident runtime launcher.
+  - Moved the MLX backend manifest, Pi client expectations, and CLI doctor
+    output off `python -m pruner manage`.
+  - Kept the runtime implementation delegated to `pruner.cli` during migration.
 
 ## Now
 
@@ -49,10 +54,11 @@ Stop making `pruner` the conceptual center of the product.
 Acceptance:
 
 - New imports can use `needle.runtime.*`. (First slice landed.)
+- Active package/backend launch uses `python -m needle.runtime manage`.
 - The old `pruner` package remains as a compatibility shim.
 - Runtime docs and status text prefer Needle language.
-- The backend launcher can later move from `-m pruner manage` to a Needle-owned
-  module without changing package manifests again.
+- The implementation can later move physically without changing package
+  manifests again.
 
 ### 2. Archive Claude From The Active 1.0 Path
 

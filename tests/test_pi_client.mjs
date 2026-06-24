@@ -270,7 +270,7 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 					backend: "e24z/code-pruner-mlx",
 					backendLauncher: {
 						extra: "backend-code-pruner-mlx",
-						module: "pruner",
+						module: "needle.runtime",
 						args: ["manage"],
 					},
 					hostBinding: "pi/native-tools",
@@ -293,7 +293,7 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 	assert.match(rendered, /active package e24z\/pi-local-mac/);
 	assert.match(rendered, /capability swe-pruner\/reference/);
 	assert.match(rendered, /backend e24z\/code-pruner-mlx/);
-	assert.match(rendered, /backend launch extra backend-code-pruner-mlx \| module pruner manage/);
+	assert.match(rendered, /backend launch extra backend-code-pruner-mlx \| module needle\.runtime manage/);
 	assert.match(rendered, /host binding pi\/native-tools/);
 	assert.match(rendered, /compute local_mlx \| privacy local_only/);
 	assert.match(rendered, /prompt bundle pi\/context-focus-question@0\.1/);
@@ -327,7 +327,7 @@ test("Pi source identity reads package, pyproject, git state, and active Needle 
 		assert.equal(identity.activePackage.backend, "e24z/code-pruner-mlx");
 		assert.equal(identity.activePackage.backendRuntime, "local_manager");
 		assert.equal(identity.activePackage.backendLauncher.extra, "backend-code-pruner-mlx");
-		assert.equal(identity.activePackage.backendLauncher.module, "pruner");
+		assert.equal(identity.activePackage.backendLauncher.module, "needle.runtime");
 		assert.deepEqual(identity.activePackage.backendLauncher.args, ["manage"]);
 		assert.equal(identity.activePackage.hostBinding, "pi/native-tools");
 		assert.equal(identity.activePackage.claimCard, "claims/pi-local-mac-swe-pruner-reference");
@@ -359,13 +359,13 @@ test("Pi resolves backend launch plan from the active package graph", async () =
 	const backend = await backendIdentity(process.cwd(), "e24z/code-pruner-mlx");
 	assert.equal(backend.available, true);
 	assert.equal(backend.launcher.extra, "backend-code-pruner-mlx");
-	assert.equal(backend.launcher.module, "pruner");
+	assert.equal(backend.launcher.module, "needle.runtime");
 	assert.deepEqual(backend.launcher.args, ["manage"]);
 
 	const plan = await runtimeLaunchPlan(process.cwd(), { hostBinding: "pi/native-tools" });
 	assert.equal(plan.packageId, "e24z/pi-local-mac");
 	assert.equal(plan.backendId, "e24z/code-pruner-mlx");
-	assert.deepEqual(plan.command, ["uv", "run", "--extra", "backend-code-pruner-mlx", "-m", "pruner", "manage"]);
+	assert.deepEqual(plan.command, ["uv", "run", "--extra", "backend-code-pruner-mlx", "-m", "needle.runtime", "manage"]);
 	assert.equal(plan.env.NEEDLE_BACKEND, "e24z/code-pruner-mlx");
 	assert.equal(plan.env.HAY_BACKEND, "code-pruner");
 });
@@ -386,7 +386,7 @@ test("Pi ensureManager spawns from backend launch metadata", async () => {
 	assert.equal(ok, false);
 	assert.equal(spawned.length, 1);
 	assert.equal(spawned[0].command, "uv");
-	assert.deepEqual(spawned[0].args, ["run", "--extra", "backend-code-pruner-mlx", "-m", "pruner", "manage"]);
+	assert.deepEqual(spawned[0].args, ["run", "--extra", "backend-code-pruner-mlx", "-m", "needle.runtime", "manage"]);
 	assert.equal(spawned[0].options.env.NEEDLE_BACKEND, "e24z/code-pruner-mlx");
 	assert.equal(spawned[0].options.env.HAY_BACKEND, "code-pruner");
 });

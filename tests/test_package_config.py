@@ -52,7 +52,7 @@ def test_default_package_resolves_runtime_launch_plan() -> None:
     assert plan.backend_id == "e24z/code-pruner-mlx"
     assert plan.kind == "uv-python-module"
     assert plan.extra == "backend-code-pruner-mlx"
-    assert plan.module == "pruner"
+    assert plan.module == "needle.runtime"
     assert plan.args == ["manage"]
     assert plan.command == [
         "uv",
@@ -60,7 +60,7 @@ def test_default_package_resolves_runtime_launch_plan() -> None:
         "--extra",
         "backend-code-pruner-mlx",
         "-m",
-        "pruner",
+        "needle.runtime",
         "manage",
     ]
     assert plan.env["NEEDLE_BACKEND"] == "e24z/code-pruner-mlx"

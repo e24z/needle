@@ -57,8 +57,9 @@ But the repo has not yet fully become the Needle 1.0 architecture:
 - The first backend-launch slice can make Pi consume backend launcher metadata,
   but the runtime module is still the old `pruner` entrypoint until the runtime
   re-home happens.
-- New Needle code can import through `needle.runtime`, but the implementation
-  and backend launcher still use the legacy `pruner` entrypoint until the
+- New Needle code can import through `needle.runtime`, and package/backend
+  manifests now launch the resident manager through `python -m needle.runtime`.
+  The implementation still delegates to the legacy `pruner` module until the
   physical re-home lands.
 - Backend dependency ownership exists for the MLX backend, but only as the first
   backend manifest; HTTP/CUDA backends are still conceptual.
@@ -85,7 +86,7 @@ or more ontology prose.
 | Package registry | `protocols/`, `capabilities/`, `backends/`, `bindings/`, `packages/`, `claims/`, `package-cards/` | Landed as static graph | The graph is metadata more than execution spine. |
 | Registry validation | `needle/registry.py`, `tests/test_package_config.py` | First slice landed | Main package graph fields are checked; full evidence-pack resolution and package-local step references remain. |
 | Backend dependency ownership | `backends/e24z/code-pruner-mlx.yaml` declares `backend-code-pruner-mlx` | First slice landed | Need carry the same pattern to HTTP/CUDA backends and docs. |
-| Backend launch | Pi can resolve a runtime launch plan from active package/backend metadata | First slice landed | Still launches the legacy `pruner` module until runtime re-home. |
+| Backend launch | Pi can resolve a runtime launch plan from active package/backend metadata and launch `needle.runtime` | Mostly landed | Implementation still delegates to `pruner.cli` until physical re-home. |
 | Runtime naming | `needle.runtime.*` exists as a migration namespace; implementation still lives under `pruner` | Transitional | Need finish physical re-home and decide when to migrate `~/.hay` to `~/.needle`. |
 | Backend selection | `NEEDLE_BACKEND=e24z/code-pruner-mlx` is recognized; `HAY_BACKEND=code-pruner` remains an alias | Transitional | Legacy names should become compatibility shims, not primary docs. |
 | Reference vs Soft-LaMR | Capability files and repair config tests exist | Mostly landed | Need ensure active package controls repair in every runtime path and CLI doctor reports it plainly. |
@@ -139,7 +140,8 @@ Likely files:
 ### B. Runtime re-home and compatibility shim
 
 Priority: P0
-Status: namespace shim landed; physical re-home remains.
+Status: namespace shim and Needle-owned runtime launcher landed; physical
+re-home remains.
 
 Problem:
 `pruner` still means runtime, CLI, backend, old product identity, and manager

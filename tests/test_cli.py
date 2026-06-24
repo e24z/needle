@@ -56,7 +56,7 @@ def test_package_cli_lists_and_selects_packages() -> None:
             assert code == 0, err
             assert "selected package: e24z/pi-local-mac-soft-lamr" in out
             assert "runtime extra: backend-code-pruner-mlx" in out
-            assert "runtime command: uv run --extra backend-code-pruner-mlx -m pruner manage" in out
+            assert "runtime command: uv run --extra backend-code-pruner-mlx -m needle.runtime manage" in out
             assert "restart the resident runtime" in out
 
             code, out, err = _run(["package", "current", "--host-binding", "pi/native-tools"])
@@ -72,7 +72,7 @@ def test_package_cli_lists_and_selects_packages() -> None:
             assert "implements: e24z/soft-lamr" in out
             assert "uses backend: e24z/code-pruner-mlx" in out
             assert "runtime extra: backend-code-pruner-mlx" in out
-            assert "runtime command: uv run --extra backend-code-pruner-mlx -m pruner manage" in out
+            assert "runtime command: uv run --extra backend-code-pruner-mlx -m needle.runtime manage" in out
         finally:
             if old_config is None:
                 os.environ.pop("HAY_CONFIG", None)
