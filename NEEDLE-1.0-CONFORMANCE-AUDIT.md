@@ -89,7 +89,7 @@ or more ontology prose.
 | Backend selection | `NEEDLE_BACKEND=e24z/code-pruner-mlx` is recognized; `HAY_BACKEND=code-pruner` remains an alias | Transitional | Legacy names should become compatibility shims, not primary docs. |
 | Reference vs Soft-LaMR | Capability files and repair config tests exist | Mostly landed | Need ensure active package controls repair in every runtime path and CLI doctor reports it plainly. |
 | HTTP/CUDA backend | `backends/e24z/code-pruner-http.yaml`, `backends/HTTP-CONTRACT.md` | HTTP contract landed | Registry metadata and fail-open HTTP contract exist; runtime implementation and CUDA/backend recipes remain future work. |
-| Evidence/claims | Claim cards, `evidence/fixture-packs/*`, and `needle evidence check` exist | Mostly landed | Fixture packs are validated and listable; a live Pi demo script can still wrap an actual session later. |
+| Evidence/claims | Claim cards, `evidence/fixture-packs/*`, `needle evidence check`, and `npm run demo:pi-canary` exist | Landed for local canary | Fixture packs are validated, listable, and replayable through a mock Pi extension path; this still does not prove live MLX quality or benchmark results. |
 | Claude | `archive/claude/` | Archived | Not a 1.0 host. Revive only through a new host binding, package card, claim card, and active tests. |
 | CLI shape | `needle/cli.py` uses Typer and tests invoke `uv run needle ...` | Landed | Help is grouped and command names stayed stable; future commands still need the same ownership discipline. |
 | Issue tracking | GitHub issues #1-#8 and `NEEDLE-1.0-WORK-QUEUE.md` | Mostly landed | GitHub now owns durable work items; local docs still need refresh to avoid stale parallel tracking. |

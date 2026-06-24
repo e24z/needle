@@ -361,6 +361,10 @@ test("Pi resolves backend launch plan from the active package graph", async () =
 	assert.equal(backend.launcher.extra, "backend-code-pruner-mlx");
 	assert.equal(backend.launcher.module, "needle.runtime");
 	assert.deepEqual(backend.launcher.args, ["manage"]);
+	const httpBackend = await backendIdentity(process.cwd(), "e24z/code-pruner-http");
+	assert.equal(httpBackend.available, true);
+	assert.equal(httpBackend.launcher.extra, "");
+	assert.equal(httpBackend.launcher.module, "needle.runtime");
 
 	const plan = await runtimeLaunchPlan(process.cwd(), { hostBinding: "pi/native-tools" });
 	assert.equal(plan.packageId, "e24z/pi-local-mac");

@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "description": "Local context-pruning for agent coding tools.",
+  "scripts": {
+    "demo:pi-canary": "node adapters/pi/demo-canary.mjs"
+  },
   "keywords": [
     "pi-package"
   ],

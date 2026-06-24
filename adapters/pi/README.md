@@ -86,6 +86,19 @@ Without the tool install, run the same commands from the repo with
 repair. If the resident runtime is already running, restart it after changing
 the selected package so the backend policy and `/needle doctor` agree.
 
+Run the Pi demo canary without Docker, paid APIs, SWE-bench, or live MLX:
+
+```bash
+npm run demo:pi-canary
+```
+
+The canary mounts the Pi extension against mock Pi native `read`/`bash` tools
+and a mock Needle manager, then replays the checked evidence fixture pack. It
+shows one read prune, one bash prune, one missing-focus pass-through, exact
+character accounting, `/needle status` output, and recent local events. This
+proves the Pi extension path and fixture wiring. It does not prove MLX model
+quality, SWE-bench acceptance, token savings, or dollar savings.
+
 For one run only, an environment variable can override the configured package:
 
 ```bash

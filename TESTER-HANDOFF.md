@@ -85,6 +85,19 @@ spending model context on irrelevant file sections or noisy command output.
    package claim: one read prune case, one bash prune case, and one missing-focus
    pass-through case.
 
+   To run those same fixture cases through the Pi extension path without a live
+   model or benchmark:
+
+   ```bash
+   npm run demo:pi-canary
+   ```
+
+   The canary uses mock Pi native `read` and `bash` tools plus a mock Needle
+   manager. It prints a small table, exact characters trimmed, `/needle status`,
+   and recent local events. This proves extension wiring, pass-through behavior,
+   and local accounting. It does not prove MLX model quality, SWE-bench
+   acceptance, token savings, or dollar savings.
+
 7. If she wants Soft-LaMR as her default package, she selects it with the CLI:
 
    ```bash

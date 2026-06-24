@@ -6,7 +6,7 @@
   "context_focus_question": null,
   "input": {
     "path": "demo/no_focus_soft_lamr.py",
-    "text": "class Thing:\n    def alpha(self):\n        return 1\n\n    def beta(self):\n        return 2\n"
+    "text": "class Thing:\n    def alpha(self):\n        return 1\n\n    def beta(self):\n        return 2\n\n    def gamma(self):\n        return 3\n\n    def delta(self):\n        return 4\n\n    def epsilon(self):\n        return 5\n\n    def zeta(self):\n        return 6\n\n    def eta(self):\n        return 7\n\n    def theta(self):\n        return 8\n"
   },
   "expected_behavior": "passthrough_original",
   "assertions": {

@@ -289,8 +289,8 @@ function normalizeLauncher(backend, backendId = backend?.id || "<backend>") {
 	if (launcher.kind !== "uv-python-module") {
 		throw new Error(`backend ${backendId} launcher.kind must be uv-python-module`);
 	}
-	if (typeof launcher.extra !== "string" || !launcher.extra) {
-		throw new Error(`backend ${backendId} launcher.extra must be a non-empty string`);
+	if (typeof launcher.extra !== "string") {
+		throw new Error(`backend ${backendId} launcher.extra must be a string`);
 	}
 	if (typeof launcher.module !== "string" || !launcher.module) {
 		throw new Error(`backend ${backendId} launcher.module must be a non-empty string`);

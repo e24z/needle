@@ -80,6 +80,13 @@ without relying on chat memory.
   - Documented the HTTP JSON request/response contract.
   - Required explicit endpoint configuration and fail-open behavior.
   - Validated the backend manifest without needing a live server.
+- `feat(needle): add pi demo canary`
+  - Added a no-benchmark Pi canary that replays checked evidence fixtures
+    through the Pi extension path.
+  - Covered read prune, bash prune, and missing-focus pass-through.
+  - Printed exact character accounting, `/needle status`, and recent local
+    events.
+  - Documented what the canary proves and what it does not prove.
 
 ## Now
 
@@ -115,7 +122,7 @@ Issue Set:
 - #4 Migrate runtime state from `~/.hay` to `~/.needle` (landed on branch)
 - #5 Convert needle CLI to Typer with stable command names (landed on branch)
 - #6 Define HTTP backend contract and registry metadata (landed on branch)
-- #7 Add live Pi demo canary around evidence fixtures
+- #7 Add live Pi demo canary around evidence fixtures (landed on branch)
 - #8 Refresh Needle 1.0 PRD and tester docs after structural slices
 
 Acceptance:
@@ -128,7 +135,7 @@ Acceptance:
 ## Next
 
 - Pick one issue and branch/PR against it instead of expanding this local queue.
-- Work issue #7 next: add a live Pi demo canary around evidence fixtures.
+- Work issue #8 next: refresh the PRD and tester docs after structural slices.
 - Finish backend physical re-home under `needle.backends`.
 - Refresh the PRD current-state sections after the structural slices land.
 
