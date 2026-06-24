@@ -38,7 +38,7 @@ def test_typer_help_groups_public_commands() -> None:
     code, out, err = _run(["--help"])
     assert code == 0, err
     assert "Commands" in out
-    for command in ("package", "evidence", "model", "runtime", "setup", "status", "stop", "uninstall"):
+    for command in ("package", "evidence", "model", "mcp", "runtime", "setup", "status", "stop", "uninstall"):
         assert command in out
 
 
@@ -116,6 +116,11 @@ def test_package_cli_lists_and_selects_packages() -> None:
             assert "backend readiness:" in out
             assert "evidence: fixture_pack:needle-soft-lamr" in out
             assert "evidence/fixture-packs/needle-soft-lamr/manifest.json" in out
+
+            code, out, err = _run(["package", "list", "--host-binding", "mcp/bash"])
+            assert code == 0, err
+            assert "e24z/mcp-bash-local" in out
+            assert "host=mcp/bash" in out
         finally:
             if old_config is None:
                 os.environ.pop("HAY_CONFIG", None)
@@ -162,6 +167,18 @@ def test_evidence_check_lists_fixture_cases() -> None:
     assert "case: read-missing-focus-passthrough  tool=read  behavior=passthrough_original" in out
 
 
+def test_evidence_check_lists_mcp_fixture_cases() -> None:
+    code, out, err = _run(["evidence", "check", "e24z/mcp-bash-local", "--host-binding", "mcp/bash"])
+    assert code == 0, err
+    assert "package: e24z/mcp-bash-local" in out
+    assert "fixture_pack:mcp-bash-reference" in out
+    assert "case: needle-bash-visible-prune  tool=needle_bash  behavior=visible_prune" in out
+    assert (
+        "case: needle-bash-missing-focus-passthrough  "
+        "tool=needle_bash  behavior=passthrough_original"
+    ) in out
+
+
 def test_uninstall_dry_run_and_yes_use_needle_owned_paths() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -199,10 +216,10 @@ def test_uninstall_dry_run_and_yes_use_needle_owned_paths() -> None:
             assert code == 0, err
             assert "removed Needle-owned local state" in out
             assert "needle setup pi --uninstall" in out
+            assert "needle setup claude-code --uninstall" in out
             assert "brew uninstall needle" in out
             assert "pipx uninstall needle" in out
             assert "uv tool uninstall needle" in out
-            assert "Claude" not in out
             assert not home.exists()
             assert not models.exists()
             assert not config.exists()
@@ -239,6 +256,30 @@ def test_setup_pi_dry_run_uses_packaged_adapter() -> None:
     assert "Canary command: node" in out
     assert "dry run: no changes made" in out
     assert "next: run `needle setup pi`" in out
+
+
+def test_setup_claude_code_dry_run_prints_native_mcp_setup() -> None:
+    code, out, err = _run(["setup", "claude-code", "--dry-run"])
+    assert code == 0, err
+    assert "Needle Claude Code MCP setup" in out
+    assert "package: e24z/mcp-bash-local" in out
+    assert "host binding: mcp/bash" in out
+    assert "server command: needle mcp serve" in out
+    assert "Claude command: claude mcp add --transport stdio --scope local needle-bash -- needle mcp serve" in out
+    assert '"needle-bash"' in out
+    assert "dry run: no changes made" in out
+
+    code, out, err = _run(["setup", "claude-code", "--dry-run", "--scope", "project"])
+    assert code == 0, err
+    assert "Claude scope: project" in out
+    assert "Project .mcp.json shape" in out
+
+
+def test_setup_claude_code_rejects_unknown_scope() -> None:
+    code, out, err = _run(["setup", "claude-code", "--dry-run", "--scope", "workspace"])
+    assert code == 1
+    assert out == ""
+    assert "scope must be one of" in err
 
 
 def test_runtime_status_wrapper_is_available() -> None:
@@ -288,9 +329,12 @@ def main() -> int:
     test_package_cli_lists_and_selects_packages()
     test_package_cli_rejects_unknown_package()
     test_evidence_check_lists_fixture_cases()
+    test_evidence_check_lists_mcp_fixture_cases()
     test_uninstall_dry_run_and_yes_use_needle_owned_paths()
     test_model_dir_command_reports_needle_model_path()
     test_setup_pi_dry_run_uses_packaged_adapter()
+    test_setup_claude_code_dry_run_prints_native_mcp_setup()
+    test_setup_claude_code_rejects_unknown_scope()
     test_runtime_status_wrapper_is_available()
     test_stop_is_idempotent_when_runtime_is_down()
     test_pruner_cli_does_not_own_packages()

@@ -106,6 +106,11 @@ def load_active_package(
     registry_root = root or default_registry_root()
     active_package_id = package_id or default_package_id(registry_root, host_binding=host_binding)
     package = _load_object(registry_root, "package", active_package_id)
+    if host_binding and package.get("host_binding") != host_binding:
+        raise PackageConfigError(
+            f"package {active_package_id!r} is bound to {package.get('host_binding')!r}, "
+            f"not requested host binding {host_binding!r}"
+        )
     loaded = _validate_package_graph(registry_root, package)
     if host_binding and loaded.binding_id != host_binding:
         raise PackageConfigError(
@@ -376,7 +381,7 @@ def _validate_package_graph(root: Path, package: dict[str, Any]) -> LoadedPackag
     if not card_path.exists():
         raise PackageConfigError(f"missing package card {card_id!r} at {card_path}")
 
-    evidence_paths = _validate_package_evidence(root, package, implemented_ids)
+    evidence_paths = _validate_package_evidence(root, package, implemented_ids, binding)
 
     claim_card = _load_object(root, "claim", _claim_object_id(package))
     _validate_claim_card(claim_card)
@@ -631,6 +636,7 @@ def _validate_package_evidence(
     root: Path,
     package: dict[str, Any],
     implemented_ids: list[str],
+    binding: dict[str, Any],
 ) -> dict[str, Path]:
     package_id = str(package["id"])
     paths: dict[str, Path] = {}
@@ -643,12 +649,17 @@ def _validate_package_evidence(
         if not path.exists():
             raise PackageConfigError(f"missing evidence reference {ref!r} at {path}")
         if ref.startswith("fixture_pack:"):
-            _validate_fixture_pack(path, package_id, implemented_ids)
+            _validate_fixture_pack(path, package_id, implemented_ids, binding)
         paths[ref] = path
     return paths
 
 
-def _validate_fixture_pack(path: Path, package_id: str, implemented_ids: list[str]) -> None:
+def _validate_fixture_pack(
+    path: Path,
+    package_id: str,
+    implemented_ids: list[str],
+    binding: dict[str, Any],
+) -> None:
     try:
         with path.open("r", encoding="utf-8") as fh:
             pack = json.load(fh)
@@ -671,8 +682,10 @@ def _validate_fixture_pack(path: Path, package_id: str, implemented_ids: list[st
         raise PackageConfigError(
             f"fixture pack {pack_id!r} capability {capability!r} is not implemented by package {package_id!r}"
         )
-    if pack.get("host_binding") != "pi/native-tools":
-        raise PackageConfigError(f"fixture pack {pack_id!r} host_binding must be 'pi/native-tools'")
+    binding_id = _required_string(binding, "id")
+    if pack.get("host_binding") != binding_id:
+        raise PackageConfigError(f"fixture pack {pack_id!r} host_binding must be {binding_id!r}")
+    binding_tools = _required_mapping(binding, "tools")
 
     cases = pack.get("cases")
     if not isinstance(cases, list) or not cases:
@@ -692,15 +705,18 @@ def _validate_fixture_pack(path: Path, package_id: str, implemented_ids: list[st
         if not case_path.exists():
             raise PackageConfigError(f"fixture pack {pack_id!r} missing case {case_id!r} at {case_path}")
         tool = _required_string(case_ref, "tool")
+        if tool not in binding_tools:
+            raise PackageConfigError(
+                f"fixture pack {pack_id!r} case {case_id!r} uses tool {tool!r}, "
+                f"not one of binding tools {sorted(binding_tools)!r}"
+            )
         behavior = _required_string(case_ref, "expected_behavior")
         coverage.add((tool, behavior))
         _validate_fixture_case(case_path, case_id, tool, behavior)
 
-    required = {
-        ("read", "visible_prune"),
-        ("bash", "visible_prune"),
-        ("read", "passthrough_original"),
-    }
+    first_tool = next(iter(binding_tools))
+    required = {(tool, "visible_prune") for tool in binding_tools}
+    required.add((first_tool, "passthrough_original"))
     missing = sorted(f"{tool}:{behavior}" for tool, behavior in required - coverage)
     if missing:
         raise PackageConfigError(f"fixture pack {pack_id!r} missing required cases: {', '.join(missing)}")

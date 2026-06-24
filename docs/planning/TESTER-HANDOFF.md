@@ -1,6 +1,11 @@
-# Needle for Pi Tester Handoff
+# Needle Tester Handoff
 
-This is the 1.0 tester path for Needle running inside Pi.
+This is the 1.0 tester path for Needle running inside Pi or Claude Code.
+
+Pi is the highest-visibility open-source host path. Claude Code is the portable
+MCP path for testers who already live in Claude.
+
+## Pi Scenario
 
 Needle is installed as a Pi extension. Once Pi starts, the extension launches a
 machine-wide local manager. Pi's native `read` and `bash` tools still run first;
@@ -135,6 +140,62 @@ spending model context on irrelevant file sections or noisy command output.
 
    ```bash
    needle setup pi --uninstall
+   needle uninstall --yes
+   brew uninstall needle
+   ```
+
+## Claude Code MCP Scenario
+
+Needle is installed as a CLI/runtime. Claude Code is configured to spawn
+Needle's stdio MCP server, which exposes one observation tool:
+
+```text
+needle_bash(command, context_focus_question?)
+```
+
+This package is intentionally bash-minimal. Claude should use `needle_bash` for
+observation commands such as `rg`, `sed`, `git diff`, and tests. Edits stay on
+Claude Code's native tools.
+
+1. Maya installs Needle:
+
+   ```bash
+   brew install e24z/tap/needle
+   needle setup claude-code
+   ```
+
+   Until the Homebrew tap exists:
+
+   ```bash
+   cd /path/to/hay
+   uv tool install --editable .
+   needle setup claude-code
+   ```
+
+2. She starts Claude Code from a project and checks MCP status:
+
+   ```bash
+   claude
+   ```
+
+   ```text
+   /mcp
+   ```
+
+   The server should appear as `needle-bash`.
+
+3. She can inspect the package graph outside Claude:
+
+   ```bash
+   needle package doctor --host-binding mcp/bash
+   needle evidence check --host-binding mcp/bash
+   needle setup claude-code --dry-run
+   ```
+
+4. She removes the integration through Claude's native MCP command wrapper:
+
+   ```bash
+   needle setup claude-code --uninstall
    needle uninstall --yes
    brew uninstall needle
    ```

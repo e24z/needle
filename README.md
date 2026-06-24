@@ -8,10 +8,12 @@ It sits between an agent tool and the model:
 tool output -> Needle -> original or pruned text
 ```
 
-The 1.0 target host is [Pi](https://github.com/mariozechner/pi), where Needle
-extends Pi's native `read` and `bash` tools. The model still uses normal Pi
-tools; Needle only shortens large textual observations when the tool call
-includes a `context_focus_question`.
+The 1.0 target hosts are [Pi](https://github.com/mariozechner/pi) and Claude
+Code. Pi uses a native package that extends Pi's `read` and `bash` tools. Claude
+Code uses a bash-minimal MCP server that exposes one observation tool,
+`needle_bash(command, context_focus_question?)`. In both paths, Needle only
+shortens large textual observations when the tool call includes a
+`context_focus_question`.
 
 ## Install
 
@@ -29,12 +31,20 @@ path from a clone of this repo. This path requires Python 3.13 or newer and
 ```bash
 uv tool install --editable .
 needle setup pi
+# or, for Claude Code
+needle setup claude-code
 ```
 
 Needle's Pi setup expects Pi's CLI to be available:
 
 ```bash
 pi --help
+```
+
+Needle's Claude Code setup expects Claude's CLI to be available:
+
+```bash
+claude --help
 ```
 
 Check the adapter from inside Pi:
@@ -51,10 +61,11 @@ npm run demo:pi-canary
 
 ## Uninstall
 
-Remove the Pi adapter through Pi's native package flow:
+Remove host adapters through their native setup flows:
 
 ```bash
 needle setup pi --uninstall
+needle setup claude-code --uninstall
 ```
 
 Remove Needle-owned local state:
@@ -74,9 +85,9 @@ uv tool uninstall needle
 ## What Ships
 
 The installable product is the `needle` CLI/runtime plus a built-in registry
-snapshot and the packaged Pi adapter. The source repo also contains tests,
-planning docs, archived Claude work, and compatibility shims; users should not
-need to clone or understand that material to try Needle.
+snapshot, the packaged Pi adapter, and the MCP bash adapter. The source repo
+also contains tests, planning docs, archived Claude hook work, and compatibility
+shims; users should not need to clone or understand that material to try Needle.
 
 Needle-owned runtime state defaults to `~/.needle`.
 
@@ -90,14 +101,21 @@ The default package is `e24z/pi-local-mac`, which implements the
 `e24z/pi-local-mac-soft-lamr` package adds Python AST repair and should be
 treated as a separate capability, not paper-parity SWE-Pruner.
 
+The portable MCP package is `e24z/mcp-bash-local`. It also implements
+`swe-pruner/reference`, but its host binding is `mcp/bash` and its only tool is
+`needle_bash`.
+
 ## Developer Notes
 
 Useful commands:
 
 ```bash
 needle package doctor --host-binding pi/native-tools
+needle package doctor --host-binding mcp/bash
 needle evidence check --host-binding pi/native-tools
+needle evidence check --host-binding mcp/bash
 needle setup pi --dry-run
+needle setup claude-code --dry-run
 ```
 
 The built-in registry lives in `needle/registry_data`. External registries can

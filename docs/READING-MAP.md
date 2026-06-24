@@ -15,6 +15,8 @@ Three active layers:
 - `pruner/` is now a compatibility facade for old imports and `python -m pruner`.
 - `needle/hosts/pi/` is the packaged Pi host binding: native read/bash
   wrappers, status, package identity, and the Pi package manifest.
+- `needle/hosts/mcp/` is the packaged MCP host binding: one bash observation
+  tool plus the stdio server launched by `needle mcp serve`.
 
 ## Read in this order
 
@@ -27,9 +29,9 @@ Three active layers:
    packs, and backend launch metadata without importing MLX.
 
 3. **`needle/cli.py`** — *How does a user control packages and runtime state?*
-   The public Typer CLI owns `needle setup pi`, `needle package ...`,
-   `needle evidence check`, `needle status`, `needle stop`, `needle uninstall`,
-   and `needle model ...`.
+   The public Typer CLI owns `needle setup pi`, `needle setup claude-code`,
+   `needle mcp serve`, `needle package ...`, `needle evidence check`,
+   `needle status`, `needle stop`, `needle uninstall`, and `needle model ...`.
 
 4. **`needle/runtime/protocol.py` + `needle/runtime/client.py`** — *How do the pieces talk?* The
    wire format and the thin client every surface (adapter, status, CLI) uses to
@@ -64,6 +66,10 @@ Then the **adapter surface** (how it becomes visible and safe):
     Docker, paid APIs, SWE-bench, or live MLX?* This replays the checked fixture
     pack through mock Pi native tools and a mock Needle manager.
 
+11. **`needle/hosts/mcp/bash.py` + `needle/hosts/mcp/server.py`** — *What is the
+    portable reference adapter?* A single `needle_bash` observation tool,
+    explicit optional focus, fail-open behavior, and no mutation ownership.
+
 **Do NOT read** `pruner/backends/code_pruner/model.py` to "understand the model."
 It's the sealed box: `prune_text(text, query) -> text`. Treat it as given.
 
@@ -77,7 +83,10 @@ npm run demo:pi-canary
 # package/evidence checks
 uv run needle package doctor --host-binding pi/native-tools
 uv run needle evidence check --host-binding pi/native-tools
+uv run needle package doctor --host-binding mcp/bash
+uv run needle evidence check --host-binding mcp/bash
 uv run needle setup pi --dry-run
+uv run needle setup claude-code --dry-run
 
 # terminal 1: a manager on its own socket/home (downloads the model on first prune)
 cd /tmp/needle-sandbox && NEEDLE_HOME=/tmp/needle-sandbox-home uv run needle runtime manage

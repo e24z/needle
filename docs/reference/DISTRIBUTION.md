@@ -7,8 +7,11 @@ Needle's user-facing product is an installed CLI/runtime, not a source checkout.
 - Needle owns the CLI, runtime lifecycle, built-in registry snapshot, local
   model directory, and host setup commands.
 - Pi owns Pi's package/extension mechanism.
+- Claude Code owns Claude's MCP configuration mechanism.
 - `needle setup pi` is an orchestrator: it calls Pi's native package command
   with Needle's packaged Pi adapter directory.
+- `needle setup claude-code` is an orchestrator: it calls Claude Code's native
+  MCP command and points it at `needle mcp serve`.
 - The source repo is for contributors. The release artifact is for users.
 
 ## Release Surfaces
@@ -18,6 +21,8 @@ Needle's user-facing product is an installed CLI/runtime, not a source checkout.
 ```bash
 brew install e24z/tap/needle
 needle setup pi
+# or
+needle setup claude-code
 ```
 
 The tap is expected to live in a separate repository, for example
@@ -28,6 +33,8 @@ The tap is expected to live in a separate repository, for example
 ```bash
 uv tool install --editable .
 needle setup pi
+# or
+needle setup claude-code
 ```
 
 This still exposes the user to a source checkout, so it is not the preferred
@@ -41,6 +48,8 @@ Homebrew:
 ```bash
 pipx install needle
 needle setup pi
+# or
+needle setup claude-code
 ```
 
 ## Registry
@@ -64,8 +73,11 @@ user benefit.
 2. Run the direct-script Python tests and the Node Pi tests.
 3. Build the wheel/sdist and install it into a clean environment.
 4. Run `needle setup pi --dry-run` from the installed artifact.
-5. Run `npm run demo:pi-canary` from the source checkout.
-6. Tag the release.
-7. Update the Homebrew formula URL and SHA256 in the tap.
-8. Install with `brew install e24z/tap/needle`.
-9. Run `needle setup pi`, open Pi, and verify `/needle doctor`.
+5. Run `needle setup claude-code --dry-run` from the installed artifact.
+6. Run `needle mcp serve` through a stdio MCP client smoke.
+7. Run `npm run demo:pi-canary` from the source checkout.
+8. Tag the release.
+9. Update the Homebrew formula URL and SHA256 in the tap.
+10. Install with `brew install e24z/tap/needle`.
+11. Run `needle setup pi`, open Pi, and verify `/needle doctor`.
+12. Run `needle setup claude-code`, open Claude Code, and verify `/mcp`.

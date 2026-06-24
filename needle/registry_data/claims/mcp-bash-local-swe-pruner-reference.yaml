@@ -1,0 +1,43 @@
+{
+  "schema": "needle.claim_card.v1",
+  "id": "claims/mcp-bash-local-swe-pruner-reference",
+  "package": "e24z/mcp-bash-local",
+  "capability": "swe-pruner/reference",
+  "claim": "Task-aware pruning for large MCP bash observations with explicit focus questions.",
+  "evidence_level": "demo_fixture",
+  "tested": {
+    "host": "mcp",
+    "tools": [
+      "needle_bash"
+    ],
+    "compute": "local_mlx",
+    "capability": "swe-pruner/reference"
+  },
+  "metrics": {
+    "exact": [
+      "original_chars",
+      "returned_chars",
+      "chars_removed"
+    ],
+    "estimates": [
+      "tokens_removed_est"
+    ]
+  },
+  "known_limits": [
+    "Token and dollar savings are estimates unless paired or billing-backed.",
+    "Missing context_focus_question passes through.",
+    "Local MLX performance depends on machine memory and model residency.",
+    "MCP configuration alone does not force an agent to prefer needle_bash over native tools."
+  ],
+  "must_not_claim": [
+    "Exact user dollar savings.",
+    "Paper parity if AST expansion is enabled.",
+    "Mutation or file editing through the MCP package.",
+    "Support for tools not listed in the package."
+  ],
+  "privacy_notes": {
+    "default": "Tool text stays on the local machine.",
+    "remote_compute": "Remote endpoints may receive tool text."
+  }
+}
+

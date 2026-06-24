@@ -120,6 +120,21 @@ def test_soft_lamr_package_resolves_parent_protocol() -> None:
     assert loaded.evidence_paths["fixture_pack:needle-soft-lamr"].exists()
 
 
+def test_mcp_bash_package_loads_as_reference_host_binding() -> None:
+    loaded = load_active_package(REGISTRY_ROOT, "e24z/mcp-bash-local", host_binding="mcp/bash")
+    assert loaded.package_id == "e24z/mcp-bash-local"
+    assert loaded.protocol["id"] == "needle/text-transform"
+    assert loaded.capability_ids == ["swe-pruner/reference"]
+    assert loaded.backend_id == "e24z/code-pruner-mlx"
+    assert loaded.binding_id == "mcp/bash"
+    assert set(loaded.binding["tools"]) == {"needle_bash"}
+    assert loaded.claim_card["capability"] == "swe-pruner/reference"
+    assert loaded.claim_card["tested"]["host"] == "mcp"
+    assert loaded.package_card_path.exists()
+    assert loaded.evidence_refs == ["fixture_pack:mcp-bash-reference"]
+    assert loaded.evidence_paths["fixture_pack:mcp-bash-reference"].exists()
+
+
 def test_missing_backend_reference_fails_clearly() -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
@@ -242,6 +257,13 @@ def test_package_summaries_can_filter_by_host_binding() -> None:
     assert "e24z/pi-local-mac" in ids
     assert "e24z/pi-local-mac-soft-lamr" in ids
     assert all(item["host_binding"] == "pi/native-tools" for item in summaries)
+
+
+def test_package_summaries_can_filter_mcp_binding() -> None:
+    summaries = package_summaries(REGISTRY_ROOT, host_binding="mcp/bash")
+    assert [item["id"] for item in summaries] == ["e24z/mcp-bash-local"]
+    assert summaries[0]["host_binding"] == "mcp/bash"
+    assert summaries[0]["capabilities"] == ["swe-pruner/reference"]
 
 
 def test_host_scoped_load_rejects_wrong_binding() -> None:
@@ -382,6 +404,47 @@ def test_fixture_pack_must_cover_required_pi_cases() -> None:
     assert "bash:visible_prune" in msg
 
 
+def test_fixture_pack_must_match_package_binding() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        _copy_registry(tmp)
+        manifest_path = tmp / "evidence/fixture-packs/mcp-bash-reference/manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["host_binding"] = "pi/native-tools"
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        try:
+            load_active_package(tmp, "e24z/mcp-bash-local", host_binding="mcp/bash")
+        except PackageConfigError as exc:
+            msg = str(exc)
+        else:
+            raise AssertionError("expected fixture host binding mismatch to fail")
+
+    assert "host_binding must be 'mcp/bash'" in msg
+
+
+def test_mcp_fixture_pack_must_cover_needle_bash_cases() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        _copy_registry(tmp)
+        manifest_path = tmp / "evidence/fixture-packs/mcp-bash-reference/manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["cases"] = [
+            case for case in manifest["cases"] if case["expected_behavior"] != "passthrough_original"
+        ]
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        try:
+            load_active_package(tmp, "e24z/mcp-bash-local", host_binding="mcp/bash")
+        except PackageConfigError as exc:
+            msg = str(exc)
+        else:
+            raise AssertionError("expected incomplete MCP fixture pack to fail")
+
+    assert "missing required cases" in msg
+    assert "needle_bash:passthrough_original" in msg
+
+
 def test_claim_card_tested_capability_must_match_claim() -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
@@ -465,17 +528,21 @@ def main() -> int:
     test_reference_capability_has_no_ast_repair()
     test_soft_lamr_is_separate_capability()
     test_soft_lamr_package_resolves_parent_protocol()
+    test_mcp_bash_package_loads_as_reference_host_binding()
     test_missing_backend_reference_fails_clearly()
     test_backend_must_support_package_capabilities()
     test_registry_root_and_package_can_come_from_environment()
     test_package_selection_can_come_from_user_config()
     test_package_summaries_can_filter_by_host_binding()
+    test_package_summaries_can_filter_mcp_binding()
     test_host_scoped_load_rejects_wrong_binding()
     test_package_requires_focus_contract()
     test_binding_tool_mapping_must_use_known_artifact_kind()
     test_package_rejects_unknown_evidence_reference()
     test_package_rejects_missing_evidence_reference()
     test_fixture_pack_must_cover_required_pi_cases()
+    test_fixture_pack_must_match_package_binding()
+    test_mcp_fixture_pack_must_cover_needle_bash_cases()
     test_claim_card_tested_capability_must_match_claim()
     test_backend_requires_text_interface()
     test_http_backend_requires_explicit_endpoint()

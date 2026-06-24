@@ -12,6 +12,7 @@ description = "Local context-pruning for agent coding tools."
 requires-python = ">=3.13"
 dependencies = [
     "click>=8,<9",
+    "mcp>=1.27,<2",
     "typer>=0.12,<1",
 ]
 
@@ -42,4 +43,5 @@ needle = [
     "hosts/pi/*.mjs",
     "hosts/pi/*.json",
     "hosts/pi/*.md",
+    "hosts/mcp/*.md",
 ]

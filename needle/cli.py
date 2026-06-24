@@ -41,12 +41,14 @@ package_app = typer.Typer(help="Inspect and select Needle packages.", no_args_is
 evidence_app = typer.Typer(help="Inspect package evidence fixtures.", no_args_is_help=True)
 model_app = typer.Typer(help="Inspect, download, or remove local model files.", no_args_is_help=True)
 runtime_app = typer.Typer(help="Low-level runtime commands used by host adapters.", no_args_is_help=True)
+mcp_app = typer.Typer(help="Run Needle MCP servers used by host adapters.", no_args_is_help=True)
 setup_app = typer.Typer(help="Set up Needle inside supported host agents.", no_args_is_help=True)
 
 app.add_typer(package_app, name="package")
 app.add_typer(evidence_app, name="evidence")
 app.add_typer(model_app, name="model")
 app.add_typer(runtime_app, name="runtime")
+app.add_typer(mcp_app, name="mcp")
 app.add_typer(setup_app, name="setup")
 
 
@@ -314,6 +316,7 @@ def _uninstall(args: argparse.Namespace) -> int:
         print("")
         print("Host extension removal stays host-native:")
         print("  Pi:     needle setup pi --uninstall")
+        print("  Claude: needle setup claude-code --uninstall")
         print("")
         print("Run `needle uninstall --yes` to stop the runtime and remove these files.")
         return 0
@@ -341,6 +344,7 @@ def _uninstall(args: argparse.Namespace) -> int:
     print("")
     print("Remove host integrations with their native commands:")
     print("  Pi:     needle setup pi --uninstall")
+    print("  Claude: needle setup claude-code --uninstall")
     print("Remove the CLI entrypoint with your package manager, for example:")
     print("  brew uninstall needle")
     print("  pipx uninstall needle")
@@ -411,6 +415,116 @@ def _setup_pi(args: argparse.Namespace) -> int:
             return code
 
     print("Needle Pi adapter installed. Open Pi and run `/needle doctor`.")
+    return 0
+
+
+def _mcp_serve(args: argparse.Namespace) -> int:
+    try:
+        from .hosts.mcp.server import main as serve
+        serve()
+    except RuntimeError as exc:
+        _print_error(exc)
+        return 1
+    return 0
+
+
+def _claude_scope(value: str) -> str:
+    if value not in {"local", "project", "user"}:
+        raise ValueError("scope must be one of: local, project, user")
+    return value
+
+
+def _claude_code_add_command(scope: str) -> list[str]:
+    return [
+        "claude",
+        "mcp",
+        "add",
+        "--transport",
+        "stdio",
+        "--scope",
+        scope,
+        "needle-bash",
+        "--",
+        "needle",
+        "mcp",
+        "serve",
+    ]
+
+
+def _claude_code_remove_command() -> list[str]:
+    return ["claude", "mcp", "remove", "needle-bash"]
+
+
+def _claude_code_mcp_json() -> dict[str, object]:
+    return {
+        "mcpServers": {
+            "needle-bash": {
+                "type": "stdio",
+                "command": "needle",
+                "args": ["mcp", "serve"],
+                "env": {},
+            }
+        }
+    }
+
+
+def _setup_claude_code(args: argparse.Namespace) -> int:
+    try:
+        scope = _claude_scope(args.scope)
+    except ValueError as exc:
+        _print_error(exc)
+        return 1
+
+    if args.uninstall:
+        command = _claude_code_remove_command()
+        print("Needle Claude Code MCP server: needle-bash")
+        print(f"Claude command: {_format_command(command)}")
+        if args.dry_run:
+            print("dry run: no changes made")
+            print("next: run `needle setup claude-code --uninstall` without `--dry-run` to remove it.")
+            return 0
+        if shutil.which("claude") is None:
+            _print_error("Claude Code CLI was not found on PATH; `claude --help` should work first.")
+            return 1
+        code = _run_visible(command)
+        if code:
+            return code
+        print("Needle Claude Code MCP server removed through Claude's native MCP command.")
+        return 0
+
+    command = _claude_code_add_command(scope)
+    loaded = None
+    try:
+        loaded = load_active_package(package_id="e24z/mcp-bash-local", host_binding="mcp/bash")
+    except PackageConfigError as exc:
+        _print_error(exc)
+        return 1
+
+    print("Needle Claude Code MCP setup")
+    print(f"package: {loaded.package_id}")
+    print(f"host binding: {loaded.binding_id}")
+    print(f"server: needle-bash")
+    print(f"server command: needle mcp serve")
+    print(f"Claude scope: {scope}")
+    print(f"Claude command: {_format_command(command)}")
+    print("")
+    print("Project .mcp.json shape, if you choose --scope project:")
+    print(json.dumps(_claude_code_mcp_json(), indent=2))
+
+    if args.dry_run:
+        print("dry run: no changes made")
+        print("next: run `needle setup claude-code`, then open Claude Code and run `/mcp`.")
+        return 0
+
+    if shutil.which("claude") is None:
+        _print_error("Claude Code CLI was not found on PATH; `claude --help` should work first.")
+        return 1
+
+    code = _run_visible(command)
+    if code:
+        return code
+    print("Needle Claude Code MCP server installed. Open Claude Code and run `/mcp`.")
+    print("Agent contract: use `needle_bash` for observation; keep edits on native tools.")
     return 0
 
 
@@ -657,6 +771,12 @@ def runtime_stop() -> None:
     _exit_with(runtime_cli.main(["stop"]))
 
 
+@mcp_app.command("serve")
+def mcp_serve() -> None:
+    """Run the bash-minimal stdio MCP server."""
+    _exit_with(_mcp_serve(_ns()))
+
+
 @setup_app.command("pi")
 def setup_pi(
     dry_run: bool = typer.Option(
@@ -677,6 +797,28 @@ def setup_pi(
 ) -> None:
     """Install or remove Needle's Pi adapter using Pi's native package flow."""
     _exit_with(_setup_pi(_ns(dry_run=dry_run, uninstall=uninstall_adapter, skip_canary=skip_canary)))
+
+
+@setup_app.command("claude-code")
+def setup_claude_code(
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print Claude Code MCP setup without changing Claude Code.",
+    ),
+    uninstall_adapter: bool = typer.Option(
+        False,
+        "--uninstall",
+        help="Remove Needle's MCP server through Claude Code's native MCP command.",
+    ),
+    scope: str = typer.Option(
+        "local",
+        "--scope",
+        help="Claude MCP scope: local, project, or user.",
+    ),
+) -> None:
+    """Install or remove Needle's Claude Code MCP server."""
+    _exit_with(_setup_claude_code(_ns(dry_run=dry_run, uninstall=uninstall_adapter, scope=scope)))
 
 
 def main(argv: list[str] | None = None) -> int:

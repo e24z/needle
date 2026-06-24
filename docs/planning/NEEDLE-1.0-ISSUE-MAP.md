@@ -459,7 +459,7 @@ must not accidentally replace the Pi-local 1.0 path or turn
 
 Acceptance:
 
-- Coordinator records whether MCP is 1.0-blocking or support work.
+- MCP is in the 1.0 path as a portable Claude Code/testing host surface.
 - MCP is modeled as a host binding/package surface, not as the
   `swe-pruner/reference` capability itself.
 - If scaffolded, the package exposes only the bash observation surface:
@@ -473,15 +473,17 @@ Acceptance:
 Verification:
 
 ```bash
-PYTHONPATH=. python3 tests/test_mcp_package_config.py
+PYTHONPATH=. python3 tests/test_package_config.py
+PYTHONPATH=. python3 tests/test_mcp_bash.py
 ```
 
 File ownership:
 
-- `packages/e24z/mcp-bash-local.yaml`
-- `bindings/mcp/bash.yaml`
-- `package-cards/e24z/mcp-bash-local.md`
-- `tests/test_mcp_package_config.py`
+- `needle/registry_data/packages/e24z/mcp-bash-local.yaml`
+- `needle/registry_data/bindings/mcp/bash.yaml`
+- `needle/registry_data/package-cards/e24z/mcp-bash-local.md`
+- `needle/hosts/mcp/`
+- `tests/test_mcp_bash.py`
 
 ## First Parallel Run
 
