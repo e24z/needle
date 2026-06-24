@@ -5,6 +5,18 @@ Date: 2026-06-23
 Branch: `pi-native-pruning`
 Source spec: `NEEDLE-1.0-PRD.md`
 
+2026-06-24 reset:
+This issue map is now historical planning plus partial work queue. Several
+early issues have landed in some form, and several deeper ownership gaps were
+not captured by the first wave. Before dispatching more work, read
+`NEEDLE-1.0-CONFORMANCE-AUDIT.md`. Treat that audit as the current map of
+stale claims, structural gaps, and decisions needing product judgment.
+
+This file is not a replacement for GitHub issues. Use it to stage and revise
+issue wording locally; once the next slice is accepted, create real GitHub
+issues and let those issue numbers become the durable tracker for branches and
+PRs.
+
 ## Purpose
 
 This file turns the Needle 1.0 PRD into executable work. The goal is to stop
@@ -494,4 +506,8 @@ that the updated PRD has promoted MCP from bonus note to 1.0 blocker.
   Package, and Package Card vocabulary.
 - 2026-06-23: PRD §19 added a bash-only MCP reference package note; the map now
   tracks it as conditional support work unless promoted by the coordinator.
+- 2026-06-24: Added `NEEDLE-1.0-CONFORMANCE-AUDIT.md` after the first
+  implementation pass showed that static registry files and `needle package`
+  commands are not enough. The next work should make package/backend metadata
+  drive runtime launch, dependencies, validation, and product docs.
 - Current source branch: `pi-native-pruning`.
