@@ -1,14 +1,21 @@
 {
-  "name": "hay",
+  "name": "needle",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "description": "Local context-pruning for agent coding tools.",
+  "scripts": {
+    "demo:pi-canary": "node needle/hosts/pi/demo-canary.mjs"
+  },
   "keywords": [
     "pi-package"
   ],
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
   "pi": {
     "extensions": [
-      "./adapters/pi/extension.mjs"
+      "./needle/hosts/pi/extension.js"
     ]
   }
 }

@@ -1,0 +1,67 @@
+{
+  "schema": "needle.backend.v1",
+  "id": "e24z/code-pruner-http",
+  "display_name": "Code Pruner HTTP",
+  "supports": [
+    "swe-pruner/reference",
+    "e24z/soft-lamr"
+  ],
+  "compute": {
+    "default": "remote_http",
+    "requires": [
+      "explicit_endpoint"
+    ]
+  },
+  "interface": {
+    "accepts": [
+      "text",
+      "focus"
+    ],
+    "returns": [
+      "text",
+      "accounting"
+    ]
+  },
+  "runtime": "local_manager",
+  "transport": {
+    "kind": "http_json",
+    "endpoint_env": "NEEDLE_HTTP_PRUNER_URL",
+    "endpoint_required": true,
+    "failure_behavior": "passthrough_original",
+    "privacy_warning": "Remote HTTP endpoints receive unredacted tool output and focus hints.",
+    "request": {
+      "method": "POST",
+      "path": "/v1/prune",
+      "content_type": "application/json",
+      "body": {
+        "text": "string",
+        "context_focus_question": "optional string",
+        "capability": "optional string",
+        "metadata": "optional object"
+      }
+    },
+    "response": {
+      "status_success": [
+        200
+      ],
+      "content_type": "application/json",
+      "body": {
+        "text": "string",
+        "changed": "optional boolean",
+        "reason": "optional string",
+        "accounting": "optional object"
+      }
+    }
+  },
+  "launcher": {
+    "kind": "needle-cli",
+    "command": [
+      "needle",
+      "runtime",
+      "manage"
+    ],
+    "env": {
+      "NEEDLE_BACKEND": "e24z/code-pruner-http"
+    }
+  }
+}

@@ -1,16 +1,23 @@
-# uv-native provisioning. The manager (and the session monitor that spawns it)
-# run via `uv run -m pruner ...`, so uv guarantees this exact environment or
-# fails loudly. The model backend (code_pruner) imports these; the stdlib
-# clients (hook, statusline) never need them.
-#
-# package = false: Hay is run as `-m pruner` from the repo, not installed, so uv
-# provisions the dependencies without trying to build the project itself.
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+# uv-native provisioning. Backend manifests declare which extra launches their
+# runtime. The public `needle` control plane stays lightweight enough to install
+# without MLX.
 [project]
-name = "hay"
+name = "needle"
 version = "0.1.0"
-description = "Local context-pruning for Claude Code (codename Hay)."
+description = "Local context-pruning for agent coding tools."
 requires-python = ">=3.13"
 dependencies = [
+    "click>=8,<9",
+    "mcp>=1.27,<2",
+    "typer>=0.12,<1",
+]
+
+[project.optional-dependencies]
+backend-code-pruner-mlx = [
     "mlx",
     "mlx-lm",
     "numpy",
@@ -18,5 +25,23 @@ dependencies = [
     "transformers",
 ]
 
-[tool.uv]
-package = false
+[project.scripts]
+needle = "needle.cli:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["needle*", "pruner*"]
+
+[tool.setuptools.package-data]
+needle = [
+    "registry_data/**/*.yaml",
+    "registry_data/**/*.json",
+    "registry_data/**/*.md",
+    "hosts/pi/*.js",
+    "hosts/pi/*.mjs",
+    "hosts/pi/*.json",
+    "hosts/pi/*.md",
+    "hosts/mcp/*.md",
+]

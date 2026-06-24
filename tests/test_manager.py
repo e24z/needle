@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-os.environ["HAY_NO_EVENTS"] = "1"  # serve_manager builds a real Manager; don't write ~/.hay log
+os.environ["HAY_NO_EVENTS"] = "1"  # compatibility alias; don't write the real local event log
 
 import socket  # noqa: E402
 import sys  # noqa: E402
@@ -19,8 +19,8 @@ from pathlib import Path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # runnable bare, like its siblings
 
-from pruner.manager import serve_manager  # noqa: E402
-from pruner.protocol import decode, encode  # noqa: E402
+from needle.runtime.manager import serve_manager  # noqa: E402
+from needle.runtime.protocol import decode, encode  # noqa: E402
 
 
 class SpyBackend:
@@ -129,6 +129,23 @@ def main() -> int:
         ).start()
         assert second.wait(2), "second manager did not defer to the first"
         assert _call(tmp, {"op": "stats"})["ok"], "first manager stopped serving"
+
+        assert _call(tmp, {"op": "stop"})["ok"], "manager did not accept stop"
+        assert _wait_until(lambda: not tmp.exists()), "manager socket was not removed"
+
+        ready_on_failed_bind = threading.Event()
+        too_long = tmp.parent / ("x" * 200)
+        try:
+            serve_manager(
+                backend_factory=factory,
+                socket_path=too_long,
+                ready_cb=lambda _p: ready_on_failed_bind.set(),
+            )
+        except RuntimeError as exc:
+            assert "could not bind manager socket" in str(exc)
+        else:
+            raise AssertionError("bind failure should not be treated as a live manager")
+        assert not ready_on_failed_bind.is_set(), "failed bind must not signal ready"
 
         print("test_manager OK")
         return 0

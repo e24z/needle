@@ -1,0 +1,16 @@
+{
+  "schema": "needle.fixture_case.v1",
+  "id": "needle-bash-missing-focus-passthrough",
+  "tool": "needle_bash",
+  "artifact_kind": "process_output",
+  "context_focus_question": null,
+  "input": {
+    "command": "sed -n '1,80p' demo/config_loader.py",
+    "text": "exit_code: 0\nstdout:\nimport json\n\nDEFAULTS = {'timeout': 30, 'retries': 2}\n\ndef load_config(path):\n    raw = json.loads(open(path).read())\n    merged = {**DEFAULTS, **raw}\n    validate_required_keys(merged)\n    return merged\n\ndef validate_required_keys(config):\n    missing = [key for key in ('api_key', 'endpoint') if not config.get(key)]\n    if missing:\n        raise ValueError('missing config keys: ' + ', '.join(missing))\n"
+  },
+  "expected_behavior": "passthrough_original",
+  "assertions": {
+    "returned_equals_original": true
+  }
+}
+

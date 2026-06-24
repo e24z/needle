@@ -1,9 +1,7 @@
-"""Irreducible core of the context-pruning engine (codename: Hay).
+"""Compatibility package for pre-Needle runtime imports.
 
-Nothing in here knows about Claude, plugins, monitors, hooks, or any model.
-It is a machine-wide manager socket protocol that takes (text, query) and
-returns text, plus clients/session leases/status helpers around that protocol.
-The model and each host adapter are bolted on behind their own walls.
+New code should import `needle.runtime.*`. This package stays importable so
+older local installs, tests, and scripts keep working during the 1.0 migration.
 """
 
 __version__ = "0.1.0"  # keep in step with pyproject.toml

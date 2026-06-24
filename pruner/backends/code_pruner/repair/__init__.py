@@ -2,9 +2,9 @@
 
 NOT a str->str post-processor: repair is an alternative *renderer* of the model's
 kept-line mask (it needs the line numbers, not the rendered string), so it lives
-inside the backend and is applied only when `HAY_REPAIR` is set. Off by default —
-the model is meant to stand on its own; this is the eval-toggleable structural
-axis (LAMR-style) for when raw output is too gappy to parse.
+inside the backend. The active package capability controls the default:
+`swe-pruner/reference` keeps it off, while `e24z/soft-lamr` opts in. `HAY_REPAIR`
+or `NEEDLE_REPAIR` can still override that for experiments.
 
 Python only today (`python.py`); other languages would add siblings here.
 """

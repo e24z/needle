@@ -1,0 +1,40 @@
+{
+  "schema": "needle.backend.v1",
+  "id": "e24z/code-pruner-mlx",
+  "display_name": "Code Pruner MLX",
+  "supports": [
+    "swe-pruner/reference",
+    "e24z/soft-lamr"
+  ],
+  "compute": {
+    "default": "local_mlx",
+    "requires": [
+      "apple_silicon",
+      "mlx"
+    ]
+  },
+  "interface": {
+    "accepts": [
+      "text",
+      "focus"
+    ],
+    "returns": [
+      "text",
+      "scores",
+      "accounting"
+    ]
+  },
+  "runtime": "local_manager",
+  "launcher": {
+    "kind": "needle-cli",
+    "command": [
+      "needle",
+      "runtime",
+      "manage"
+    ],
+    "env": {
+      "NEEDLE_BACKEND": "e24z/code-pruner-mlx",
+      "HAY_BACKEND": "code-pruner"
+    }
+  }
+}

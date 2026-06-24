@@ -76,13 +76,13 @@ def prune_code_lines(
     filtered_buffer: list[str] = []
     filtered_count = 0
     filtered_chars = 0
-    placeholder = "[pruned {} lines]"
+    placeholder = "(filtered {} lines)"
 
     def flush_filtered() -> None:
         nonlocal filtered_count, filtered_chars, filtered_buffer
         if filtered_count <= 0:
             return
-        if filtered_chars >= len(placeholder.format(filtered_count)):
+        if filtered_chars > len(placeholder.format(0)):
             pruned_lines.append(placeholder.format(filtered_count))
         else:
             pruned_lines.extend(filtered_buffer)

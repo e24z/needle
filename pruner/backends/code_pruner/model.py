@@ -6,6 +6,8 @@ import mlx.nn as nn
 import numpy as np
 from mlx_lm import load
 
+from ... import naming
+from .config import repair_enabled_for_active_package
 from .lines import aggregate_token_scores_to_lines, prune_code_lines
 
 # The optional C++ Viterbi extension never shipped to Hay; the numpy decoder
@@ -614,11 +616,11 @@ def _looks_like_python(text: str) -> bool:
 
 
 def _real_content_chars(pruned: str) -> int:
-    """Chars of actual kept code, ignoring the [pruned ...] placeholder lines."""
+    """Chars of actual kept code, ignoring filtered placeholder lines."""
     return sum(
         len(line)
         for line in pruned.splitlines()
-        if line.strip() and not line.strip().startswith("[pruned")
+        if line.strip() and not _is_filter_marker(line)
     )
 
 
@@ -654,9 +656,14 @@ def _apply_floor(text: str, pruned: str) -> str:
 
 def _without_filter_markers(text: str) -> str:
     return "\n".join(
-        "pass" if line.strip().startswith("[pruned ") else line
+        "pass" if _is_filter_marker(line) else line
         for line in text.splitlines()
     )
+
+
+def _is_filter_marker(line: str) -> bool:
+    stripped = line.strip()
+    return stripped.startswith("[pruned") or stripped.startswith("(filtered ")
 
 
 # ---------------------------------------------------------------------------
@@ -667,15 +674,28 @@ def _without_filter_markers(text: str) -> str:
 
 
 def _resolve_model_dir() -> str:
-    """Local directory for the code-pruner model. Resolves from the HF cache
-    (no re-download if present); override with HAY_MODEL_DIR or HAY_MODEL."""
-    explicit = os.environ.get("HAY_MODEL_DIR")
+    """Local directory for the code-pruner model.
+
+    NEEDLE_MODEL_DIR points at an exact existing model directory. Otherwise
+    Needle downloads NEEDLE_MODEL from Hugging Face into a Needle-owned
+    directory so uninstall can clean up without spelunking through the shared
+    Hugging Face cache. HAY_* names are still accepted as compatibility
+    fallbacks.
+    """
+    explicit = os.environ.get("NEEDLE_MODEL_DIR") or os.environ.get("HAY_MODEL_DIR")
     if explicit:
         return explicit
     from huggingface_hub import snapshot_download
 
-    repo = os.environ.get("HAY_MODEL", "ayanami-kitasan/code-pruner")
-    return snapshot_download(repo)
+    repo = os.environ.get("NEEDLE_MODEL") or os.environ.get("HAY_MODEL", "ayanami-kitasan/code-pruner")
+    root = naming.model_root()
+    local_dir = naming.model_dir_for_repo(repo)
+    root.mkdir(parents=True, exist_ok=True)
+    return snapshot_download(
+        repo,
+        local_dir=str(local_dir),
+        cache_dir=str(root / ".hf-cache"),
+    )
 
 
 class CodePrunerBackend:
@@ -686,7 +706,7 @@ class CodePrunerBackend:
     name = "code-pruner"
 
     def __init__(self, model_dir: str | None = None) -> None:
-        repair = os.environ.get("HAY_REPAIR", "1").lower() not in {"0", "false", "no"}
+        repair = repair_enabled_for_active_package()
         _set_mlx_limit("set_cache_limit", _env_mb("HAY_MLX_CACHE_LIMIT_MB"))
         _set_mlx_limit("set_wired_limit", _env_mb("HAY_MLX_WIRED_LIMIT_MB"))
         self._clear_cache_after_prune = _env_flag(

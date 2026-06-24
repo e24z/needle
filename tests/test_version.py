@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-os.environ["HAY_NO_EVENTS"] = "1"  # serve_manager builds a real Manager; don't write ~/.hay log
+os.environ["HAY_NO_EVENTS"] = "1"  # compatibility alias; don't write the real local event log
 
 import socket  # noqa: E402
 import sys  # noqa: E402
@@ -20,10 +20,10 @@ from pathlib import Path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pruner import naming  # noqa: E402
-from pruner.backends import FakePruner  # noqa: E402
-from pruner.manager import serve_manager  # noqa: E402
-from pruner.protocol import decode, encode  # noqa: E402
+from needle.runtime import naming  # noqa: E402
+from needle.runtime.backends import FakePruner  # noqa: E402
+from needle.runtime.manager import serve_manager  # noqa: E402
+from needle.runtime.protocol import decode, encode  # noqa: E402
 
 
 def _call(sock_path: Path, req: dict) -> dict:
