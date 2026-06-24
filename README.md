@@ -21,7 +21,13 @@ The intended public Mac install is Homebrew:
 
 ```bash
 brew install e24z/tap/needle
-needle setup pi
+```
+
+Homebrew starts `needle setup` during install when it can run interactively. If
+setup is deferred, resume it with:
+
+```bash
+needle setup
 ```
 
 The tap is not published yet. Until the first tagged release, use the developer
@@ -30,9 +36,7 @@ path from a clone of this repo. This path requires Python 3.13 or newer and
 
 ```bash
 uv tool install --editable .
-needle setup pi
-# or, for Claude Code
-needle setup claude-code
+needle setup
 ```
 
 Needle's Pi setup expects Pi's CLI to be available:
@@ -115,8 +119,10 @@ needle package doctor --host-binding pi/native-tools
 needle package doctor --host-binding mcp/bash
 needle evidence check --host-binding pi/native-tools
 needle evidence check --host-binding mcp/bash
+needle setup --dry-run
 needle setup pi --dry-run
 needle setup claude-code --dry-run
+needle statusline claude-code --plain
 ```
 
 The built-in registry lives in `needle/registry_data`. External registries can

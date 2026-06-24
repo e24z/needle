@@ -10,5 +10,19 @@ Expected public install:
 
 ```bash
 brew install e24z/tap/needle
-needle setup pi
+```
+
+The formula calls `needle setup --from-homebrew` in `post_install`. If Homebrew
+cannot run the interactive wizard, the formula caveats tell the user to resume
+with:
+
+```bash
+needle setup
+```
+
+Before the first release tag, smoke the development branch with the formula's
+HEAD path:
+
+```bash
+brew install --build-from-source --HEAD ./packaging/homebrew/Formula/needle.rb
 ```

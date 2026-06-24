@@ -20,10 +20,12 @@ Needle's user-facing product is an installed CLI/runtime, not a source checkout.
 
 ```bash
 brew install e24z/tap/needle
-needle setup pi
-# or
-needle setup claude-code
 ```
+
+The formula's `post_install` hook calls `needle setup --from-homebrew`. In an
+interactive install this starts the guided setup flow. In a non-interactive
+install it writes a pending setup marker and the formula caveats show how to
+resume with `needle setup`.
 
 The tap is expected to live in a separate repository, for example
 `e24z/homebrew-tap`, with a formula copied from `packaging/homebrew/Formula`.
@@ -32,9 +34,7 @@ The tap is expected to live in a separate repository, for example
 
 ```bash
 uv tool install --editable .
-needle setup pi
-# or
-needle setup claude-code
+needle setup
 ```
 
 This still exposes the user to a source checkout, so it is not the preferred
@@ -47,9 +47,7 @@ Homebrew:
 
 ```bash
 pipx install needle
-needle setup pi
-# or
-needle setup claude-code
+needle setup
 ```
 
 ## Registry
@@ -78,6 +76,8 @@ user benefit.
 7. Run `npm run demo:pi-canary` from the source checkout.
 8. Tag the release.
 9. Update the Homebrew formula URL and SHA256 in the tap.
-10. Install with `brew install e24z/tap/needle`.
+10. Install with `brew install e24z/tap/needle`; confirm the setup hook runs or
+    prints a pending setup path.
 11. Run `needle setup pi`, open Pi, and verify `/needle doctor`.
 12. Run `needle setup claude-code`, open Claude Code, and verify `/mcp`.
+13. Run `needle statusline claude-code --plain`.

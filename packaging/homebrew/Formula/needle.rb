@@ -5,6 +5,7 @@ class Needle < Formula
   homepage "https://github.com/e24z/hay"
   url "https://github.com/e24z/hay/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "REPLACE_WITH_RELEASE_TARBALL_SHA256"
+  head "https://github.com/e24z/hay.git", branch: "pi-native-pruning"
 
   depends_on "python@3.13"
 
@@ -52,8 +53,29 @@ class Needle < Formula
     virtualenv_install_with_resources
   end
 
+  def post_install
+    system bin/"needle", "setup", "--from-homebrew"
+  end
+
+  def caveats
+    <<~EOS
+      Needle setup starts during install when Homebrew can run it interactively.
+
+      If setup was deferred, resume with:
+        needle setup
+
+      Expert host setup commands:
+        needle setup pi
+        needle setup claude-code
+
+      Needle will not change Pi or Claude Code until you confirm a host install.
+    EOS
+  end
+
   test do
     assert_match "Needle package and runtime control plane", shell_output("#{bin}/needle --help")
+    assert_match "dry run: no changes made", shell_output("#{bin}/needle setup --dry-run")
+    assert_match "Homebrew triggered setup", shell_output("NEEDLE_HOME=#{testpath}/needle-home #{bin}/needle setup --from-homebrew")
     assert_match "dry run: no changes made", shell_output("#{bin}/needle setup pi --dry-run")
   end
 end

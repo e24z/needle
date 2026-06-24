@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
+import json
 import os
 import subprocess
 import sys
@@ -38,7 +39,18 @@ def test_typer_help_groups_public_commands() -> None:
     code, out, err = _run(["--help"])
     assert code == 0, err
     assert "Commands" in out
-    for command in ("package", "evidence", "model", "mcp", "runtime", "setup", "status", "stop", "uninstall"):
+    for command in (
+        "package",
+        "evidence",
+        "model",
+        "mcp",
+        "runtime",
+        "setup",
+        "status",
+        "statusline",
+        "stop",
+        "uninstall",
+    ):
         assert command in out
 
 
@@ -258,6 +270,49 @@ def test_setup_pi_dry_run_uses_packaged_adapter() -> None:
     assert "next: run `needle setup pi`" in out
 
 
+def test_setup_root_dry_run_lists_hosts_without_mutating() -> None:
+    code, out, err = _run(["setup", "--dry-run"])
+    assert code == 0, err
+    assert "Needle setup" in out
+    assert "Pi native adapter" in out
+    assert "Claude Code MCP adapter" in out
+    assert "package: e24z/mlx-pi-soft-lamr" in out
+    assert "setup:   needle setup pi" in out
+    assert "setup:   needle setup claude-code" in out
+    assert "Needle will not change Pi or Claude Code" in out
+    assert "dry run: no changes made" in out
+
+
+def test_setup_homebrew_entrypoint_defers_in_noninteractive_shell() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        old_home = os.environ.get("NEEDLE_HOME")
+        os.environ["NEEDLE_HOME"] = str(Path(td) / "needle-home")
+        try:
+            code, out, err = _run(["setup", "--from-homebrew"])
+            assert code == 0, err
+            assert "Homebrew triggered setup" in out
+            assert "pending setup marker:" in out
+            marker = Path(os.environ["NEEDLE_HOME"]) / "setup-pending.json"
+            assert marker.exists()
+            data = json.loads(marker.read_text(encoding="utf-8"))
+            assert data["source"] == "homebrew"
+            assert data["resume"] == "needle setup"
+            assert data["hosts"]["pi"]["setup"] == "needle setup pi"
+            assert data["hosts"]["claude-code"]["setup"] == "needle setup claude-code"
+        finally:
+            if old_home is None:
+                os.environ.pop("NEEDLE_HOME", None)
+            else:
+                os.environ["NEEDLE_HOME"] = old_home
+
+
+def test_setup_root_rejects_unknown_host() -> None:
+    code, out, err = _run(["setup", "--dry-run", "--host", "vibes"])
+    assert code == 1
+    assert out == ""
+    assert "host must be one of" in err
+
+
 def test_setup_claude_code_dry_run_prints_native_mcp_setup() -> None:
     code, out, err = _run(["setup", "claude-code", "--dry-run"])
     assert code == 0, err
@@ -280,6 +335,21 @@ def test_setup_claude_code_rejects_unknown_scope() -> None:
     assert code == 1
     assert out == ""
     assert "scope must be one of" in err
+
+
+def test_claude_code_statusline_plain_reports_runtime_health() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        old_socket = os.environ.get("NEEDLE_MANAGER_SOCKET")
+        os.environ["NEEDLE_MANAGER_SOCKET"] = str(Path(td) / "missing.sock")
+        try:
+            code, out, err = _run(["statusline", "claude-code", "--plain"])
+            assert code == 0, err
+            assert out.strip() == "- needle · down"
+        finally:
+            if old_socket is None:
+                os.environ.pop("NEEDLE_MANAGER_SOCKET", None)
+            else:
+                os.environ["NEEDLE_MANAGER_SOCKET"] = old_socket
 
 
 def test_runtime_status_wrapper_is_available() -> None:
@@ -332,9 +402,13 @@ def main() -> int:
     test_evidence_check_lists_mcp_fixture_cases()
     test_uninstall_dry_run_and_yes_use_needle_owned_paths()
     test_model_dir_command_reports_needle_model_path()
+    test_setup_root_dry_run_lists_hosts_without_mutating()
+    test_setup_homebrew_entrypoint_defers_in_noninteractive_shell()
+    test_setup_root_rejects_unknown_host()
     test_setup_pi_dry_run_uses_packaged_adapter()
     test_setup_claude_code_dry_run_prints_native_mcp_setup()
     test_setup_claude_code_rejects_unknown_scope()
+    test_claude_code_statusline_plain_reports_runtime_health()
     test_runtime_status_wrapper_is_available()
     test_stop_is_idempotent_when_runtime_is_down()
     test_pruner_cli_does_not_own_packages()
