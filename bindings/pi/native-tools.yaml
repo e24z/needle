@@ -1,0 +1,24 @@
+{
+  "schema": "needle.host_binding.v1",
+  "id": "pi/native-tools",
+  "version": "0.1",
+  "host": "pi",
+  "tools": {
+    "read": {
+      "artifact_kind": "file_text",
+      "focus_param": "context_focus_question",
+      "text_extract": "pi_text_blocks",
+      "text_patch": "replace_pi_text_blocks"
+    },
+    "bash": {
+      "artifact_kind": "process_output",
+      "focus_param": "context_focus_question",
+      "text_extract": "pi_text_blocks_or_stdout",
+      "text_patch": "replace_pi_text_blocks_or_stdout"
+    }
+  },
+  "fallbacks": {
+    "missing_focus": "passthrough_original",
+    "unsupported_result_shape": "passthrough_original"
+  }
+}

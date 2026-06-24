@@ -1,0 +1,108 @@
+"""Static Needle package registry and loader.
+
+Run: PYTHONPATH=. python3 tests/test_package_config.py
+"""
+
+from __future__ import annotations
+
+import json
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from pruner.package_config import PackageConfigError, load_active_package  # noqa: E402
+
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_default_package_graph_loads() -> None:
+    loaded = load_active_package(ROOT)
+    assert loaded.package_id == "e24z/pi-local-mac"
+    assert loaded.protocol["id"] == "needle/text-transform"
+    assert loaded.capability_ids == ["swe-pruner/reference"]
+    assert loaded.backend_id == "e24z/code-pruner-mlx"
+    assert loaded.binding_id == "pi/native-tools"
+    assert loaded.claim_card["capability"] == "swe-pruner/reference"
+    assert loaded.package_card_path.exists()
+
+
+def test_reference_capability_has_no_ast_repair() -> None:
+    loaded = load_active_package(ROOT)
+    ref = loaded.capabilities["swe-pruner/reference"]
+    assert ref["claim_scope"]["ast_repair"] == "absent"
+    assert ref["focus"]["field"] == "context_focus_question"
+    assert ref["focus"]["missing"] == "passthrough_original"
+    assert ref["rendering"]["marker_format"] == "(filtered {line_count} lines)"
+
+
+def test_soft_lamr_is_separate_capability() -> None:
+    path = ROOT / "capabilities/e24z/soft-lamr.yaml"
+    soft = json.loads(path.read_text(encoding="utf-8"))
+    assert soft["extends"] == "swe-pruner/reference"
+    assert soft["overrides"]["ast_repair"] == "python"
+
+
+def test_missing_backend_reference_fails_clearly() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        for name in ("protocols", "capabilities", "backends", "bindings", "packages", "claims", "package-cards"):
+            src = ROOT / name
+            if src.exists():
+                shutil.copytree(src, tmp / name)
+
+        package_path = tmp / "packages/e24z/pi-local-mac.yaml"
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+        package["uses"]["backend"] = "e24z/missing-backend"
+        package_path.write_text(json.dumps(package, indent=2), encoding="utf-8")
+
+        try:
+            load_active_package(tmp)
+        except PackageConfigError as exc:
+            msg = str(exc)
+        else:
+            raise AssertionError("expected missing backend to fail")
+
+    assert "missing backend object" in msg
+    assert "e24z/missing-backend" in msg
+
+
+def test_backend_must_support_package_capabilities() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        for name in ("protocols", "capabilities", "backends", "bindings", "packages", "claims", "package-cards"):
+            src = ROOT / name
+            if src.exists():
+                shutil.copytree(src, tmp / name)
+
+        backend_path = tmp / "backends/e24z/code-pruner-mlx.yaml"
+        backend = json.loads(backend_path.read_text(encoding="utf-8"))
+        backend["supports"] = ["e24z/soft-lamr"]
+        backend_path.write_text(json.dumps(backend, indent=2), encoding="utf-8")
+
+        try:
+            load_active_package(tmp)
+        except PackageConfigError as exc:
+            msg = str(exc)
+        else:
+            raise AssertionError("expected unsupported capability to fail")
+
+    assert "does not support package capabilities" in msg
+    assert "swe-pruner/reference" in msg
+
+
+def main() -> int:
+    test_default_package_graph_loads()
+    test_reference_capability_has_no_ast_repair()
+    test_soft_lamr_is_separate_capability()
+    test_missing_backend_reference_fails_clearly()
+    test_backend_must_support_package_capabilities()
+    print("test_package_config OK")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

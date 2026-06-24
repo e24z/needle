@@ -1,0 +1,28 @@
+{
+  "schema": "needle.capability.v1",
+  "id": "e24z/soft-lamr",
+  "version": "0.1",
+  "extends": "swe-pruner/reference",
+  "description": "Needle's SWE-Pruner variant with Python AST repair after selection.",
+  "overrides": {
+    "ast_repair": "python"
+  },
+  "implementation": {
+    "behavior_recipe": {
+      "steps": [
+        {
+          "id": "score",
+          "kind": "swe_pruner_line_scorer"
+        },
+        {
+          "id": "expand",
+          "kind": "python_ast_mask_expander"
+        },
+        {
+          "id": "render",
+          "kind": "upstream_filtered_line_renderer"
+        }
+      ]
+    }
+  }
+}

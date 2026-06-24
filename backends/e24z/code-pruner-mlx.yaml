@@ -1,0 +1,27 @@
+{
+  "schema": "needle.backend.v1",
+  "id": "e24z/code-pruner-mlx",
+  "display_name": "Code Pruner MLX",
+  "supports": [
+    "swe-pruner/reference"
+  ],
+  "compute": {
+    "default": "local_mlx",
+    "requires": [
+      "apple_silicon",
+      "mlx"
+    ]
+  },
+  "interface": {
+    "accepts": [
+      "text",
+      "focus"
+    ],
+    "returns": [
+      "text",
+      "scores",
+      "accounting"
+    ]
+  },
+  "runtime": "local_manager"
+}

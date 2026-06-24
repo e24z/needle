@@ -1,0 +1,22 @@
+{
+  "schema": "needle.protocol.v1",
+  "id": "needle/text-transform",
+  "input": {
+    "text": "string",
+    "intent": "optional string"
+  },
+  "output": {
+    "text": "string"
+  },
+  "failure": {
+    "default": "passthrough_original"
+  },
+  "accounting": {
+    "minimum": [
+      "original_chars",
+      "returned_chars",
+      "changed",
+      "reason"
+    ]
+  }
+}
