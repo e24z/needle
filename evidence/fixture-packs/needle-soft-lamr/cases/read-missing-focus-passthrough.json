@@ -1,0 +1,15 @@
+{
+  "schema": "needle.fixture_case.v1",
+  "id": "read-missing-focus-passthrough",
+  "tool": "read",
+  "artifact_kind": "file_text",
+  "context_focus_question": null,
+  "input": {
+    "path": "demo/no_focus_soft_lamr.py",
+    "text": "class Thing:\n    def alpha(self):\n        return 1\n\n    def beta(self):\n        return 2\n"
+  },
+  "expected_behavior": "passthrough_original",
+  "assertions": {
+    "returned_equals_original": true
+  }
+}

@@ -48,6 +48,11 @@ without relying on chat memory.
     Claude-only tests under `archive/claude/`.
   - Removed Claude from active uninstall guidance.
   - Preserved the statusline/session lessons in an archive README.
+- `feat(needle): add package evidence fixtures`
+  - Added checked fixture packs for reference and Soft-LaMR Pi packages.
+  - Validated fixture-pack manifests, case files, and read/bash/missing-focus
+    coverage during package loading.
+  - Surfaced evidence refs in `needle package doctor`.
 
 ## Now
 
@@ -59,11 +64,14 @@ public tester docs or benchmark claims.
 
 Acceptance:
 
-- A checked fixture exercises one visible read prune.
-- A checked fixture exercises one bash/process-output prune.
+- A checked fixture exercises one visible read prune. (Landed.)
+- A checked fixture exercises one bash/process-output prune. (Landed.)
 - A checked fixture exercises missing `context_focus_question` pass-through.
+  (Landed.)
 - Claim-card evidence refs resolve to local files instead of placeholders.
+  (Landed.)
 - `needle package doctor` or a dedicated validator reports evidence status.
+  (Landed.)
 
 ### 2. Convert Work Queue Into GitHub Issues
 

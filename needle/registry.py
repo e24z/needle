@@ -59,6 +59,7 @@ class LoadedPackage:
     binding: dict[str, Any]
     claim_card: dict[str, Any]
     package_card_path: Path
+    evidence_paths: dict[str, Path]
 
     @property
     def package_id(self) -> str:
@@ -75,6 +76,10 @@ class LoadedPackage:
     @property
     def binding_id(self) -> str:
         return str(self.binding["id"])
+
+    @property
+    def evidence_refs(self) -> list[str]:
+        return list(self.evidence_paths)
 
 
 @dataclass(frozen=True)
@@ -353,6 +358,8 @@ def _validate_package_graph(root: Path, package: dict[str, Any]) -> LoadedPackag
     if not card_path.exists():
         raise PackageConfigError(f"missing package card {card_id!r} at {card_path}")
 
+    evidence_paths = _validate_package_evidence(root, package, implemented_ids)
+
     claim_card = _load_object(root, "claim", _claim_object_id(package))
     _validate_claim_card(claim_card)
     if claim_card.get("package") != package["id"]:
@@ -375,6 +382,7 @@ def _validate_package_graph(root: Path, package: dict[str, Any]) -> LoadedPackag
         binding=binding,
         claim_card=claim_card,
         package_card_path=card_path,
+        evidence_paths=evidence_paths,
     )
 
 
@@ -535,6 +543,132 @@ def _validate_evidence_ref(package_id: str, ref: str) -> None:
         f"package {package_id!r} evidence reference {ref!r} must start with "
         f"{', '.join(_KNOWN_EVIDENCE_PREFIXES)} or 'evidence/'"
     )
+
+
+def evidence_ref_path(root: Path, ref: str) -> Path:
+    """Resolve a package evidence reference to the checked local artifact."""
+    if ref.startswith("fixture_pack:"):
+        pack_id = ref.split(":", 1)[1]
+        _validate_id(pack_id)
+        return root / "evidence" / "fixture-packs" / pack_id / "manifest.json"
+    if ref.startswith("evidence/"):
+        _validate_id(ref)
+        return root / ref
+    raise PackageConfigError(f"unknown evidence reference {ref!r}")
+
+
+def _validate_package_evidence(
+    root: Path,
+    package: dict[str, Any],
+    implemented_ids: list[str],
+) -> dict[str, Path]:
+    package_id = str(package["id"])
+    paths: dict[str, Path] = {}
+    seen: set[str] = set()
+    for ref in _string_list(package, "evidence"):
+        if ref in seen:
+            raise PackageConfigError(f"package {package_id!r} evidence reference {ref!r} is duplicated")
+        seen.add(ref)
+        path = evidence_ref_path(root, ref)
+        if not path.exists():
+            raise PackageConfigError(f"missing evidence reference {ref!r} at {path}")
+        if ref.startswith("fixture_pack:"):
+            _validate_fixture_pack(path, package_id, implemented_ids)
+        paths[ref] = path
+    return paths
+
+
+def _validate_fixture_pack(path: Path, package_id: str, implemented_ids: list[str]) -> None:
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            pack = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise PackageConfigError(f"invalid fixture pack manifest at {path}: {exc.msg}") from exc
+    if not isinstance(pack, dict):
+        raise PackageConfigError(f"fixture pack manifest at {path} must be a mapping")
+    if pack.get("schema") != "needle.fixture_pack.v1":
+        raise PackageConfigError(f"fixture pack {path} must use schema 'needle.fixture_pack.v1'")
+    pack_id = _required_string(pack, "id")
+    if path.parent.name != pack_id:
+        raise PackageConfigError(f"fixture pack {pack_id!r} path must end with its id")
+    if pack.get("package") != package_id:
+        raise PackageConfigError(
+            f"fixture pack {pack_id!r} points to package {pack.get('package')!r}, "
+            f"expected {package_id!r}"
+        )
+    capability = _required_string(pack, "capability")
+    if capability not in implemented_ids:
+        raise PackageConfigError(
+            f"fixture pack {pack_id!r} capability {capability!r} is not implemented by package {package_id!r}"
+        )
+    if pack.get("host_binding") != "pi/native-tools":
+        raise PackageConfigError(f"fixture pack {pack_id!r} host_binding must be 'pi/native-tools'")
+
+    cases = pack.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise PackageConfigError(f"fixture pack {pack_id!r} cases must be a non-empty list")
+    coverage: set[tuple[str, str]] = set()
+    seen: set[str] = set()
+    for case_ref in cases:
+        if not isinstance(case_ref, dict):
+            raise PackageConfigError(f"fixture pack {pack_id!r} case refs must be mappings")
+        case_id = _required_string(case_ref, "id")
+        if case_id in seen:
+            raise PackageConfigError(f"fixture pack {pack_id!r} case {case_id!r} is duplicated")
+        seen.add(case_id)
+        case_file = _required_string(case_ref, "file")
+        _validate_id(case_file)
+        case_path = path.parent / case_file
+        if not case_path.exists():
+            raise PackageConfigError(f"fixture pack {pack_id!r} missing case {case_id!r} at {case_path}")
+        tool = _required_string(case_ref, "tool")
+        behavior = _required_string(case_ref, "expected_behavior")
+        coverage.add((tool, behavior))
+        _validate_fixture_case(case_path, case_id, tool, behavior)
+
+    required = {
+        ("read", "visible_prune"),
+        ("bash", "visible_prune"),
+        ("read", "passthrough_original"),
+    }
+    missing = sorted(f"{tool}:{behavior}" for tool, behavior in required - coverage)
+    if missing:
+        raise PackageConfigError(f"fixture pack {pack_id!r} missing required cases: {', '.join(missing)}")
+
+
+def _validate_fixture_case(path: Path, case_id: str, tool: str, behavior: str) -> None:
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            case = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise PackageConfigError(f"invalid fixture case at {path}: {exc.msg}") from exc
+    if not isinstance(case, dict):
+        raise PackageConfigError(f"fixture case at {path} must be a mapping")
+    if case.get("schema") != "needle.fixture_case.v1":
+        raise PackageConfigError(f"fixture case {case_id!r} must use schema 'needle.fixture_case.v1'")
+    if case.get("id") != case_id:
+        raise PackageConfigError(f"fixture case at {path} has id {case.get('id')!r}, expected {case_id!r}")
+    if case.get("tool") != tool:
+        raise PackageConfigError(f"fixture case {case_id!r} tool mismatch")
+    if case.get("expected_behavior") != behavior:
+        raise PackageConfigError(f"fixture case {case_id!r} expected_behavior mismatch")
+    _required_string(case, "artifact_kind")
+    input_obj = _required_mapping(case, "input")
+    _required_string(input_obj, "text")
+    assertions = _required_mapping(case, "assertions")
+    if behavior == "visible_prune":
+        _required_string(case, "context_focus_question")
+        if not isinstance(assertions.get("chars_removed_gt"), int):
+            raise PackageConfigError(f"fixture case {case_id!r} assertions.chars_removed_gt must be an integer")
+    elif behavior == "passthrough_original":
+        if case.get("context_focus_question") is not None:
+            raise PackageConfigError(f"fixture case {case_id!r} passthrough case must omit focus")
+        if assertions.get("returned_equals_original") is not True:
+            raise PackageConfigError(
+                f"fixture case {case_id!r} assertions.returned_equals_original must be true"
+            )
+    else:
+        raise PackageConfigError(f"fixture case {case_id!r} has unknown behavior {behavior!r}")
 
 
 def _validate_claim_card(claim: dict[str, Any]) -> None:

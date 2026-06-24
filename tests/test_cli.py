@@ -73,6 +73,8 @@ def test_package_cli_lists_and_selects_packages() -> None:
             assert "uses backend: e24z/code-pruner-mlx" in out
             assert "runtime extra: backend-code-pruner-mlx" in out
             assert "runtime command: uv run --extra backend-code-pruner-mlx -m needle.runtime manage" in out
+            assert "evidence: fixture_pack:needle-soft-lamr" in out
+            assert "evidence/fixture-packs/needle-soft-lamr/manifest.json" in out
         finally:
             if old_config is None:
                 os.environ.pop("HAY_CONFIG", None)

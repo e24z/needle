@@ -29,7 +29,16 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def _copy_registry(tmp: Path) -> None:
-    for name in ("protocols", "capabilities", "backends", "bindings", "packages", "claims", "package-cards"):
+    for name in (
+        "protocols",
+        "capabilities",
+        "backends",
+        "bindings",
+        "packages",
+        "claims",
+        "package-cards",
+        "evidence",
+    ):
         src = ROOT / name
         if src.exists():
             shutil.copytree(src, tmp / name)
@@ -44,6 +53,8 @@ def test_default_package_graph_loads() -> None:
     assert loaded.binding_id == "pi/native-tools"
     assert loaded.claim_card["capability"] == "swe-pruner/reference"
     assert loaded.package_card_path.exists()
+    assert loaded.evidence_refs == ["fixture_pack:swe-pruner-reference"]
+    assert loaded.evidence_paths["fixture_pack:swe-pruner-reference"].exists()
 
 
 def test_default_package_resolves_runtime_launch_plan() -> None:
@@ -93,6 +104,8 @@ def test_soft_lamr_package_resolves_parent_protocol() -> None:
     assert loaded.binding_id == "pi/native-tools"
     assert loaded.claim_card["capability"] == "e24z/soft-lamr"
     assert loaded.package_card_path.exists()
+    assert loaded.evidence_refs == ["fixture_pack:needle-soft-lamr"]
+    assert loaded.evidence_paths["fixture_pack:needle-soft-lamr"].exists()
 
 
 def test_missing_backend_reference_fails_clearly() -> None:
@@ -318,6 +331,43 @@ def test_package_rejects_unknown_evidence_reference() -> None:
     assert "evidence reference 'somewhere:squishy'" in msg
 
 
+def test_package_rejects_missing_evidence_reference() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        _copy_registry(tmp)
+        evidence_path = tmp / "evidence/fixture-packs/swe-pruner-reference/manifest.json"
+        evidence_path.unlink()
+
+        try:
+            load_active_package(tmp)
+        except PackageConfigError as exc:
+            msg = str(exc)
+        else:
+            raise AssertionError("expected missing evidence manifest to fail")
+
+    assert "missing evidence reference 'fixture_pack:swe-pruner-reference'" in msg
+
+
+def test_fixture_pack_must_cover_required_pi_cases() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        _copy_registry(tmp)
+        manifest_path = tmp / "evidence/fixture-packs/swe-pruner-reference/manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["cases"] = [case for case in manifest["cases"] if case["tool"] != "bash"]
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+        try:
+            load_active_package(tmp)
+        except PackageConfigError as exc:
+            msg = str(exc)
+        else:
+            raise AssertionError("expected incomplete fixture pack to fail")
+
+    assert "missing required cases" in msg
+    assert "bash:visible_prune" in msg
+
+
 def test_claim_card_tested_capability_must_match_claim() -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
@@ -371,6 +421,8 @@ def main() -> int:
     test_package_requires_focus_contract()
     test_binding_tool_mapping_must_use_known_artifact_kind()
     test_package_rejects_unknown_evidence_reference()
+    test_package_rejects_missing_evidence_reference()
+    test_fixture_pack_must_cover_required_pi_cases()
     test_claim_card_tested_capability_must_match_claim()
     test_backend_requires_text_interface()
     print("test_package_config OK")

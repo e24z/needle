@@ -15,6 +15,7 @@ definitions.
 - Privacy default: local-only
 - Status metric: exact characters trimmed
 - Repair: Python AST mask expansion
+- Evidence: `fixture_pack:needle-soft-lamr`
 
 Use this package when syntactic readability matters more than strict
 SWE-Pruner paper-reference behavior. If `context_focus_question` is missing, the

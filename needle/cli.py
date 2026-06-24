@@ -107,6 +107,8 @@ def _package_doctor(args: argparse.Namespace) -> int:
         f"claim card: {loaded.claim_card['id']}",
         f"package card: {loaded.package_card_path}",
     ]
+    for ref, path in loaded.evidence_paths.items():
+        lines.append(f"evidence: {ref} -> {path}")
     print("\n".join(lines))
     return 0
 

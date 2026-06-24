@@ -1,0 +1,28 @@
+{
+  "schema": "needle.fixture_pack.v1",
+  "id": "swe-pruner-reference",
+  "package": "e24z/pi-local-mac",
+  "capability": "swe-pruner/reference",
+  "host_binding": "pi/native-tools",
+  "description": "Minimal Pi evidence pack for the paper-reference package: read prune, bash prune, and missing-focus pass-through.",
+  "cases": [
+    {
+      "id": "read-visible-prune",
+      "file": "cases/read-visible-prune.json",
+      "tool": "read",
+      "expected_behavior": "visible_prune"
+    },
+    {
+      "id": "bash-visible-prune",
+      "file": "cases/bash-visible-prune.json",
+      "tool": "bash",
+      "expected_behavior": "visible_prune"
+    },
+    {
+      "id": "read-missing-focus-passthrough",
+      "file": "cases/read-missing-focus-passthrough.json",
+      "tool": "read",
+      "expected_behavior": "passthrough_original"
+    }
+  ]
+}
