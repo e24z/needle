@@ -2,9 +2,9 @@
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
-# uv-native provisioning. Host adapters launch the model runtime with
-# `uv run --extra mlx -m pruner ...`, while the public `needle` control plane
-# stays lightweight enough to install without MLX.
+# uv-native provisioning. Backend manifests declare which extra launches their
+# runtime. The public `needle` control plane stays lightweight enough to install
+# without MLX.
 [project]
 name = "needle"
 version = "0.1.0"
@@ -13,7 +13,7 @@ requires-python = ">=3.13"
 dependencies = []
 
 [project.optional-dependencies]
-mlx = [
+backend-code-pruner-mlx = [
     "mlx",
     "mlx-lm",
     "numpy",

@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pruner.backends import FakePruner, _degraded, get_backend  # noqa: E402
+from pruner.backends import FakePruner, _degraded, get_backend, is_code_pruner_backend_name  # noqa: E402
 from pruner.backends.code_pruner.config import (  # noqa: E402
     repair_enabled_for_active_package,
     repair_enabled_for_capabilities,
@@ -31,6 +31,12 @@ def test_routing() -> None:
     assert get_backend("fake").prune(text="abcd", query="") == "abcd"
     # halve is the debug shrinker: visibly shorter, proves the replacement path
     assert len(get_backend("halve").prune(text="abcdefgh", query="")) < 8
+
+
+def test_canonical_backend_id_is_code_pruner() -> None:
+    assert is_code_pruner_backend_name("e24z/code-pruner-mlx")
+    assert is_code_pruner_backend_name("code-pruner")
+    assert not is_code_pruner_backend_name("fake")
 
 
 def test_degraded_is_loud() -> None:
@@ -157,6 +163,7 @@ def test_plain_renderer_keeps_tiny_gaps_when_marker_is_longer() -> None:
 
 def main() -> int:
     test_routing()
+    test_canonical_backend_id_is_code_pruner()
     test_degraded_is_loud()
     test_reference_capability_leaves_repair_off()
     test_soft_lamr_capability_opts_into_repair()

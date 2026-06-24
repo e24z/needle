@@ -54,12 +54,13 @@ Needle has crossed from "idea" into a real Pi slice:
 
 But the repo has not yet fully become the Needle 1.0 architecture:
 
-- Backend metadata exists, but launch/dependency selection still hardcodes
-  `uv run --extra mlx -m pruner manage`.
+- The first backend-launch slice can make Pi consume backend launcher metadata,
+  but the runtime module is still the old `pruner` entrypoint until the runtime
+  re-home happens.
 - `pruner` still owns runtime naming, backend selection, events, manager,
   socket protocol, and compatibility imports.
-- The MLX dependency is outside base deps, but it is not yet tied to the
-  backend object as a first-class dependency contract.
+- Backend dependency ownership exists for the MLX backend, but only as the first
+  backend manifest; HTTP/CUDA backends are still conceptual.
 - Registry validation proves basic references, but not every required package
   field, evidence reference, accounting mode, runtime, backend interface, or
   package-local step.
@@ -82,10 +83,10 @@ or more ontology prose.
 | Exact chars | Pi counters and tester handoff use chars | Mostly landed | Token estimation/cost methods are not designed or exposed in detailed status yet. |
 | Package registry | `protocols/`, `capabilities/`, `backends/`, `bindings/`, `packages/`, `claims/`, `package-cards/` | Landed as static graph | The graph is metadata more than execution spine. |
 | Registry validation | `needle/registry.py`, `tests/test_package_config.py` | Partial | Validator is shallow compared with PRD gate: evidence, accounting, runtime, interface, package-local steps, and backend dependency metadata are not fully checked. |
-| Backend dependency ownership | `[project.optional-dependencies].mlx` | Partial | MLX is optional, but still generic. It should belong to `e24z/code-pruner-mlx` as backend metadata, not to the app conceptually. |
-| Backend launch | `adapters/pi/client.mjs` hardcodes `uv run --extra mlx -m pruner manage` | Not conformant | Package/backend graph should resolve runtime module and dependency extra. |
+| Backend dependency ownership | `backends/e24z/code-pruner-mlx.yaml` declares `backend-code-pruner-mlx` | First slice landed | Need carry the same pattern to HTTP/CUDA backends and docs. |
+| Backend launch | Pi can resolve a runtime launch plan from active package/backend metadata | First slice landed | Still launches the legacy `pruner` module until runtime re-home. |
 | Runtime naming | `pruner/naming.py` still defaults to `hay`; `needle` imports `pruner` | Transitional | Need decide when to re-home runtime under `needle.runtime` and migrate `~/.hay` to `~/.needle`. |
-| Backend selection | `HAY_BACKEND=code-pruner` path still exists | Transitional | Backend id should be `e24z/code-pruner-mlx`; legacy names can be aliases, not primary identity. |
+| Backend selection | `NEEDLE_BACKEND=e24z/code-pruner-mlx` is recognized; `HAY_BACKEND=code-pruner` remains an alias | Transitional | Legacy names should become compatibility shims, not primary docs. |
 | Reference vs Soft-LaMR | Capability files and repair config tests exist | Mostly landed | Need ensure active package controls repair in every runtime path and CLI doctor reports it plainly. |
 | HTTP/CUDA backend | PRD describes target | Missing | Need at least a documented backend contract, and maybe a minimal HTTP backend stub if "point Needle at HTTP" remains 1.0. |
 | Evidence/claims | Claim cards exist | Partial | Evidence pack refs are symbolic; no checked fixture pack proves claim-card behavior. |
@@ -112,10 +113,11 @@ claim surface.
 ### A. Backend-manifest driven runtime launch
 
 Priority: P0
+Status: first slice landed; keep this issue open only for follow-up polish.
 
 Problem:
-The Pi adapter launches `uv run --extra mlx -m pruner manage` directly. This
-bypasses the package/backend graph.
+The Pi adapter previously launched `uv run --extra mlx -m pruner manage`
+directly. That bypassed the package/backend graph.
 
 Target:
 
@@ -154,10 +156,10 @@ This can be staged. Do not mix it with large behavioral changes.
 ### C. Backend dependency contract
 
 Priority: P0
+Status: first slice landed for `e24z/code-pruner-mlx`.
 
 Problem:
-`[project.optional-dependencies].mlx` is better than base MLX deps, but not a
-backend-level contract.
+The MLX dependency must belong to the backend identity, not the CLI/app.
 
 Target:
 

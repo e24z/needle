@@ -73,6 +73,26 @@ class LoadedPackage:
         return str(self.binding["id"])
 
 
+@dataclass(frozen=True)
+class RuntimeLaunchPlan:
+    package_id: str
+    backend_id: str
+    kind: str
+    extra: str
+    module: str
+    args: list[str]
+    env: dict[str, str]
+
+    @property
+    def command(self) -> list[str]:
+        command = ["uv", "run"]
+        if self.extra:
+            command.extend(["--extra", self.extra])
+        command.extend(["-m", self.module])
+        command.extend(self.args)
+        return command
+
+
 def load_active_package(
     root: Path | None = None,
     package_id: str | None = None,
@@ -90,6 +110,26 @@ def load_active_package(
             f"not requested host binding {host_binding!r}"
         )
     return loaded
+
+
+def runtime_launch_plan(
+    root: Path | None = None,
+    package_id: str | None = None,
+    *,
+    host_binding: str | None = None,
+) -> RuntimeLaunchPlan:
+    """Resolve the active package into a concrete local runtime launch plan."""
+    loaded = load_active_package(root, package_id, host_binding=host_binding)
+    launcher = _validate_backend_launcher(loaded.backend)
+    return RuntimeLaunchPlan(
+        package_id=loaded.package_id,
+        backend_id=loaded.backend_id,
+        kind=launcher["kind"],
+        extra=launcher["extra"],
+        module=launcher["module"],
+        args=launcher["args"],
+        env=launcher["env"],
+    )
 
 
 def package_summaries(
@@ -288,6 +328,7 @@ def _validate_package_graph(root: Path, package: dict[str, Any]) -> LoadedPackag
 
     backend_id = _nested_string(package, ("uses", "backend"))
     backend = _load_object(root, "backend", backend_id)
+    _validate_backend_launcher(backend)
     supported = set(_string_list(backend, "supports"))
     missing_support = sorted(set(implemented_ids) - supported)
     if missing_support:
@@ -324,6 +365,42 @@ def _validate_package_graph(root: Path, package: dict[str, Any]) -> LoadedPackag
         claim_card=claim_card,
         package_card_path=card_path,
     )
+
+
+def _validate_backend_launcher(backend: dict[str, Any]) -> dict[str, Any]:
+    backend_id = str(backend.get("id", "<backend>"))
+    launcher = backend.get("launcher")
+    if not isinstance(launcher, dict):
+        raise PackageConfigError(f"backend {backend_id!r} requires mapping field 'launcher'")
+
+    kind = launcher.get("kind")
+    if kind != "uv-python-module":
+        raise PackageConfigError(
+            f"backend {backend_id!r} launcher.kind must be 'uv-python-module'"
+        )
+    extra = launcher.get("extra")
+    if not isinstance(extra, str) or not extra:
+        raise PackageConfigError(f"backend {backend_id!r} launcher.extra must be a non-empty string")
+    module = launcher.get("module")
+    if not isinstance(module, str) or not module:
+        raise PackageConfigError(f"backend {backend_id!r} launcher.module must be a non-empty string")
+    args = launcher.get("args", [])
+    if not isinstance(args, list) or not all(isinstance(arg, str) and arg for arg in args):
+        raise PackageConfigError(f"backend {backend_id!r} launcher.args must be a string list")
+    env = launcher.get("env", {})
+    if not isinstance(env, dict) or not all(
+        isinstance(key, str) and key and isinstance(value, str)
+        for key, value in env.items()
+    ):
+        raise PackageConfigError(f"backend {backend_id!r} launcher.env must map strings to strings")
+
+    return {
+        "kind": kind,
+        "extra": extra,
+        "module": module,
+        "args": list(args),
+        "env": dict(env),
+    }
 
 
 def _capability_protocol(root: Path, capability: dict[str, Any]) -> str:

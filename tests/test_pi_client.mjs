@@ -8,10 +8,13 @@ import test from "node:test";
 
 import {
 	activePackageId,
+	backendIdentity,
 	codeVersion,
+	ensureManager,
 	packageIdentity,
 	packageInventory,
 	prune,
+	runtimeLaunchPlan,
 	socketIsLive,
 	sourceIdentity,
 	tailEvents,
@@ -265,6 +268,11 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 					id: "e24z/pi-local-mac",
 					capabilities: ["swe-pruner/reference"],
 					backend: "e24z/code-pruner-mlx",
+					backendLauncher: {
+						extra: "backend-code-pruner-mlx",
+						module: "pruner",
+						args: ["manage"],
+					},
 					hostBinding: "pi/native-tools",
 					packageCard: "package-cards/e24z/pi-local-mac",
 					claimCard: "claims/pi-local-mac-swe-pruner-reference",
@@ -285,6 +293,7 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 	assert.match(rendered, /active package e24z\/pi-local-mac/);
 	assert.match(rendered, /capability swe-pruner\/reference/);
 	assert.match(rendered, /backend e24z\/code-pruner-mlx/);
+	assert.match(rendered, /backend launch extra backend-code-pruner-mlx \| module pruner manage/);
 	assert.match(rendered, /host binding pi\/native-tools/);
 	assert.match(rendered, /compute local_mlx \| privacy local_only/);
 	assert.match(rendered, /prompt bundle pi\/context-focus-question@0\.1/);
@@ -316,6 +325,10 @@ test("Pi source identity reads package, pyproject, git state, and active Needle 
 		assert.equal(identity.activePackage.id, "e24z/pi-local-mac");
 		assert.deepEqual(identity.activePackage.capabilities, ["swe-pruner/reference"]);
 		assert.equal(identity.activePackage.backend, "e24z/code-pruner-mlx");
+		assert.equal(identity.activePackage.backendRuntime, "local_manager");
+		assert.equal(identity.activePackage.backendLauncher.extra, "backend-code-pruner-mlx");
+		assert.equal(identity.activePackage.backendLauncher.module, "pruner");
+		assert.deepEqual(identity.activePackage.backendLauncher.args, ["manage"]);
 		assert.equal(identity.activePackage.hostBinding, "pi/native-tools");
 		assert.equal(identity.activePackage.claimCard, "claims/pi-local-mac-swe-pruner-reference");
 		assert.equal(typeof identity.git.available, "boolean");
@@ -340,6 +353,42 @@ test("Pi source identity reads package, pyproject, git state, and active Needle 
 	const missing = await packageIdentity(process.cwd(), "e24z/does-not-exist");
 	assert.equal(missing.available, false);
 	assert.equal(missing.id, "e24z/does-not-exist");
+});
+
+test("Pi resolves backend launch plan from the active package graph", async () => {
+	const backend = await backendIdentity(process.cwd(), "e24z/code-pruner-mlx");
+	assert.equal(backend.available, true);
+	assert.equal(backend.launcher.extra, "backend-code-pruner-mlx");
+	assert.equal(backend.launcher.module, "pruner");
+	assert.deepEqual(backend.launcher.args, ["manage"]);
+
+	const plan = await runtimeLaunchPlan(process.cwd(), { hostBinding: "pi/native-tools" });
+	assert.equal(plan.packageId, "e24z/pi-local-mac");
+	assert.equal(plan.backendId, "e24z/code-pruner-mlx");
+	assert.deepEqual(plan.command, ["uv", "run", "--extra", "backend-code-pruner-mlx", "-m", "pruner", "manage"]);
+	assert.equal(plan.env.NEEDLE_BACKEND, "e24z/code-pruner-mlx");
+	assert.equal(plan.env.HAY_BACKEND, "code-pruner");
+});
+
+test("Pi ensureManager spawns from backend launch metadata", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "hay-pi-launch-"));
+	const socketPath = join(dir, "manager.sock");
+	const spawned = [];
+	const ok = await ensureManager({
+		repoRoot: process.cwd(),
+		socketPath,
+		timeoutMs: 0,
+		spawn(command, args, options) {
+			spawned.push({ command, args, options });
+			return { unref() {} };
+		},
+	});
+	assert.equal(ok, false);
+	assert.equal(spawned.length, 1);
+	assert.equal(spawned[0].command, "uv");
+	assert.deepEqual(spawned[0].args, ["run", "--extra", "backend-code-pruner-mlx", "-m", "pruner", "manage"]);
+	assert.equal(spawned[0].options.env.NEEDLE_BACKEND, "e24z/code-pruner-mlx");
+	assert.equal(spawned[0].options.env.HAY_BACKEND, "code-pruner");
 });
 
 test("Pi package identity can load from an external registry root", async () => {

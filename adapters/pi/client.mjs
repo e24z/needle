@@ -169,13 +169,19 @@ export async function packageIdentity(
 				hostBinding,
 			};
 		}
+		const backendId = typeof pkg.uses?.backend === "string" ? pkg.uses.backend : null;
+		const backend = backendId ? await backendIdentity(repoRoot, backendId) : null;
 		return {
 			available: true,
 			id: pkg.id || packageId,
 			capabilities: Array.isArray(pkg.implements)
 				? pkg.implements.filter((item) => typeof item === "string")
 				: [],
-			backend: typeof pkg.uses?.backend === "string" ? pkg.uses.backend : null,
+			backend: backendId,
+			backendRuntime: backend?.runtime || null,
+			backendLauncher: backend?.launcher || null,
+			backendAvailable: backend ? backend.available : false,
+			backendReason: backend && !backend.available ? backend.reason : null,
 			hostBinding,
 			packageCard: typeof pkg.package_card === "string" ? pkg.package_card : null,
 			claimCard: typeof pkg.claim_card === "string" ? pkg.claim_card : null,
@@ -190,6 +196,43 @@ export async function packageIdentity(
 			reason: err?.message || "package manifest unavailable",
 		};
 	}
+}
+
+export async function backendIdentity(repoRoot, backendId) {
+	try {
+		const backend = await loadBackendManifest(repoRoot, backendId);
+		return {
+			available: true,
+			id: backend.id || backendId,
+			runtime: typeof backend.runtime === "string" ? backend.runtime : null,
+			supports: Array.isArray(backend.supports)
+				? backend.supports.filter((item) => typeof item === "string")
+				: [],
+			launcher: normalizeLauncher(backend, backendId),
+		};
+	} catch (err) {
+		return {
+			available: false,
+			id: backendId,
+			reason: err?.message || "backend manifest unavailable",
+		};
+	}
+}
+
+export async function runtimeLaunchPlan(repoRoot, options = {}) {
+	const packageId = options.packageId || (await activePackageId({ hostBinding: options.hostBinding }));
+	const pkg = await packageIdentity(repoRoot, packageId, { hostBinding: options.hostBinding });
+	if (!pkg.available) throw new Error(`package ${packageId} unavailable: ${pkg.reason || "unknown reason"}`);
+	if (!pkg.backend) throw new Error(`package ${pkg.id} does not declare uses.backend`);
+	const backend = await loadBackendManifest(repoRoot, pkg.backend);
+	const launcher = normalizeLauncher(backend, pkg.backend);
+	return {
+		packageId: pkg.id,
+		backendId: pkg.backend,
+		launcher,
+		command: launcherCommand(launcher),
+		env: { ...launcher.env },
+	};
 }
 
 export async function packageInventory(repoRoot, options = {}) {
@@ -232,6 +275,52 @@ async function readRegistryJson(repoRoot, dir, objectId) {
 	const path = registryPath(repoRoot, dir, objectId);
 	const text = await readFile(path, "utf8");
 	return JSON.parse(text);
+}
+
+async function loadBackendManifest(repoRoot, backendId) {
+	return readRegistryJson(registryRoot(repoRoot), "backends", backendId);
+}
+
+function normalizeLauncher(backend, backendId = backend?.id || "<backend>") {
+	const launcher = backend?.launcher;
+	if (!launcher || typeof launcher !== "object" || Array.isArray(launcher)) {
+		throw new Error(`backend ${backendId} requires launcher metadata`);
+	}
+	if (launcher.kind !== "uv-python-module") {
+		throw new Error(`backend ${backendId} launcher.kind must be uv-python-module`);
+	}
+	if (typeof launcher.extra !== "string" || !launcher.extra) {
+		throw new Error(`backend ${backendId} launcher.extra must be a non-empty string`);
+	}
+	if (typeof launcher.module !== "string" || !launcher.module) {
+		throw new Error(`backend ${backendId} launcher.module must be a non-empty string`);
+	}
+	const args = Array.isArray(launcher.args) ? launcher.args : [];
+	if (!args.every((arg) => typeof arg === "string" && arg)) {
+		throw new Error(`backend ${backendId} launcher.args must be a string list`);
+	}
+	const env = launcher.env && typeof launcher.env === "object" && !Array.isArray(launcher.env)
+		? launcher.env
+		: {};
+	for (const [key, value] of Object.entries(env)) {
+		if (!key || typeof value !== "string") {
+			throw new Error(`backend ${backendId} launcher.env must map strings to strings`);
+		}
+	}
+	return {
+		kind: launcher.kind,
+		extra: launcher.extra,
+		module: launcher.module,
+		args: [...args],
+		env: { ...env },
+	};
+}
+
+function launcherCommand(launcher) {
+	const command = ["uv", "run"];
+	if (launcher.extra) command.push("--extra", launcher.extra);
+	command.push("-m", launcher.module, ...launcher.args);
+	return command;
 }
 
 function registryPath(repoRoot, dir, objectId) {
@@ -313,11 +402,14 @@ export async function ensureManager(options = {}) {
 	if (await socketIsLive(socketPath)) return true;
 	const repoRoot = options.repoRoot;
 	if (!repoRoot) throw new Error("repoRoot is required to spawn the manager");
+	const plan = options.launchPlan || await runtimeLaunchPlan(repoRoot, { hostBinding: PI_HOST_BINDING });
+	const command = plan.command;
 	const env = {
 		...process.env,
-		HAY_BACKEND: process.env.HAY_BACKEND || "code-pruner",
+		...plan.env,
 	};
-	const child = spawn("uv", ["run", "--extra", "mlx", "-m", "pruner", "manage"], {
+	const spawnFn = options.spawn || spawn;
+	const child = spawnFn(command[0], command.slice(1), {
 		cwd: repoRoot,
 		env,
 		detached: true,

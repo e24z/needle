@@ -309,7 +309,7 @@ version = "0.1.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
-mlx = [
+backend-code-pruner-mlx = [
     { name = "huggingface-hub" },
     { name = "mlx" },
     { name = "mlx-lm" },
@@ -319,13 +319,13 @@ mlx = [
 
 [package.metadata]
 requires-dist = [
-    { name = "huggingface-hub", marker = "extra == 'mlx'" },
-    { name = "mlx", marker = "extra == 'mlx'" },
-    { name = "mlx-lm", marker = "extra == 'mlx'" },
-    { name = "numpy", marker = "extra == 'mlx'" },
-    { name = "transformers", marker = "extra == 'mlx'" },
+    { name = "huggingface-hub", marker = "extra == 'backend-code-pruner-mlx'" },
+    { name = "mlx", marker = "extra == 'backend-code-pruner-mlx'" },
+    { name = "mlx-lm", marker = "extra == 'backend-code-pruner-mlx'" },
+    { name = "numpy", marker = "extra == 'backend-code-pruner-mlx'" },
+    { name = "transformers", marker = "extra == 'backend-code-pruner-mlx'" },
 ]
-provides-extras = ["mlx"]
+provides-extras = ["backend-code-pruner-mlx"]
 
 [[package]]
 name = "numpy"

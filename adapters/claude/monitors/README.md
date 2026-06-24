@@ -4,7 +4,7 @@
 runs:
 
 ```bash
-HAY_BACKEND="${HAY_BACKEND:-code-pruner}" uv run --extra mlx -m pruner session --session "$CLAUDE_SESSION_ID"
+NEEDLE_BACKEND="${NEEDLE_BACKEND:-e24z/code-pruner-mlx}" uv run --extra backend-code-pruner-mlx -m pruner session --session "$CLAUDE_SESSION_ID"
 ```
 
 The monitor does **not** own the model process. It owns this Claude session's

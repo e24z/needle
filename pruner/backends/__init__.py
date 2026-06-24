@@ -7,17 +7,37 @@ import os
 from .base import PrunerBackend
 from .fake import FakePruner
 
-__all__ = ["PrunerBackend", "FakePruner", "get_backend"]
+__all__ = ["PrunerBackend", "FakePruner", "get_backend", "is_code_pruner_backend_name"]
+
+CODE_PRUNER_BACKEND_NAMES = {
+    "e24z/code-pruner-mlx",
+    "code-pruner-mlx",
+    "code-pruner",
+    "code_pruner",
+}
+
+
+def _configured_backend_name(name: str | None = None) -> str:
+    return (
+        name
+        or os.environ.get("NEEDLE_BACKEND")
+        or os.environ.get("HAY_BACKEND")
+        or "e24z/code-pruner-mlx"
+    ).lower()
+
+
+def is_code_pruner_backend_name(name: str | None = None) -> bool:
+    return _configured_backend_name(name) in CODE_PRUNER_BACKEND_NAMES
 
 
 def get_backend(name: str | None = None) -> PrunerBackend:
-    """Resolve a backend by name (or HAY_BACKEND env, default 'code-pruner')."""
-    name = (name or os.environ.get("HAY_BACKEND") or "code-pruner").lower()
+    """Resolve a backend by canonical id or legacy env alias."""
+    name = _configured_backend_name(name)
     if name == "halve":
         from .debug import HalvePruner
 
         return HalvePruner()
-    if name in {"code-pruner", "code_pruner"}:
+    if name in CODE_PRUNER_BACKEND_NAMES:
         try:
             from .code_pruner.model import CodePrunerBackend
 

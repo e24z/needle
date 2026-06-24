@@ -26,7 +26,8 @@ def _manage(args: argparse.Namespace) -> int:
         # notifications, and we don't want it narrating routine startup.
         print(
             f"{naming.APP_NAME}: manager listening on {path} "
-            f"(backend={os.environ.get('HAY_BACKEND', 'fake')}, lazy-load on first prune)",
+            f"(backend={os.environ.get('NEEDLE_BACKEND') or os.environ.get('HAY_BACKEND', 'fake')}, "
+            "lazy-load on first prune)",
             file=sys.stderr,
             flush=True,
         )

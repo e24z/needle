@@ -20,6 +20,7 @@ from needle.registry import (  # noqa: E402
     configured_package_id,
     load_active_package,
     package_summaries,
+    runtime_launch_plan,
     set_configured_package_id,
 )
 
@@ -36,6 +37,27 @@ def test_default_package_graph_loads() -> None:
     assert loaded.binding_id == "pi/native-tools"
     assert loaded.claim_card["capability"] == "swe-pruner/reference"
     assert loaded.package_card_path.exists()
+
+
+def test_default_package_resolves_runtime_launch_plan() -> None:
+    plan = runtime_launch_plan(ROOT, "e24z/pi-local-mac")
+    assert plan.package_id == "e24z/pi-local-mac"
+    assert plan.backend_id == "e24z/code-pruner-mlx"
+    assert plan.kind == "uv-python-module"
+    assert plan.extra == "backend-code-pruner-mlx"
+    assert plan.module == "pruner"
+    assert plan.args == ["manage"]
+    assert plan.command == [
+        "uv",
+        "run",
+        "--extra",
+        "backend-code-pruner-mlx",
+        "-m",
+        "pruner",
+        "manage",
+    ]
+    assert plan.env["NEEDLE_BACKEND"] == "e24z/code-pruner-mlx"
+    assert plan.env["HAY_BACKEND"] == "code-pruner"
 
 
 def test_reference_capability_has_no_ast_repair() -> None:
@@ -235,6 +257,7 @@ def test_host_scoped_load_rejects_wrong_binding() -> None:
 
 def main() -> int:
     test_default_package_graph_loads()
+    test_default_package_resolves_runtime_launch_plan()
     test_reference_capability_has_no_ast_repair()
     test_soft_lamr_is_separate_capability()
     test_soft_lamr_package_resolves_parent_protocol()

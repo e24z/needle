@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import events, naming, sysmem
-from .backends import PrunerBackend, get_backend
+from .backends import PrunerBackend, get_backend, is_code_pruner_backend_name
 from .protocol import decode, encode
 
 LEASE_TTL = float(os.environ.get("HAY_LEASE_TTL", "90"))
@@ -238,14 +238,10 @@ def serve_manager(
     version = naming.code_version() if version is None else version
     # Only the heavy model needs memory gating; a free backend (fake/halve) does
     # not. An explicitly injected backend (tests, custom hosts) is presumed light
-    # unless the caller passes heavy=True; only the default path reads HAY_BACKEND.
+    # unless the caller passes heavy=True; only the default path reads the
+    # configured backend id.
     if heavy is None:
-        heavy = (not explicit_backend) and os.environ.get(
-            "HAY_BACKEND", "code-pruner"
-        ).lower() in {
-            "code-pruner",
-            "code_pruner",
-        }
+        heavy = (not explicit_backend) and is_code_pruner_backend_name()
     sock_path = Path(socket_path) if socket_path else naming.manager_socket_path()
     sock_path.parent.mkdir(parents=True, exist_ok=True)
 

@@ -22,6 +22,7 @@ from .registry import (
     load_active_package,
     package_config_path,
     package_summaries,
+    runtime_launch_plan,
     set_configured_package_id,
 )
 
@@ -76,6 +77,9 @@ def _package_use(args: argparse.Namespace) -> int:
     print(f"implements: {', '.join(loaded.capability_ids)}")
     print(f"protocol: {loaded.protocol['id']}")
     print(f"uses backend: {loaded.backend_id}")
+    plan = runtime_launch_plan(package_id=loaded.package_id, host_binding=args.host_binding or None)
+    print(f"runtime extra: {plan.extra}")
+    print(f"runtime command: {' '.join(plan.command)}")
     print("restart the resident runtime for running sessions: needle stop")
     return 0
 
@@ -90,12 +94,16 @@ def _package_doctor(args: argparse.Namespace) -> int:
         _print_error(exc)
         return 1
     selected, source = active_package_selection(host_binding=args.host_binding or None)
+    plan = runtime_launch_plan(package_id=loaded.package_id, host_binding=args.host_binding or None)
     lines = [
         f"package: {loaded.package_id}",
         f"active selection: {selected} ({source})",
         f"protocol: {loaded.protocol['id']}",
         f"implements: {', '.join(loaded.capability_ids)}",
         f"uses backend: {loaded.backend_id}",
+        f"runtime extra: {plan.extra}",
+        f"runtime module: {plan.module}",
+        f"runtime command: {' '.join(plan.command)}",
         f"host binding: {loaded.binding_id}",
         f"claim card: {loaded.claim_card['id']}",
         f"package card: {loaded.package_card_path}",
@@ -258,7 +266,8 @@ def _model_download(args: argparse.Namespace) -> int:
         from huggingface_hub import snapshot_download
     except ImportError:
         print(
-            "error: model download needs the MLX/model extra; run `uv run --extra mlx needle model download`",
+            "error: model download needs the MLX backend extra; "
+            "run `uv run --extra backend-code-pruner-mlx needle model download`",
             file=sys.stderr,
         )
         return 1

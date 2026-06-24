@@ -558,6 +558,13 @@ function renderPackageIdentity(activePackage) {
 	const lines = [`active package ${activePackage.id}`];
 	if (activePackage.capabilities?.length) lines.push(`capability ${activePackage.capabilities.join(", ")}`);
 	if (activePackage.backend) lines.push(`backend ${activePackage.backend}`);
+	if (activePackage.backendLauncher) {
+		const args = activePackage.backendLauncher.args?.length ? ` ${activePackage.backendLauncher.args.join(" ")}` : "";
+		lines.push(
+			`backend launch extra ${activePackage.backendLauncher.extra} | ` +
+				`module ${activePackage.backendLauncher.module}${args}`,
+		);
+	}
 	if (activePackage.hostBinding) lines.push(`host binding ${activePackage.hostBinding}`);
 	if (activePackage.compute || activePackage.privacy) {
 		lines.push(`compute ${activePackage.compute || "?"} | privacy ${activePackage.privacy || "?"}`);
