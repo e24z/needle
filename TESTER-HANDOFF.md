@@ -57,10 +57,19 @@ spending model context on irrelevant file sections or noisy command output.
    and dollar savings are estimates unless a separate billing-backed run proves
    them.
 
-6. She lists available packages:
+6. She lists available Pi-compatible packages:
 
    ```text
    /hay packages
+   ```
+
+   This is a Pi-local view. The durable package control plane is the
+   host-neutral CLI:
+
+   ```bash
+   uv run -m pruner package list
+   uv run -m pruner package current
+   uv run -m pruner package doctor
    ```
 
    The default package is `e24z/pi-local-mac`. It implements
@@ -68,10 +77,10 @@ spending model context on irrelevant file sections or noisy command output.
    `e24z/pi-local-mac-soft-lamr`. It implements `e24z/soft-lamr`, which extends
    the reference behavior with Python AST repair.
 
-7. If she wants the Soft-LaMR package for the next session, she starts Pi with:
+7. If she wants Soft-LaMR as her default package, she selects it with the CLI:
 
    ```bash
-   HAY_PACKAGE=e24z/pi-local-mac-soft-lamr pi
+   uv run -m pruner package use e24z/pi-local-mac-soft-lamr
    ```
 
    If a manager is already resident, she stops it first so the new package
@@ -79,6 +88,12 @@ spending model context on irrelevant file sections or noisy command output.
 
    ```bash
    uv run -m pruner stop
+   ```
+
+   For a one-off run, she can still use an environment override:
+
+   ```bash
+   HAY_PACKAGE=e24z/pi-local-mac-soft-lamr pi
    ```
 
 8. If she wants to disable Needle for one Pi run without uninstalling it:

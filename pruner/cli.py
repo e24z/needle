@@ -5,6 +5,7 @@
   prune    pipe stdin through the manager, print the result
   status   operator snapshot: live residency + recent events (stdlib; works broken)
   stop     ask the resident manager to shut down cleanly
+  package  inspect and select Needle runtime packages
 
 For now invoked as `python3 -m pruner <cmd>`; a `hay` console-script alias can
 come later."""
@@ -18,6 +19,14 @@ import sys
 
 from . import client, events, naming
 from .manager import serve_manager
+from .package_config import (
+    PackageConfigError,
+    active_package_selection,
+    load_active_package,
+    package_config_path,
+    package_summaries,
+    set_configured_package_id,
+)
 from .session import run_session
 
 
@@ -123,6 +132,72 @@ def _stop(args: argparse.Namespace) -> int:
     return 0
 
 
+def _package_list(args: argparse.Namespace) -> int:
+    try:
+        summaries = package_summaries(host_binding=args.host_binding)
+    except PackageConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if not summaries:
+        print("no packages found")
+        return 0
+    for item in summaries:
+        marker = "*" if item.get("active") else "-"
+        if not item.get("valid"):
+            print(f"{marker} {item['id']}  INVALID  {item.get('error', '')}")
+            continue
+        capabilities = ",".join(item.get("capabilities", []))
+        print(
+            f"{marker} {item['id']}  "
+            f"capability={capabilities}  "
+            f"backend={item.get('backend', '?')}  "
+            f"host={item.get('host_binding', '?')}"
+        )
+    return 0
+
+
+def _package_current(args: argparse.Namespace) -> int:
+    package_id, source = active_package_selection()
+    print(package_id)
+    print(f"source: {source}")
+    return 0
+
+
+def _package_use(args: argparse.Namespace) -> int:
+    try:
+        loaded = set_configured_package_id(args.package_id)
+    except PackageConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"selected package: {loaded.package_id}")
+    print(f"config: {package_config_path()}")
+    print(f"capability: {', '.join(loaded.capability_ids)}")
+    print(f"backend: {loaded.backend_id}")
+    print("restart the manager for running sessions: python3 -m pruner stop")
+    return 0
+
+
+def _package_doctor(args: argparse.Namespace) -> int:
+    try:
+        loaded = load_active_package(package_id=args.package_id or None)
+    except PackageConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    selected, source = active_package_selection()
+    lines = [
+        f"package: {loaded.package_id}",
+        f"active selection: {selected} ({source})",
+        f"protocol: {loaded.protocol['id']}",
+        f"capability: {', '.join(loaded.capability_ids)}",
+        f"backend: {loaded.backend_id}",
+        f"host binding: {loaded.binding_id}",
+        f"claim card: {loaded.claim_card['id']}",
+        f"package card: {loaded.package_card_path}",
+    ]
+    print("\n".join(lines))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog=naming.APP_NAME,
@@ -150,6 +225,28 @@ def main(argv: list[str] | None = None) -> int:
 
     stop_p = sub.add_parser("stop", help="ask the resident manager to shut down cleanly")
     stop_p.set_defaults(func=_stop)
+
+    pkg = sub.add_parser("package", help="inspect and select Needle runtime packages")
+    pkg_sub = pkg.add_subparsers(dest="package_cmd", required=True)
+
+    pkg_list = pkg_sub.add_parser("list", help="list registry packages")
+    pkg_list.add_argument(
+        "--host-binding",
+        default="",
+        help="optional host binding filter, for example pi/native-tools",
+    )
+    pkg_list.set_defaults(func=_package_list)
+
+    pkg_current = pkg_sub.add_parser("current", help="show the active package id")
+    pkg_current.set_defaults(func=_package_current)
+
+    pkg_use = pkg_sub.add_parser("use", help="persist a package selection")
+    pkg_use.add_argument("package_id", help="package id, for example e24z/pi-local-mac")
+    pkg_use.set_defaults(func=_package_use)
+
+    pkg_doctor = pkg_sub.add_parser("doctor", help="validate and explain a package")
+    pkg_doctor.add_argument("package_id", nargs="?", default="", help="package id to inspect; defaults to active")
+    pkg_doctor.set_defaults(func=_package_doctor)
 
     args = p.parse_args(argv)
     return args.func(args)

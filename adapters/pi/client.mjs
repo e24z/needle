@@ -17,6 +17,10 @@ export function appHome() {
 	return process.env.HAY_HOME || join(process.env.HOME || "", `.${appName()}`);
 }
 
+export function packageConfigPath() {
+	return process.env.HAY_CONFIG || process.env.NEEDLE_CONFIG || join(appHome(), "config.json");
+}
+
 export function modelRoot() {
 	return process.env.HAY_MODEL_ROOT || join(appHome(), "models");
 }
@@ -148,8 +152,9 @@ export async function sourceIdentity(repoRoot, options = {}) {
 
 export async function packageIdentity(
 	repoRoot,
-	packageId = process.env.HAY_PACKAGE || process.env.NEEDLE_PACKAGE || "e24z/pi-local-mac",
+	packageId = undefined,
 ) {
+	packageId = packageId || (await activePackageId());
 	try {
 		const root = registryRoot(repoRoot);
 		const pkg = await readRegistryJson(root, "packages", packageId);
@@ -179,7 +184,7 @@ export async function packageIdentity(
 export async function packageInventory(repoRoot, options = {}) {
 	const root = registryRoot(repoRoot);
 	const ids = await registryObjectIds(root, "packages");
-	const activeId = process.env.HAY_PACKAGE || process.env.NEEDLE_PACKAGE || "e24z/pi-local-mac";
+	const activeId = options.activePackageId || (await activePackageId());
 	const packages = [];
 	for (const id of ids) {
 		const pkg = await packageIdentity(repoRoot, id);
@@ -190,6 +195,18 @@ export async function packageInventory(repoRoot, options = {}) {
 		});
 	}
 	return packages.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+
+export async function activePackageId() {
+	if (process.env.HAY_PACKAGE) return process.env.HAY_PACKAGE;
+	if (process.env.NEEDLE_PACKAGE) return process.env.NEEDLE_PACKAGE;
+	try {
+		const config = JSON.parse(await readFile(packageConfigPath(), "utf8"));
+		if (typeof config.package === "string" && config.package) return config.package;
+	} catch {
+		// Missing or invalid user config falls back to the built-in default.
+	}
+	return "e24z/pi-local-mac";
 }
 
 export function registryRoot(repoRoot) {

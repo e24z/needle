@@ -444,7 +444,9 @@ export function renderPackageStatus(packages) {
 		lines.push(`      backend ${backend} | ${repair}`);
 	}
 	lines.push("");
-	lines.push("select for next Pi session:");
+	lines.push("select default package:");
+	lines.push("  uv run -m pruner package use <package-id>");
+	lines.push("one-run override:");
 	lines.push("  HAY_PACKAGE=<package-id> pi");
 	lines.push("restart the Hay manager if it is already resident.");
 	return lines.join("\n");

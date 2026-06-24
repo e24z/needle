@@ -35,9 +35,9 @@ pressure, lease count, current Pi-session exact chars trimmed, socket/home
 paths, and recent local events. `/hay doctor` also shows the exact extension
 path, active Needle package, capability, backend, model directory, package
 version, pyproject version, Git branch/commit, and dirty/clean state.
-`/hay events 30` changes the event count. `/hay packages` lists installed
-Needle runtime packages and the command shape for selecting one on the next Pi
-session.
+`/hay events 30` changes the event count. `/hay packages` is a Pi-local view of
+Needle packages whose host binding is `pi/native-tools`; the canonical package
+control plane is the host-neutral `uv run -m pruner package ...` CLI.
 
 Install from this repo as a Pi package:
 
@@ -56,17 +56,26 @@ During local development, prefer `pi -e .` for the active working tree and
 The bash path uses the same explicit focus contract as read. Missing
 `context_focus_question` passes through unchanged.
 
-Choose a pruning package with an environment variable before launching Pi:
+List, inspect, and select Needle runtime packages with the host-neutral CLI:
+
+```bash
+uv run -m pruner package list
+uv run -m pruner package current
+uv run -m pruner package doctor
+uv run -m pruner package use e24z/pi-local-mac-soft-lamr
+```
+
+`e24z/pi-local-mac` is the default SWE-Pruner reference package: no AST repair.
+`e24z/pi-local-mac-soft-lamr` extends the reference capability with Python AST
+repair. If a Hay manager is already resident, restart it after changing the
+selected package so the backend policy and `/hay doctor` agree.
+
+For one run only, an environment variable can override the configured package:
 
 ```bash
 HAY_PACKAGE=e24z/pi-local-mac pi
 HAY_PACKAGE=e24z/pi-local-mac-soft-lamr pi
 ```
-
-`e24z/pi-local-mac` is the default SWE-Pruner reference package: no AST repair.
-`e24z/pi-local-mac-soft-lamr` extends the reference capability with Python AST
-repair. If a Hay manager is already resident, restart it after changing
-`HAY_PACKAGE` so the backend policy and `/hay doctor` agree.
 
 Stop the resident manager cleanly with:
 

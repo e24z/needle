@@ -14,14 +14,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pruner.package_config import PackageConfigError, load_active_package  # noqa: E402
+from pruner.package_config import (  # noqa: E402
+    PackageConfigError,
+    active_package_selection,
+    configured_package_id,
+    load_active_package,
+    package_summaries,
+    set_configured_package_id,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_default_package_graph_loads() -> None:
-    loaded = load_active_package(ROOT)
+    loaded = load_active_package(ROOT, "e24z/pi-local-mac")
     assert loaded.package_id == "e24z/pi-local-mac"
     assert loaded.protocol["id"] == "needle/text-transform"
     assert loaded.capability_ids == ["swe-pruner/reference"]
@@ -32,7 +39,7 @@ def test_default_package_graph_loads() -> None:
 
 
 def test_reference_capability_has_no_ast_repair() -> None:
-    loaded = load_active_package(ROOT)
+    loaded = load_active_package(ROOT, "e24z/pi-local-mac")
     ref = loaded.capabilities["swe-pruner/reference"]
     assert ref["claim_scope"]["ast_repair"] == "absent"
     assert ref["focus"]["field"] == "context_focus_question"
@@ -135,6 +142,49 @@ def test_registry_root_and_package_can_come_from_environment() -> None:
     assert loaded.backend_id == "e24z/code-pruner-mlx"
 
 
+def test_package_selection_can_come_from_user_config() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "config.json"
+        old_config = os.environ.get("HAY_CONFIG")
+        old_package = os.environ.get("HAY_PACKAGE")
+        old_needle_package = os.environ.get("NEEDLE_PACKAGE")
+        os.environ["HAY_CONFIG"] = str(path)
+        os.environ.pop("HAY_PACKAGE", None)
+        os.environ.pop("NEEDLE_PACKAGE", None)
+        try:
+            selected = set_configured_package_id("e24z/pi-local-mac-soft-lamr", root=ROOT)
+            assert selected.package_id == "e24z/pi-local-mac-soft-lamr"
+            assert configured_package_id() == "e24z/pi-local-mac-soft-lamr"
+            assert active_package_selection()[0] == "e24z/pi-local-mac-soft-lamr"
+            assert load_active_package(ROOT).package_id == "e24z/pi-local-mac-soft-lamr"
+
+            os.environ["HAY_PACKAGE"] = "e24z/pi-local-mac"
+            package_id, source = active_package_selection()
+            assert package_id == "e24z/pi-local-mac"
+            assert source == "env:HAY_PACKAGE"
+        finally:
+            if old_config is None:
+                os.environ.pop("HAY_CONFIG", None)
+            else:
+                os.environ["HAY_CONFIG"] = old_config
+            if old_package is None:
+                os.environ.pop("HAY_PACKAGE", None)
+            else:
+                os.environ["HAY_PACKAGE"] = old_package
+            if old_needle_package is None:
+                os.environ.pop("NEEDLE_PACKAGE", None)
+            else:
+                os.environ["NEEDLE_PACKAGE"] = old_needle_package
+
+
+def test_package_summaries_can_filter_by_host_binding() -> None:
+    summaries = package_summaries(ROOT, host_binding="pi/native-tools")
+    ids = {item["id"] for item in summaries}
+    assert "e24z/pi-local-mac" in ids
+    assert "e24z/pi-local-mac-soft-lamr" in ids
+    assert all(item["host_binding"] == "pi/native-tools" for item in summaries)
+
+
 def main() -> int:
     test_default_package_graph_loads()
     test_reference_capability_has_no_ast_repair()
@@ -143,6 +193,8 @@ def main() -> int:
     test_missing_backend_reference_fails_clearly()
     test_backend_must_support_package_capabilities()
     test_registry_root_and_package_can_come_from_environment()
+    test_package_selection_can_come_from_user_config()
+    test_package_summaries_can_filter_by_host_binding()
     print("test_package_config OK")
     return 0
 

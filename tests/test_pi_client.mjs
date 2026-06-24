@@ -7,6 +7,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+	activePackageId,
 	codeVersion,
 	packageIdentity,
 	packageInventory,
@@ -296,17 +297,43 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 });
 
 test("Pi source identity reads package, pyproject, git state, and active Needle package", async () => {
-	const identity = await sourceIdentity(process.cwd(), { timeoutMs: 1_000 });
-	assert.equal(identity.packageName, "hay");
-	assert.equal(identity.packageVersion, "0.1.0");
-	assert.equal(identity.pyprojectVersion, "0.1.0");
-	assert.match(identity.modelRoot, /\/\.hay\/models$/);
-	assert.equal(identity.activePackage.id, "e24z/pi-local-mac");
-	assert.deepEqual(identity.activePackage.capabilities, ["swe-pruner/reference"]);
-	assert.equal(identity.activePackage.backend, "e24z/code-pruner-mlx");
-	assert.equal(identity.activePackage.hostBinding, "pi/native-tools");
-	assert.equal(identity.activePackage.claimCard, "claims/pi-local-mac-swe-pruner-reference");
-	assert.equal(typeof identity.git.available, "boolean");
+	const dir = await mkdtemp(join(tmpdir(), "hay-empty-config-"));
+	const oldConfig = process.env.HAY_CONFIG;
+	const oldPackage = process.env.HAY_PACKAGE;
+	const oldNeedlePackage = process.env.NEEDLE_PACKAGE;
+	try {
+		process.env.HAY_CONFIG = join(dir, "missing.json");
+		delete process.env.HAY_PACKAGE;
+		delete process.env.NEEDLE_PACKAGE;
+
+		const identity = await sourceIdentity(process.cwd(), { timeoutMs: 1_000 });
+		assert.equal(identity.packageName, "hay");
+		assert.equal(identity.packageVersion, "0.1.0");
+		assert.equal(identity.pyprojectVersion, "0.1.0");
+		assert.match(identity.modelRoot, /\/\.hay\/models$/);
+		assert.equal(identity.activePackage.id, "e24z/pi-local-mac");
+		assert.deepEqual(identity.activePackage.capabilities, ["swe-pruner/reference"]);
+		assert.equal(identity.activePackage.backend, "e24z/code-pruner-mlx");
+		assert.equal(identity.activePackage.hostBinding, "pi/native-tools");
+		assert.equal(identity.activePackage.claimCard, "claims/pi-local-mac-swe-pruner-reference");
+		assert.equal(typeof identity.git.available, "boolean");
+	} finally {
+		if (oldConfig === undefined) {
+			delete process.env.HAY_CONFIG;
+		} else {
+			process.env.HAY_CONFIG = oldConfig;
+		}
+		if (oldPackage === undefined) {
+			delete process.env.HAY_PACKAGE;
+		} else {
+			process.env.HAY_PACKAGE = oldPackage;
+		}
+		if (oldNeedlePackage === undefined) {
+			delete process.env.NEEDLE_PACKAGE;
+		} else {
+			process.env.NEEDLE_PACKAGE = oldNeedlePackage;
+		}
+	}
 
 	const missing = await packageIdentity(process.cwd(), "e24z/does-not-exist");
 	assert.equal(missing.available, false);
@@ -320,8 +347,14 @@ test("Pi package identity can load from an external registry root", async () => 
 	}
 
 	const oldRoot = process.env.HAY_REGISTRY_ROOT;
+	const oldConfig = process.env.HAY_CONFIG;
+	const oldPackage = process.env.HAY_PACKAGE;
+	const oldNeedlePackage = process.env.NEEDLE_PACKAGE;
 	try {
 		process.env.HAY_REGISTRY_ROOT = dir;
+		process.env.HAY_CONFIG = join(dir, "missing-config.json");
+		delete process.env.HAY_PACKAGE;
+		delete process.env.NEEDLE_PACKAGE;
 		const identity = await packageIdentity(process.cwd());
 		assert.equal(identity.available, true);
 		assert.equal(identity.id, "e24z/pi-local-mac");
@@ -331,6 +364,60 @@ test("Pi package identity can load from an external registry root", async () => 
 			delete process.env.HAY_REGISTRY_ROOT;
 		} else {
 			process.env.HAY_REGISTRY_ROOT = oldRoot;
+		}
+		if (oldConfig === undefined) {
+			delete process.env.HAY_CONFIG;
+		} else {
+			process.env.HAY_CONFIG = oldConfig;
+		}
+		if (oldPackage === undefined) {
+			delete process.env.HAY_PACKAGE;
+		} else {
+			process.env.HAY_PACKAGE = oldPackage;
+		}
+		if (oldNeedlePackage === undefined) {
+			delete process.env.NEEDLE_PACKAGE;
+		} else {
+			process.env.NEEDLE_PACKAGE = oldNeedlePackage;
+		}
+	}
+});
+
+test("Pi package identity reads CLI user config unless env overrides it", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "hay-config-"));
+	const configPath = join(dir, "config.json");
+	await writeFile(configPath, JSON.stringify({ package: "e24z/pi-local-mac-soft-lamr" }));
+
+	const oldConfig = process.env.HAY_CONFIG;
+	const oldPackage = process.env.HAY_PACKAGE;
+	const oldNeedlePackage = process.env.NEEDLE_PACKAGE;
+	try {
+		process.env.HAY_CONFIG = configPath;
+		delete process.env.HAY_PACKAGE;
+		delete process.env.NEEDLE_PACKAGE;
+
+		assert.equal(await activePackageId(), "e24z/pi-local-mac-soft-lamr");
+		const identity = await packageIdentity(process.cwd());
+		assert.equal(identity.id, "e24z/pi-local-mac-soft-lamr");
+		assert.deepEqual(identity.capabilities, ["e24z/soft-lamr"]);
+
+		process.env.HAY_PACKAGE = "e24z/pi-local-mac";
+		assert.equal(await activePackageId(), "e24z/pi-local-mac");
+	} finally {
+		if (oldConfig === undefined) {
+			delete process.env.HAY_CONFIG;
+		} else {
+			process.env.HAY_CONFIG = oldConfig;
+		}
+		if (oldPackage === undefined) {
+			delete process.env.HAY_PACKAGE;
+		} else {
+			process.env.HAY_PACKAGE = oldPackage;
+		}
+		if (oldNeedlePackage === undefined) {
+			delete process.env.NEEDLE_PACKAGE;
+		} else {
+			process.env.NEEDLE_PACKAGE = oldNeedlePackage;
 		}
 	}
 });
@@ -386,6 +473,7 @@ test("Pi package status explains package selection", async () => {
 	assert.match(rendered, /- e24z\/pi-local-mac-soft-lamr/);
 	assert.match(rendered, /no AST repair/);
 	assert.match(rendered, /python AST repair/);
+	assert.match(rendered, /uv run -m pruner package use <package-id>/);
 	assert.match(rendered, /HAY_PACKAGE=<package-id> pi/);
 
 	const live = await buildPackageStatus(process.cwd());

@@ -14,11 +14,14 @@ import os
 from pathlib import Path
 from typing import Any
 
+from . import naming
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PACKAGE_ID = "e24z/pi-local-mac"
 REGISTRY_ROOT_ENVS = ("HAY_REGISTRY_ROOT", "NEEDLE_REGISTRY_ROOT")
 PACKAGE_ID_ENVS = ("HAY_PACKAGE", "NEEDLE_PACKAGE")
+CONFIG_PATH_ENVS = ("HAY_CONFIG", "NEEDLE_CONFIG")
 
 _KIND_DIRS = {
     "protocol": "protocols",
@@ -78,6 +81,48 @@ def load_active_package(root: Path | None = None, package_id: str | None = None)
     return _validate_package_graph(registry_root, package)
 
 
+def package_summaries(
+    root: Path | None = None,
+    *,
+    host_binding: str | None = None,
+) -> list[dict[str, Any]]:
+    """List package registry entries with enough metadata for CLIs/adapters."""
+    registry_root = root or default_registry_root()
+    active_id = default_package_id()
+    summaries: list[dict[str, Any]] = []
+    for package_id in list_package_ids(registry_root):
+        try:
+            loaded = load_active_package(registry_root, package_id)
+        except PackageConfigError as exc:
+            if host_binding:
+                continue
+            summaries.append(
+                {
+                    "id": package_id,
+                    "active": package_id == active_id,
+                    "valid": False,
+                    "error": str(exc),
+                }
+            )
+            continue
+        if host_binding and loaded.binding_id != host_binding:
+            continue
+        summaries.append(
+            {
+                "id": loaded.package_id,
+                "display_name": loaded.package.get("display_name"),
+                "active": loaded.package_id == active_id,
+                "valid": True,
+                "capabilities": loaded.capability_ids,
+                "backend": loaded.backend_id,
+                "host_binding": loaded.binding_id,
+                "claim_card": loaded.claim_card["id"],
+                "package_card": str(loaded.package_card_path),
+            }
+        )
+    return sorted(summaries, key=lambda item: str(item["id"]))
+
+
 def default_registry_root() -> Path:
     """Registry root for built-ins or an installed package registry checkout."""
     env = _first_env(REGISTRY_ROOT_ENVS)
@@ -85,7 +130,57 @@ def default_registry_root() -> Path:
 
 
 def default_package_id() -> str:
-    return _first_env(PACKAGE_ID_ENVS) or DEFAULT_PACKAGE_ID
+    package_id, _source = active_package_selection()
+    return package_id
+
+
+def active_package_selection() -> tuple[str, str]:
+    for name in PACKAGE_ID_ENVS:
+        value = os.environ.get(name)
+        if value:
+            return value, f"env:{name}"
+    configured = configured_package_id()
+    if configured:
+        return configured, f"config:{package_config_path()}"
+    return DEFAULT_PACKAGE_ID, "default"
+
+
+def package_config_path(path: Path | None = None) -> Path:
+    if path is not None:
+        return path
+    env = _first_env(CONFIG_PATH_ENVS)
+    return Path(env).expanduser() if env else naming.app_home() / "config.json"
+
+
+def configured_package_id(path: Path | None = None) -> str | None:
+    config = _read_user_config(package_config_path(path))
+    value = config.get("package")
+    return value if isinstance(value, str) and value else None
+
+
+def set_configured_package_id(
+    package_id: str,
+    *,
+    root: Path | None = None,
+    path: Path | None = None,
+) -> LoadedPackage:
+    loaded = load_active_package(root, package_id)
+    config_path = package_config_path(path)
+    config = _read_user_config(config_path)
+    config["package"] = loaded.package_id
+    _write_user_config(config_path, config)
+    return loaded
+
+
+def list_package_ids(root: Path | None = None) -> list[str]:
+    registry_root = root or default_registry_root()
+    packages_root = registry_root / _KIND_DIRS["package"]
+    ids: list[str] = []
+    if not packages_root.exists():
+        return ids
+    for path in packages_root.rglob("*.yaml"):
+        ids.append(path.relative_to(packages_root).with_suffix("").as_posix())
+    return sorted(ids)
 
 
 def object_path(root: Path, kind: str, object_id: str) -> Path:
@@ -239,3 +334,21 @@ def _first_env(names: tuple[str, ...]) -> str | None:
         if value:
             return value
     return None
+
+
+def _read_user_config(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError as exc:
+        raise PackageConfigError(f"invalid user config at {path}: {exc.msg}") from exc
+    if not isinstance(data, dict):
+        raise PackageConfigError(f"user config at {path} must be a mapping")
+    return data
+
+
+def _write_user_config(path: Path, config: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
