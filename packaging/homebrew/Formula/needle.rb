@@ -188,7 +188,21 @@ class Needle < Formula
   end
 
   def install
-    virtualenv_install_with_resources
+    venv = virtualenv_create(libexec, "python3.13", system_site_packages: true, without_pip: true)
+
+    resources.each do |resource|
+      resource.stage do
+        target = if resource.url&.to_s&.end_with?(".whl")
+          Pathname.pwd/resource.downloader.basename
+        else
+          Pathname.pwd
+        end
+
+        venv.pip_install target
+      end
+    end
+
+    venv.pip_install_and_link buildpath
   end
 
   def post_install
