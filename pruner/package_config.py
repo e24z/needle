@@ -10,12 +10,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_PACKAGE_ID = "e24z/pi-local-mac"
+REGISTRY_ROOT_ENVS = ("HAY_REGISTRY_ROOT", "NEEDLE_REGISTRY_ROOT")
+PACKAGE_ID_ENVS = ("HAY_PACKAGE", "NEEDLE_PACKAGE")
 
 _KIND_DIRS = {
     "protocol": "protocols",
@@ -67,11 +70,22 @@ class LoadedPackage:
         return str(self.binding["id"])
 
 
-def load_active_package(root: Path | None = None, package_id: str = DEFAULT_PACKAGE_ID) -> LoadedPackage:
+def load_active_package(root: Path | None = None, package_id: str | None = None) -> LoadedPackage:
     """Load and validate the active package graph."""
-    registry_root = root or REPO_ROOT
-    package = _load_object(registry_root, "package", package_id)
+    registry_root = root or default_registry_root()
+    active_package_id = package_id or default_package_id()
+    package = _load_object(registry_root, "package", active_package_id)
     return _validate_package_graph(registry_root, package)
+
+
+def default_registry_root() -> Path:
+    """Registry root for built-ins or an installed package registry checkout."""
+    env = _first_env(REGISTRY_ROOT_ENVS)
+    return Path(env).expanduser() if env else REPO_ROOT
+
+
+def default_package_id() -> str:
+    return _first_env(PACKAGE_ID_ENVS) or DEFAULT_PACKAGE_ID
 
 
 def object_path(root: Path, kind: str, object_id: str) -> Path:
@@ -217,3 +231,11 @@ def _validate_prefixed_path_id(object_id: str, prefix: str) -> None:
     _validate_id(object_id)
     if not object_id.startswith(f"{prefix}/"):
         raise PackageConfigError(f"expected {prefix} id, got {object_id!r}")
+
+
+def _first_env(names: tuple[str, ...]) -> str | None:
+    for name in names:
+        value = os.environ.get(name)
+        if value:
+            return value
+    return None

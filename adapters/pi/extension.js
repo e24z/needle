@@ -339,12 +339,12 @@ export function formatIndicator(state, theme, options = {}) {
 
 export function formatStatus(snapshot, counters = {}, theme, options = {}) {
 	const calls = Number(counters.calls || 0);
-	const tokens = Math.floor(Number(counters.savedChars || 0) / 4);
+	const savedChars = Number(counters.savedChars || 0);
 	const state = decideStatusState(snapshot, counters, options);
 	const plural = calls === 1 ? "" : "s";
 	const forms = [
-		`hay${SEP}${formatTokens(tokens)} tokens saved${SEP}${calls} prune${plural}`,
-		`hay${SEP}${formatTokens(tokens)}t${SEP}${calls}p`,
+		`hay${SEP}${formatCount(savedChars)} chars trimmed${SEP}${calls} prune${plural}`,
+		`hay${SEP}${formatCount(savedChars)}c${SEP}${calls}p`,
 		"hay",
 	];
 	const cols = Number(options.columns || process.env.COLUMNS || 80);
@@ -445,7 +445,7 @@ export function renderOperatorStatus(snapshot, recent = [], counters = {}, optio
 	lines.push(`  socket ${options.socketPath || managerSocketPath()}`);
 	lines.push(`  home ${options.appHome || appHome()}`);
 	lines.push(
-		`  this Pi session ${formatTokens(Math.floor((counters.savedChars || 0) / 4))} tokens saved` +
+		`  this Pi session ${formatCount(counters.savedChars || 0)} chars trimmed` +
 			`  |  ${counters.calls || 0} prunes` +
 			(counters.lastTool ? `  |  last tool ${counters.lastTool}` : ""),
 	);
@@ -474,6 +474,12 @@ function renderSource(source, extensionPath) {
 	if (extensionPath) lines.push(`extension ${extensionPath}`);
 	if (!source) return lines;
 	lines.push(`package root ${source.repoRoot}`);
+	if (source.modelRoot) lines.push(`model dir ${source.modelRoot}`);
+	if (source.activePackage) {
+		for (const line of renderPackageIdentity(source.activePackage)) {
+			lines.push(line);
+		}
+	}
 	const versions = [
 		source.packageVersion ? `package ${source.packageName || "package"}@${source.packageVersion}` : null,
 		source.pyprojectVersion ? `pyproject ${source.pyprojectVersion}` : null,
@@ -487,6 +493,23 @@ function renderSource(source, extensionPath) {
 	} else {
 		lines.push(`git ${source.git?.reason || "not available"}`);
 	}
+	return lines;
+}
+
+function renderPackageIdentity(activePackage) {
+	if (!activePackage.available) {
+		return [`active package ${activePackage.id || "?"} unavailable (${activePackage.reason || "unknown reason"})`];
+	}
+	const lines = [`active package ${activePackage.id}`];
+	if (activePackage.capabilities?.length) lines.push(`capability ${activePackage.capabilities.join(", ")}`);
+	if (activePackage.backend) lines.push(`backend ${activePackage.backend}`);
+	if (activePackage.hostBinding) lines.push(`host binding ${activePackage.hostBinding}`);
+	if (activePackage.compute || activePackage.privacy) {
+		lines.push(`compute ${activePackage.compute || "?"} | privacy ${activePackage.privacy || "?"}`);
+	}
+	if (activePackage.promptBundle) lines.push(`prompt bundle ${activePackage.promptBundle}`);
+	if (activePackage.packageCard) lines.push(`package card ${activePackage.packageCard}`);
+	if (activePackage.claimCard) lines.push(`claim card ${activePackage.claimCard}`);
 	return lines;
 }
 
@@ -545,7 +568,7 @@ function breathe(theme, code, glyph, tick) {
 	return color(theme, intensity ? `${code};${intensity}` : code, glyph);
 }
 
-function formatTokens(n) {
+function formatCount(n) {
 	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
 	if (n >= 10_000) return `${Math.round(n / 1_000)}k`;
 	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;

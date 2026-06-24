@@ -6,6 +6,7 @@ Run: PYTHONPATH=. python3 tests/test_package_config.py
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -94,12 +95,41 @@ def test_backend_must_support_package_capabilities() -> None:
     assert "swe-pruner/reference" in msg
 
 
+def test_registry_root_and_package_can_come_from_environment() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        for name in ("protocols", "capabilities", "backends", "bindings", "packages", "claims", "package-cards"):
+            src = ROOT / name
+            if src.exists():
+                shutil.copytree(src, tmp / name)
+
+        old_root = os.environ.get("HAY_REGISTRY_ROOT")
+        old_package = os.environ.get("HAY_PACKAGE")
+        os.environ["HAY_REGISTRY_ROOT"] = str(tmp)
+        os.environ["HAY_PACKAGE"] = "e24z/pi-local-mac"
+        try:
+            loaded = load_active_package()
+        finally:
+            if old_root is None:
+                os.environ.pop("HAY_REGISTRY_ROOT", None)
+            else:
+                os.environ["HAY_REGISTRY_ROOT"] = old_root
+            if old_package is None:
+                os.environ.pop("HAY_PACKAGE", None)
+            else:
+                os.environ["HAY_PACKAGE"] = old_package
+
+    assert loaded.package_id == "e24z/pi-local-mac"
+    assert loaded.backend_id == "e24z/code-pruner-mlx"
+
+
 def main() -> int:
     test_default_package_graph_loads()
     test_reference_capability_has_no_ast_repair()
     test_soft_lamr_is_separate_capability()
     test_missing_backend_reference_fails_clearly()
     test_backend_must_support_package_capabilities()
+    test_registry_root_and_package_can_come_from_environment()
     print("test_package_config OK")
     return 0
 

@@ -17,6 +17,10 @@ export function appHome() {
 	return process.env.HAY_HOME || join(process.env.HOME || "", `.${appName()}`);
 }
 
+export function modelRoot() {
+	return process.env.HAY_MODEL_ROOT || join(appHome(), "models");
+}
+
 export function managerSocketPath() {
 	return process.env.HAY_MANAGER_SOCKET || join(appHome(), "manager.sock");
 }
@@ -119,6 +123,8 @@ export async function sourceIdentity(repoRoot, options = {}) {
 		packageName: null,
 		packageVersion: null,
 		pyprojectVersion: null,
+		modelRoot: modelRoot(),
+		activePackage: null,
 		git: { available: false, reason: "not checked" },
 	};
 	try {
@@ -135,8 +141,54 @@ export async function sourceIdentity(repoRoot, options = {}) {
 	} catch {
 		// Optional outside a source checkout.
 	}
+	identity.activePackage = await packageIdentity(repoRoot);
 	identity.git = await gitIdentity(repoRoot, options);
 	return identity;
+}
+
+export async function packageIdentity(
+	repoRoot,
+	packageId = process.env.HAY_PACKAGE || process.env.NEEDLE_PACKAGE || "e24z/pi-local-mac",
+) {
+	try {
+		const root = registryRoot(repoRoot);
+		const pkg = await readRegistryJson(root, "packages", packageId);
+		return {
+			available: true,
+			id: pkg.id || packageId,
+			capabilities: Array.isArray(pkg.implements)
+				? pkg.implements.filter((item) => typeof item === "string")
+				: [],
+			backend: typeof pkg.uses?.backend === "string" ? pkg.uses.backend : null,
+			hostBinding: typeof pkg.host_binding === "string" ? pkg.host_binding : null,
+			packageCard: typeof pkg.package_card === "string" ? pkg.package_card : null,
+			claimCard: typeof pkg.claim_card === "string" ? pkg.claim_card : null,
+			compute: typeof pkg.compute?.default === "string" ? pkg.compute.default : null,
+			privacy: typeof pkg.privacy?.default === "string" ? pkg.privacy.default : null,
+			promptBundle: typeof pkg.focus_contract?.prompt_bundle === "string" ? pkg.focus_contract.prompt_bundle : null,
+		};
+	} catch (err) {
+		return {
+			available: false,
+			id: packageId,
+			reason: err?.message || "package manifest unavailable",
+		};
+	}
+}
+
+export function registryRoot(repoRoot) {
+	return process.env.HAY_REGISTRY_ROOT || process.env.NEEDLE_REGISTRY_ROOT || repoRoot;
+}
+
+async function readRegistryJson(repoRoot, dir, objectId) {
+	const path = registryPath(repoRoot, dir, objectId);
+	const text = await readFile(path, "utf8");
+	return JSON.parse(text);
+}
+
+function registryPath(repoRoot, dir, objectId) {
+	if (objectId.startsWith(`${dir}/`)) return join(repoRoot, `${objectId}.yaml`);
+	return join(repoRoot, dir, `${objectId}.yaml`);
 }
 
 async function gitIdentity(repoRoot, options = {}) {

@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { codeVersion, prune, socketIsLive, sourceIdentity, tailEvents } from "../adapters/pi/client.mjs";
+import { codeVersion, packageIdentity, prune, socketIsLive, sourceIdentity, tailEvents } from "../adapters/pi/client.mjs";
 import {
 	buildToolResultPatch,
 	decideStatusState,
@@ -167,9 +167,9 @@ test("Pi extension lifecycle leases, overrides read, updates status, and release
 		assert.equal(messages[0].customType, "hay-status");
 		assert.match(messages[0].content, /hay manager: ready \(mock resident\)/);
 		assert.match(messages[0].content, /why running:/);
-		assert.match(messages[0].content, /this Pi session 175 tokens saved  \|  1 prunes/);
+		assert.match(messages[0].content, /this Pi session 700 chars trimmed  \|  1 prunes/);
 		assert.equal(statuses.at(-1)[0], "hay");
-		assert.match(statuses.at(-1)[1], /hay · 175 tokens saved · 1 prune/);
+		assert.match(statuses.at(-1)[1], /hay · 700 chars trimmed · 1 prune/);
 		assert.ok(ops.includes("lease"), ops);
 		assert.ok(ops.includes("prune"), ops);
 		assert.ok(ops.includes("release"), ops);
@@ -205,6 +205,19 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 				packageName: "hay",
 				packageVersion: "0.1.0",
 				pyprojectVersion: "0.1.0",
+				modelRoot: "/tmp/hay/models",
+				activePackage: {
+					available: true,
+					id: "e24z/pi-local-mac",
+					capabilities: ["swe-pruner/reference"],
+					backend: "e24z/code-pruner-mlx",
+					hostBinding: "pi/native-tools",
+					packageCard: "package-cards/e24z/pi-local-mac",
+					claimCard: "claims/pi-local-mac-swe-pruner-reference",
+					compute: "local_mlx",
+					privacy: "local_only",
+					promptBundle: "pi/context-focus-question@0.1",
+				},
 				git: { available: true, branch: "pi-adapter", commit: "abcdef123456", dirty: true, dirtyFiles: 2 },
 			},
 		},
@@ -212,22 +225,63 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 	assert.match(rendered, /DEGRADED \(fake \(code-pruner unavailable: no mlx\)\)/);
 	assert.match(rendered, /sessions 2  \|  version abcdef123456/);
 	assert.match(rendered, /pressure warning  \|  free 2.0 GB/);
-	assert.match(rendered, /this Pi session 1.0k tokens saved  \|  3 prunes  \|  last tool grep/);
+	assert.match(rendered, /this Pi session 4.1k chars trimmed  \|  3 prunes  \|  last tool grep/);
 	assert.match(rendered, /extension \/tmp\/hay\/adapters\/pi\/extension\.js/);
+	assert.match(rendered, /model dir \/tmp\/hay\/models/);
+	assert.match(rendered, /active package e24z\/pi-local-mac/);
+	assert.match(rendered, /capability swe-pruner\/reference/);
+	assert.match(rendered, /backend e24z\/code-pruner-mlx/);
+	assert.match(rendered, /host binding pi\/native-tools/);
+	assert.match(rendered, /compute local_mlx \| privacy local_only/);
+	assert.match(rendered, /prompt bundle pi\/context-focus-question@0\.1/);
+	assert.match(rendered, /package card package-cards\/e24z\/pi-local-mac/);
+	assert.match(rendered, /claim card claims\/pi-local-mac-swe-pruner-reference/);
 	assert.match(rendered, /version package hay@0\.1\.0 \| pyproject 0\.1\.0/);
 	assert.match(rendered, /git pi-adapter@abcdef123456 \(dirty, 2 files\)/);
 	assert.match(rendered, /passthrough\s+reason=low-memory chars=1200/);
 	assert.match(renderOperatorStatus("loading", [], {}), /loading or pruning/);
 	assert.match(renderOperatorStatus(null, [], {}), /fails open/);
-	assert.match(formatStatus("loading", { savedChars: 0, calls: 0 }), /hay · 0 tokens saved · 0 prunes/);
+	assert.match(formatStatus("loading", { savedChars: 0, calls: 0 }), /hay · 0 chars trimmed · 0 prunes/);
 });
 
-test("Pi source identity reads package, pyproject, and git state", async () => {
+test("Pi source identity reads package, pyproject, git state, and active Needle package", async () => {
 	const identity = await sourceIdentity(process.cwd(), { timeoutMs: 1_000 });
 	assert.equal(identity.packageName, "hay");
 	assert.equal(identity.packageVersion, "0.1.0");
 	assert.equal(identity.pyprojectVersion, "0.1.0");
+	assert.match(identity.modelRoot, /\/\.hay\/models$/);
+	assert.equal(identity.activePackage.id, "e24z/pi-local-mac");
+	assert.deepEqual(identity.activePackage.capabilities, ["swe-pruner/reference"]);
+	assert.equal(identity.activePackage.backend, "e24z/code-pruner-mlx");
+	assert.equal(identity.activePackage.hostBinding, "pi/native-tools");
+	assert.equal(identity.activePackage.claimCard, "claims/pi-local-mac-swe-pruner-reference");
 	assert.equal(typeof identity.git.available, "boolean");
+
+	const missing = await packageIdentity(process.cwd(), "e24z/does-not-exist");
+	assert.equal(missing.available, false);
+	assert.equal(missing.id, "e24z/does-not-exist");
+});
+
+test("Pi package identity can load from an external registry root", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "hay-registry-"));
+	for (const name of ["packages", "capabilities", "backends", "bindings", "claims", "package-cards", "protocols"]) {
+		await cp(join(process.cwd(), name), join(dir, name), { recursive: true });
+	}
+
+	const oldRoot = process.env.HAY_REGISTRY_ROOT;
+	try {
+		process.env.HAY_REGISTRY_ROOT = dir;
+		const identity = await packageIdentity(process.cwd());
+		assert.equal(identity.available, true);
+		assert.equal(identity.id, "e24z/pi-local-mac");
+		assert.equal(identity.backend, "e24z/code-pruner-mlx");
+	} finally {
+		if (oldRoot === undefined) {
+			delete process.env.HAY_REGISTRY_ROOT;
+		} else {
+			process.env.HAY_REGISTRY_ROOT = oldRoot;
+		}
+	}
 });
 
 test("Pi client reads the local Hay event log", async () => {
@@ -360,8 +414,8 @@ test("Pi status formatter is honest about cold and degraded states", () => {
 		/^\x1b\[38;5;87m/,
 	);
 	assert.notEqual(formatIndicator("ready", undefined, { nowMs: 0 }), formatIndicator("ready", undefined, { nowMs: 400 }));
-	assert.match(formatStatus(null, { savedChars: 400, calls: 1 }, undefined, { columns: 100 }), /^.+ hay · 100 tokens saved · 1 prune$/);
-	assert.match(formatStatus({ ok: true, resident: false }, { savedChars: 0, calls: 0 }, undefined, { columns: 100 }), /hay · 0 tokens saved · 0 prunes/);
+	assert.match(formatStatus(null, { savedChars: 400, calls: 1 }, undefined, { columns: 100 }), /^.+ hay · 400 chars trimmed · 1 prune$/);
+	assert.match(formatStatus({ ok: true, resident: false }, { savedChars: 0, calls: 0 }, undefined, { columns: 100 }), /hay · 0 chars trimmed · 0 prunes/);
 	assert.match(
 		formatStatus({ ok: true, resident: true, backend: "code-pruner" }, { calls: 12, savedChars: 4096 }, undefined, {
 			columns: 12,
