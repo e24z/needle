@@ -75,6 +75,11 @@ without relying on chat memory.
     and model commands.
   - Kept backend/MLX dependencies out of the base CLI dependency set.
   - Exercised the real `uv run needle ...` entrypoint in CLI tests.
+- `feat(needle): define http backend contract`
+  - Added `e24z/code-pruner-http` registry metadata.
+  - Documented the HTTP JSON request/response contract.
+  - Required explicit endpoint configuration and fail-open behavior.
+  - Validated the backend manifest without needing a live server.
 
 ## Now
 
@@ -109,7 +114,7 @@ Issue Set:
 - #3 Finish Needle runtime re-home under Needle namespaces (runtime landed on branch)
 - #4 Migrate runtime state from `~/.hay` to `~/.needle` (landed on branch)
 - #5 Convert needle CLI to Typer with stable command names (landed on branch)
-- #6 Define HTTP backend contract and registry metadata
+- #6 Define HTTP backend contract and registry metadata (landed on branch)
 - #7 Add live Pi demo canary around evidence fixtures
 - #8 Refresh Needle 1.0 PRD and tester docs after structural slices
 
@@ -123,7 +128,7 @@ Acceptance:
 ## Next
 
 - Pick one issue and branch/PR against it instead of expanding this local queue.
-- Work issue #6 next: define the HTTP backend contract and registry metadata.
+- Work issue #7 next: add a live Pi demo canary around evidence fixtures.
 - Finish backend physical re-home under `needle.backends`.
 - Refresh the PRD current-state sections after the structural slices land.
 

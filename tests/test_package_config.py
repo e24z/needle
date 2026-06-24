@@ -18,6 +18,7 @@ from needle.registry import (  # noqa: E402
     PackageConfigError,
     active_package_selection,
     configured_package_id,
+    load_backend,
     load_active_package,
     package_summaries,
     runtime_launch_plan,
@@ -76,6 +77,21 @@ def test_default_package_resolves_runtime_launch_plan() -> None:
     ]
     assert plan.env["NEEDLE_BACKEND"] == "e24z/code-pruner-mlx"
     assert plan.env["HAY_BACKEND"] == "code-pruner"
+
+
+def test_http_backend_contract_validates_without_server() -> None:
+    backend = load_backend(ROOT, "e24z/code-pruner-http")
+    assert backend["id"] == "e24z/code-pruner-http"
+    assert backend["compute"]["default"] == "remote_http"
+    assert backend["compute"]["requires"] == ["explicit_endpoint"]
+    assert backend["runtime"] == "local_manager"
+    assert backend["launcher"]["extra"] == ""
+    assert backend["transport"]["kind"] == "http_json"
+    assert backend["transport"]["endpoint_env"] == "NEEDLE_HTTP_PRUNER_URL"
+    assert backend["transport"]["endpoint_required"] is True
+    assert backend["transport"]["failure_behavior"] == "passthrough_original"
+    assert backend["transport"]["request"]["body"]["text"] == "string"
+    assert backend["transport"]["response"]["body"]["text"] == "string"
 
 
 def test_reference_capability_has_no_ast_repair() -> None:
@@ -406,9 +422,48 @@ def test_backend_requires_text_interface() -> None:
     assert "interface must accept and return text" in msg
 
 
+def test_http_backend_requires_explicit_endpoint() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        _copy_registry(tmp)
+        backend_path = tmp / "backends/e24z/code-pruner-http.yaml"
+        backend = json.loads(backend_path.read_text(encoding="utf-8"))
+        backend["transport"]["endpoint_required"] = False
+        backend_path.write_text(json.dumps(backend, indent=2), encoding="utf-8")
+
+        try:
+            load_backend(tmp, "e24z/code-pruner-http")
+        except PackageConfigError as exc:
+            msg = str(exc)
+        else:
+            raise AssertionError("expected implicit HTTP endpoint to fail")
+
+    assert "transport.endpoint_required must be true" in msg
+
+
+def test_http_backend_must_fail_open() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        _copy_registry(tmp)
+        backend_path = tmp / "backends/e24z/code-pruner-http.yaml"
+        backend = json.loads(backend_path.read_text(encoding="utf-8"))
+        backend["transport"]["failure_behavior"] = "raise_error"
+        backend_path.write_text(json.dumps(backend, indent=2), encoding="utf-8")
+
+        try:
+            load_backend(tmp, "e24z/code-pruner-http")
+        except PackageConfigError as exc:
+            msg = str(exc)
+        else:
+            raise AssertionError("expected non fail-open HTTP contract to fail")
+
+    assert "transport.failure_behavior must be 'passthrough_original'" in msg
+
+
 def main() -> int:
     test_default_package_graph_loads()
     test_default_package_resolves_runtime_launch_plan()
+    test_http_backend_contract_validates_without_server()
     test_reference_capability_has_no_ast_repair()
     test_soft_lamr_is_separate_capability()
     test_soft_lamr_package_resolves_parent_protocol()
@@ -425,6 +480,8 @@ def main() -> int:
     test_fixture_pack_must_cover_required_pi_cases()
     test_claim_card_tested_capability_must_match_claim()
     test_backend_requires_text_interface()
+    test_http_backend_requires_explicit_endpoint()
+    test_http_backend_must_fail_open()
     print("test_package_config OK")
     return 0
 

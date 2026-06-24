@@ -141,6 +141,16 @@ def runtime_launch_plan(
     )
 
 
+def load_backend(root: Path | None = None, backend_id: str = "") -> dict[str, Any]:
+    """Load and validate a backend manifest without requiring a package."""
+    if not backend_id:
+        raise PackageConfigError("backend_id must be a non-empty string")
+    registry_root = root or default_registry_root()
+    backend = _load_object(registry_root, "backend", backend_id)
+    _validate_backend(backend)
+    return backend
+
+
 def package_summaries(
     root: Path | None = None,
     *,
@@ -476,7 +486,59 @@ def _validate_backend(backend: dict[str, Any]) -> None:
     runtime = _required_string(backend, "runtime")
     if runtime not in _KNOWN_RUNTIMES:
         raise PackageConfigError(f"backend {backend_id!r} runtime {runtime!r} is unknown")
+    transport = backend.get("transport")
+    if transport is not None:
+        if not isinstance(transport, dict):
+            raise PackageConfigError(f"backend {backend_id!r} transport must be a mapping")
+        _validate_backend_transport(backend_id, transport)
     _validate_backend_launcher(backend)
+
+
+def _validate_backend_transport(backend_id: str, transport: dict[str, Any]) -> None:
+    kind = _required_string(transport, "kind")
+    if kind != "http_json":
+        raise PackageConfigError(f"backend {backend_id!r} transport.kind {kind!r} is unknown")
+    endpoint_env = _required_string(transport, "endpoint_env")
+    if not endpoint_env.startswith("NEEDLE_"):
+        raise PackageConfigError(f"backend {backend_id!r} transport.endpoint_env must start with 'NEEDLE_'")
+    if transport.get("endpoint_required") is not True:
+        raise PackageConfigError(f"backend {backend_id!r} transport.endpoint_required must be true")
+    if _required_string(transport, "failure_behavior") != "passthrough_original":
+        raise PackageConfigError(
+            f"backend {backend_id!r} transport.failure_behavior must be 'passthrough_original'"
+        )
+    _required_string(transport, "privacy_warning")
+
+    request = _required_mapping(transport, "request")
+    if _required_string(request, "method") != "POST":
+        raise PackageConfigError(f"backend {backend_id!r} transport.request.method must be 'POST'")
+    path = _required_string(request, "path")
+    if not path.startswith("/"):
+        raise PackageConfigError(f"backend {backend_id!r} transport.request.path must start with '/'")
+    if _required_string(request, "content_type") != "application/json":
+        raise PackageConfigError(
+            f"backend {backend_id!r} transport.request.content_type must be 'application/json'"
+        )
+    request_body = _required_mapping(request, "body")
+    if request_body.get("text") != "string":
+        raise PackageConfigError(f"backend {backend_id!r} transport.request.body.text must be 'string'")
+    if request_body.get("context_focus_question") != "optional string":
+        raise PackageConfigError(
+            f"backend {backend_id!r} transport.request.body.context_focus_question "
+            "must be 'optional string'"
+        )
+
+    response = _required_mapping(transport, "response")
+    statuses = response.get("status_success")
+    if not isinstance(statuses, list) or 200 not in statuses:
+        raise PackageConfigError(f"backend {backend_id!r} transport.response.status_success must include 200")
+    if _required_string(response, "content_type") != "application/json":
+        raise PackageConfigError(
+            f"backend {backend_id!r} transport.response.content_type must be 'application/json'"
+        )
+    response_body = _required_mapping(response, "body")
+    if response_body.get("text") != "string":
+        raise PackageConfigError(f"backend {backend_id!r} transport.response.body.text must be 'string'")
 
 
 def _validate_binding(binding: dict[str, Any]) -> None:
@@ -710,8 +772,8 @@ def _validate_backend_launcher(backend: dict[str, Any]) -> dict[str, Any]:
             f"backend {backend_id!r} launcher.kind must be 'uv-python-module'"
         )
     extra = launcher.get("extra")
-    if not isinstance(extra, str) or not extra:
-        raise PackageConfigError(f"backend {backend_id!r} launcher.extra must be a non-empty string")
+    if not isinstance(extra, str):
+        raise PackageConfigError(f"backend {backend_id!r} launcher.extra must be a string")
     module = launcher.get("module")
     if not isinstance(module, str) or not module:
         raise PackageConfigError(f"backend {backend_id!r} launcher.module must be a non-empty string")

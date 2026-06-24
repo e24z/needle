@@ -88,7 +88,7 @@ or more ontology prose.
 | Runtime naming/state | `needle.runtime.*` owns runtime implementation and state defaults to `~/.needle` | Mostly landed | `pruner` and `HAY_*` remain compatibility shims; backend code still needs a Needle namespace. |
 | Backend selection | `NEEDLE_BACKEND=e24z/code-pruner-mlx` is recognized; `HAY_BACKEND=code-pruner` remains an alias | Transitional | Legacy names should become compatibility shims, not primary docs. |
 | Reference vs Soft-LaMR | Capability files and repair config tests exist | Mostly landed | Need ensure active package controls repair in every runtime path and CLI doctor reports it plainly. |
-| HTTP/CUDA backend | PRD describes target | Missing | Need at least a documented backend contract, and maybe a minimal HTTP backend stub if "point Needle at HTTP" remains 1.0. |
+| HTTP/CUDA backend | `backends/e24z/code-pruner-http.yaml`, `backends/HTTP-CONTRACT.md` | HTTP contract landed | Registry metadata and fail-open HTTP contract exist; runtime implementation and CUDA/backend recipes remain future work. |
 | Evidence/claims | Claim cards, `evidence/fixture-packs/*`, and `needle evidence check` exist | Mostly landed | Fixture packs are validated and listable; a live Pi demo script can still wrap an actual session later. |
 | Claude | `archive/claude/` | Archived | Not a 1.0 host. Revive only through a new host binding, package card, claim card, and active tests. |
 | CLI shape | `needle/cli.py` uses Typer and tests invoke `uv run needle ...` | Landed | Help is grouped and command names stayed stable; future commands still need the same ownership discipline. |
