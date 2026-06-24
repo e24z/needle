@@ -2,15 +2,17 @@
 
 This directory is the source-repo copy of the Homebrew packaging recipe.
 
-The actual public tap should be a separate repository such as
-`e24z/homebrew-tap`. Copy `Formula/needle.rb` there when cutting a release and
-replace the placeholder SHA256 with the release tarball hash.
+The actual public tap is the separate `e24z/homebrew-tap` repository. Copy
+`Formula/needle.rb` there whenever the formula changes.
 
-Expected public install:
+Current pre-release install:
 
 ```bash
-brew install e24z/tap/needle
+brew install --HEAD e24z/tap/needle
 ```
+
+When cutting a stable release, add the release tarball URL and SHA256 to the tap
+formula so users can install without `--HEAD`.
 
 The formula calls `needle setup --from-homebrew` in `post_install`. If Homebrew
 cannot run the interactive wizard, the formula caveats tell the user to resume

@@ -27,10 +27,11 @@ needle setup
 
 ## Planned Homebrew Install
 
-The intended public Mac install is Homebrew once `e24z/homebrew-tap` exists:
+The intended public Mac install is Homebrew. Until the first stable tag is cut,
+the tap is pre-release/head-only:
 
 ```bash
-brew install e24z/tap/needle
+brew install --HEAD e24z/tap/needle
 ```
 
 Homebrew starts `needle setup` during install when it can run interactively. If
@@ -40,7 +41,9 @@ setup is deferred, resume it with:
 needle setup
 ```
 
-The future Homebrew formula will install the Python runtime for you.
+The Homebrew formula installs the Python runtime and base CLI/MCP dependencies
+for you. A future stable formula will drop the `--HEAD` once a real release
+tarball SHA exists.
 
 Needle's Pi setup expects Pi's CLI to be available:
 
