@@ -13,20 +13,20 @@ import socket
 from pathlib import Path
 
 # Codename. The ONLY place the product name appears in code.
-APP_NAME = os.environ.get("HAY_APP_NAME", "hay")
+APP_NAME = os.environ.get("NEEDLE_APP_NAME") or os.environ.get("HAY_APP_NAME", "hay")
 
 
 def app_home() -> Path:
-    """Directory for runtime state (socket, logs). Override with HAY_HOME."""
-    env = os.environ.get("HAY_HOME")
+    """Directory for runtime state (socket, logs). Override with NEEDLE_HOME."""
+    env = os.environ.get("NEEDLE_HOME") or os.environ.get("HAY_HOME")
     if env:
         return Path(env).expanduser()
     return Path.home() / f".{APP_NAME}"
 
 
 def model_root() -> Path:
-    """Directory for Hay-owned model files. Override with HAY_MODEL_ROOT."""
-    env = os.environ.get("HAY_MODEL_ROOT")
+    """Directory for Needle-owned model files. Override with NEEDLE_MODEL_ROOT."""
+    env = os.environ.get("NEEDLE_MODEL_ROOT") or os.environ.get("HAY_MODEL_ROOT")
     if env:
         return Path(env).expanduser()
     return app_home() / "models"
@@ -44,8 +44,8 @@ def model_dir_for_repo(repo: str) -> Path:
 def manager_socket_path() -> Path:
     """The machine-wide manager socket. One per machine (per HAY_HOME), NOT keyed
     by project: the whole point of the manager is a single resident model shared
-    by every session. HAY_MANAGER_SOCKET overrides (tests, manual runs)."""
-    env = os.environ.get("HAY_MANAGER_SOCKET")
+    by every session. NEEDLE_MANAGER_SOCKET overrides (tests, manual runs)."""
+    env = os.environ.get("NEEDLE_MANAGER_SOCKET") or os.environ.get("HAY_MANAGER_SOCKET")
     if env:
         return Path(env).expanduser()
     return app_home() / "manager.sock"

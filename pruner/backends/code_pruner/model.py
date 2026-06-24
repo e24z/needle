@@ -676,16 +676,18 @@ def _is_filter_marker(line: str) -> bool:
 def _resolve_model_dir() -> str:
     """Local directory for the code-pruner model.
 
-    HAY_MODEL_DIR points at an exact existing model directory. Otherwise Hay
-    downloads HAY_MODEL from Hugging Face into a Hay-owned directory so uninstall
-    can clean up without spelunking through the shared Hugging Face cache.
+    NEEDLE_MODEL_DIR points at an exact existing model directory. Otherwise
+    Needle downloads NEEDLE_MODEL from Hugging Face into a Needle-owned
+    directory so uninstall can clean up without spelunking through the shared
+    Hugging Face cache. HAY_* names are still accepted as compatibility
+    fallbacks.
     """
-    explicit = os.environ.get("HAY_MODEL_DIR")
+    explicit = os.environ.get("NEEDLE_MODEL_DIR") or os.environ.get("HAY_MODEL_DIR")
     if explicit:
         return explicit
     from huggingface_hub import snapshot_download
 
-    repo = os.environ.get("HAY_MODEL", "ayanami-kitasan/code-pruner")
+    repo = os.environ.get("NEEDLE_MODEL") or os.environ.get("HAY_MODEL", "ayanami-kitasan/code-pruner")
     root = naming.model_root()
     local_dir = naming.model_dir_for_repo(repo)
     root.mkdir(parents=True, exist_ok=True)

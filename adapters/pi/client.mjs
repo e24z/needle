@@ -8,29 +8,30 @@ import { promisify } from "node:util";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const execFileAsync = promisify(execFile);
+const PI_HOST_BINDING = "pi/native-tools";
 
 export function appName() {
-	return process.env.HAY_APP_NAME || "hay";
+	return process.env.NEEDLE_APP_NAME || process.env.HAY_APP_NAME || "hay";
 }
 
 export function appHome() {
-	return process.env.HAY_HOME || join(process.env.HOME || "", `.${appName()}`);
+	return process.env.NEEDLE_HOME || process.env.HAY_HOME || join(process.env.HOME || "", `.${appName()}`);
 }
 
 export function packageConfigPath() {
-	return process.env.HAY_CONFIG || process.env.NEEDLE_CONFIG || join(appHome(), "config.json");
+	return process.env.NEEDLE_CONFIG || process.env.HAY_CONFIG || join(appHome(), "config.json");
 }
 
 export function modelRoot() {
-	return process.env.HAY_MODEL_ROOT || join(appHome(), "models");
+	return process.env.NEEDLE_MODEL_ROOT || process.env.HAY_MODEL_ROOT || join(appHome(), "models");
 }
 
 export function managerSocketPath() {
-	return process.env.HAY_MANAGER_SOCKET || join(appHome(), "manager.sock");
+	return process.env.NEEDLE_MANAGER_SOCKET || process.env.HAY_MANAGER_SOCKET || join(appHome(), "manager.sock");
 }
 
 export function eventsPath() {
-	return process.env.HAY_EVENTS || join(appHome(), "events.jsonl");
+	return process.env.NEEDLE_EVENTS || process.env.HAY_EVENTS || join(appHome(), "events.jsonl");
 }
 
 export function repoRootFromModuleUrl(moduleUrl) {
@@ -145,7 +146,7 @@ export async function sourceIdentity(repoRoot, options = {}) {
 	} catch {
 		// Optional outside a source checkout.
 	}
-	identity.activePackage = await packageIdentity(repoRoot);
+	identity.activePackage = await packageIdentity(repoRoot, undefined, { hostBinding: PI_HOST_BINDING });
 	identity.git = await gitIdentity(repoRoot, options);
 	return identity;
 }
@@ -153,11 +154,21 @@ export async function sourceIdentity(repoRoot, options = {}) {
 export async function packageIdentity(
 	repoRoot,
 	packageId = undefined,
+	options = {},
 ) {
-	packageId = packageId || (await activePackageId());
+	packageId = packageId || (await activePackageId({ hostBinding: options.hostBinding }));
 	try {
 		const root = registryRoot(repoRoot);
 		const pkg = await readRegistryJson(root, "packages", packageId);
+		const hostBinding = typeof pkg.host_binding === "string" ? pkg.host_binding : null;
+		if (options.hostBinding && hostBinding !== options.hostBinding) {
+			return {
+				available: false,
+				id: packageId,
+				reason: `package is bound to ${hostBinding || "unknown"}, not ${options.hostBinding}`,
+				hostBinding,
+			};
+		}
 		return {
 			available: true,
 			id: pkg.id || packageId,
@@ -165,7 +176,7 @@ export async function packageIdentity(
 				? pkg.implements.filter((item) => typeof item === "string")
 				: [],
 			backend: typeof pkg.uses?.backend === "string" ? pkg.uses.backend : null,
-			hostBinding: typeof pkg.host_binding === "string" ? pkg.host_binding : null,
+			hostBinding,
 			packageCard: typeof pkg.package_card === "string" ? pkg.package_card : null,
 			claimCard: typeof pkg.claim_card === "string" ? pkg.claim_card : null,
 			compute: typeof pkg.compute?.default === "string" ? pkg.compute.default : null,
@@ -184,7 +195,7 @@ export async function packageIdentity(
 export async function packageInventory(repoRoot, options = {}) {
 	const root = registryRoot(repoRoot);
 	const ids = await registryObjectIds(root, "packages");
-	const activeId = options.activePackageId || (await activePackageId());
+	const activeId = options.activePackageId || (await activePackageId({ hostBinding: options.hostBinding }));
 	const packages = [];
 	for (const id of ids) {
 		const pkg = await packageIdentity(repoRoot, id);
@@ -197,11 +208,15 @@ export async function packageInventory(repoRoot, options = {}) {
 	return packages.sort((a, b) => String(a.id).localeCompare(String(b.id)));
 }
 
-export async function activePackageId() {
-	if (process.env.HAY_PACKAGE) return process.env.HAY_PACKAGE;
+export async function activePackageId(options = {}) {
 	if (process.env.NEEDLE_PACKAGE) return process.env.NEEDLE_PACKAGE;
+	if (process.env.HAY_PACKAGE) return process.env.HAY_PACKAGE;
 	try {
 		const config = JSON.parse(await readFile(packageConfigPath(), "utf8"));
+		if (options.hostBinding && typeof config.packages === "object" && config.packages) {
+			const scoped = config.packages[options.hostBinding];
+			if (typeof scoped === "string" && scoped) return scoped;
+		}
 		if (typeof config.package === "string" && config.package) return config.package;
 	} catch {
 		// Missing or invalid user config falls back to the built-in default.
@@ -210,7 +225,7 @@ export async function activePackageId() {
 }
 
 export function registryRoot(repoRoot) {
-	return process.env.HAY_REGISTRY_ROOT || process.env.NEEDLE_REGISTRY_ROOT || repoRoot;
+	return process.env.NEEDLE_REGISTRY_ROOT || process.env.HAY_REGISTRY_ROOT || repoRoot;
 }
 
 async function readRegistryJson(repoRoot, dir, objectId) {
@@ -302,7 +317,7 @@ export async function ensureManager(options = {}) {
 		...process.env,
 		HAY_BACKEND: process.env.HAY_BACKEND || "code-pruner",
 	};
-	const child = spawn("uv", ["run", "-m", "pruner", "manage"], {
+	const child = spawn("uv", ["run", "--extra", "mlx", "-m", "pruner", "manage"], {
 		cwd: repoRoot,
 		env,
 		detached: true,

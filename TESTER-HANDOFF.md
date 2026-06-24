@@ -17,6 +17,7 @@ spending model context on irrelevant file sections or noisy command output.
 
    ```bash
    cd /path/to/hay
+   uv tool install --editable .
    pi install .
    ```
 
@@ -30,7 +31,7 @@ spending model context on irrelevant file sections or noisy command output.
 3. She checks that Needle is really loaded:
 
    ```text
-   /hay doctor
+   /needle doctor
    ```
 
    The important lines are:
@@ -42,6 +43,8 @@ spending model context on irrelevant file sections or noisy command output.
    compute local_mlx | privacy local_only
    ```
 
+   `/hay` is a temporary alias for the same Pi command.
+
 4. She asks Pi to inspect a large file or run a noisy command. Pi's tool call
    includes a `context_focus_question`, so Needle can score the output against
    what the model is looking for. Missing focus questions pass through
@@ -50,7 +53,7 @@ spending model context on irrelevant file sections or noisy command output.
 5. She watches the footer or runs:
 
    ```text
-   /hay status
+   /needle status
    ```
 
    The status line reports exact characters trimmed in this Pi session. Token
@@ -60,16 +63,16 @@ spending model context on irrelevant file sections or noisy command output.
 6. She lists available Pi-compatible packages:
 
    ```text
-   /hay packages
+   /needle packages
    ```
 
    This is a Pi-local view. The durable package control plane is the
-   host-neutral CLI:
+   host-neutral CLI installed above:
 
    ```bash
-   uv run -m pruner package list
-   uv run -m pruner package current
-   uv run -m pruner package doctor
+   needle package list --host-binding pi/native-tools
+   needle package current --host-binding pi/native-tools
+   needle package doctor --host-binding pi/native-tools
    ```
 
    The default package is `e24z/pi-local-mac`. It implements
@@ -80,20 +83,23 @@ spending model context on irrelevant file sections or noisy command output.
 7. If she wants Soft-LaMR as her default package, she selects it with the CLI:
 
    ```bash
-   uv run -m pruner package use e24z/pi-local-mac-soft-lamr
+   needle package use e24z/pi-local-mac-soft-lamr
    ```
 
+   If she has not installed the CLI yet, she can run the same command from the
+   repo as `uv run needle package use e24z/pi-local-mac-soft-lamr`.
+
    If a manager is already resident, she stops it first so the new package
-   policy and `/hay doctor` agree:
+   policy and `/needle doctor` agree:
 
    ```bash
-   uv run -m pruner stop
+   needle stop
    ```
 
    For a one-off run, she can still use an environment override:
 
    ```bash
-   HAY_PACKAGE=e24z/pi-local-mac-soft-lamr pi
+   NEEDLE_PACKAGE=e24z/pi-local-mac-soft-lamr pi
    ```
 
 8. If she wants to disable Needle for one Pi run without uninstalling it:
@@ -102,18 +108,24 @@ spending model context on irrelevant file sections or noisy command output.
    pi --no-extensions
    ```
 
-9. If she wants to remove Needle from Pi:
+9. If she wants to remove Needle completely:
 
    ```bash
    cd /path/to/hay
-   uv run -m pruner stop
    pi uninstall .
+   needle uninstall --yes
+   uv tool uninstall needle
    ```
 
-10. If she also wants to remove downloaded local model files:
+   `pi uninstall .` removes the Pi extension through Pi's native package flow.
+   `needle uninstall --yes` removes Needle-owned local runtime/config/model
+   files. `uv tool uninstall needle` removes the CLI entrypoint installed in
+   step 1.
+
+10. If she wants to preview cleanup first:
 
    ```bash
-   rm -rf ~/.hay/models
+   needle uninstall
    ```
 
 ## What Needle Claims

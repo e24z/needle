@@ -188,6 +188,8 @@ test("Pi extension lifecycle leases, overrides read, updates status, and release
 
 		await handlers.get("session_start")({}, ctx);
 		assert.equal(handlers.has("tool_result"), false);
+		assert.equal(commands.has("needle"), true);
+		assert.equal(commands.has("hay"), true);
 		assert.equal(tools.has("read"), true);
 		assert.equal(tools.has("bash"), true);
 		assert.equal(tools.get("read").parameters.properties.context_focus_question.type, "string");
@@ -206,7 +208,7 @@ test("Pi extension lifecycle leases, overrides read, updates status, and release
 			undefined,
 			ctx,
 		);
-		await commands.get("hay").handler("status", ctx);
+		await commands.get("needle").handler("status", ctx);
 		await handlers.get("session_shutdown")({}, ctx);
 
 		assert.deepEqual(result.content, [{ type: "text", text: "x".repeat(300) }]);
@@ -216,12 +218,12 @@ test("Pi extension lifecycle leases, overrides read, updates status, and release
 		assert.equal(customEntries.length, 1);
 		assert.deepEqual(customEntries[0].data.calls, 1);
 		assert.equal(messages.length, 1);
-		assert.equal(messages[0].customType, "hay-status");
-		assert.match(messages[0].content, /hay manager: ready \(mock resident\)/);
+		assert.equal(messages[0].customType, "needle-status");
+		assert.match(messages[0].content, /needle runtime: ready \(mock resident\)/);
 		assert.match(messages[0].content, /why running:/);
 		assert.match(messages[0].content, /this Pi session 700 chars trimmed  \|  1 prunes/);
-		assert.equal(statuses.at(-1)[0], "hay");
-		assert.match(statuses.at(-1)[1], /hay · 700 chars trimmed · 1 prune/);
+		assert.equal(statuses.at(-1)[0], "needle");
+		assert.match(statuses.at(-1)[1], /needle · 700 chars trimmed · 1 prune/);
 		assert.ok(ops.includes("lease"), ops);
 		assert.ok(ops.includes("prune"), ops);
 		assert.ok(ops.includes("release"), ops);
@@ -254,7 +256,7 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 			socketPath: "/tmp/hay/manager.sock",
 			source: {
 				repoRoot: "/tmp/hay",
-				packageName: "hay",
+				packageName: "needle",
 				packageVersion: "0.1.0",
 				pyprojectVersion: "0.1.0",
 				modelRoot: "/tmp/hay/models",
@@ -288,12 +290,12 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 	assert.match(rendered, /prompt bundle pi\/context-focus-question@0\.1/);
 	assert.match(rendered, /package card package-cards\/e24z\/pi-local-mac/);
 	assert.match(rendered, /claim card claims\/pi-local-mac-swe-pruner-reference/);
-	assert.match(rendered, /version package hay@0\.1\.0 \| pyproject 0\.1\.0/);
+	assert.match(rendered, /version package needle@0\.1\.0 \| pyproject 0\.1\.0/);
 	assert.match(rendered, /git pi-adapter@abcdef123456 \(dirty, 2 files\)/);
 	assert.match(rendered, /passthrough\s+reason=low-memory chars=1200/);
 	assert.match(renderOperatorStatus("loading", [], {}), /loading or pruning/);
 	assert.match(renderOperatorStatus(null, [], {}), /fails open/);
-	assert.match(formatStatus("loading", { savedChars: 0, calls: 0 }), /hay · 0 chars trimmed · 0 prunes/);
+	assert.match(formatStatus("loading", { savedChars: 0, calls: 0 }), /needle · 0 chars trimmed · 0 prunes/);
 });
 
 test("Pi source identity reads package, pyproject, git state, and active Needle package", async () => {
@@ -307,7 +309,7 @@ test("Pi source identity reads package, pyproject, git state, and active Needle 
 		delete process.env.NEEDLE_PACKAGE;
 
 		const identity = await sourceIdentity(process.cwd(), { timeoutMs: 1_000 });
-		assert.equal(identity.packageName, "hay");
+		assert.equal(identity.packageName, "needle");
 		assert.equal(identity.packageVersion, "0.1.0");
 		assert.equal(identity.pyprojectVersion, "0.1.0");
 		assert.match(identity.modelRoot, /\/\.hay\/models$/);
@@ -386,28 +388,39 @@ test("Pi package identity can load from an external registry root", async () => 
 test("Pi package identity reads CLI user config unless env overrides it", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "hay-config-"));
 	const configPath = join(dir, "config.json");
-	await writeFile(configPath, JSON.stringify({ package: "e24z/pi-local-mac-soft-lamr" }));
+	await writeFile(configPath, JSON.stringify({ packages: { "pi/native-tools": "e24z/pi-local-mac-soft-lamr" } }));
 
 	const oldConfig = process.env.HAY_CONFIG;
+	const oldNeedleConfig = process.env.NEEDLE_CONFIG;
 	const oldPackage = process.env.HAY_PACKAGE;
 	const oldNeedlePackage = process.env.NEEDLE_PACKAGE;
 	try {
-		process.env.HAY_CONFIG = configPath;
+		process.env.NEEDLE_CONFIG = configPath;
+		delete process.env.HAY_CONFIG;
 		delete process.env.HAY_PACKAGE;
 		delete process.env.NEEDLE_PACKAGE;
 
-		assert.equal(await activePackageId(), "e24z/pi-local-mac-soft-lamr");
-		const identity = await packageIdentity(process.cwd());
+		assert.equal(await activePackageId({ hostBinding: "pi/native-tools" }), "e24z/pi-local-mac-soft-lamr");
+		const identity = await packageIdentity(process.cwd(), undefined, { hostBinding: "pi/native-tools" });
 		assert.equal(identity.id, "e24z/pi-local-mac-soft-lamr");
 		assert.deepEqual(identity.capabilities, ["e24z/soft-lamr"]);
 
 		process.env.HAY_PACKAGE = "e24z/pi-local-mac";
+		process.env.NEEDLE_PACKAGE = "e24z/pi-local-mac-soft-lamr";
+		assert.equal(await activePackageId(), "e24z/pi-local-mac-soft-lamr");
+
+		delete process.env.NEEDLE_PACKAGE;
 		assert.equal(await activePackageId(), "e24z/pi-local-mac");
 	} finally {
 		if (oldConfig === undefined) {
 			delete process.env.HAY_CONFIG;
 		} else {
 			process.env.HAY_CONFIG = oldConfig;
+		}
+		if (oldNeedleConfig === undefined) {
+			delete process.env.NEEDLE_CONFIG;
+		} else {
+			process.env.NEEDLE_CONFIG = oldNeedleConfig;
 		}
 		if (oldPackage === undefined) {
 			delete process.env.HAY_PACKAGE;
@@ -424,8 +437,10 @@ test("Pi package identity reads CLI user config unless env overrides it", async 
 
 test("Pi package inventory lists reference and Soft-LaMR packages", async () => {
 	const oldPackage = process.env.HAY_PACKAGE;
+	const oldNeedlePackage = process.env.NEEDLE_PACKAGE;
 	try {
-		process.env.HAY_PACKAGE = "e24z/pi-local-mac-soft-lamr";
+		delete process.env.HAY_PACKAGE;
+		process.env.NEEDLE_PACKAGE = "e24z/pi-local-mac-soft-lamr";
 		const packages = await packageInventory(process.cwd());
 		const ids = packages.map((pkg) => pkg.id);
 		assert.ok(ids.includes("e24z/pi-local-mac"), ids);
@@ -440,6 +455,11 @@ test("Pi package inventory lists reference and Soft-LaMR packages", async () => 
 			delete process.env.HAY_PACKAGE;
 		} else {
 			process.env.HAY_PACKAGE = oldPackage;
+		}
+		if (oldNeedlePackage === undefined) {
+			delete process.env.NEEDLE_PACKAGE;
+		} else {
+			process.env.NEEDLE_PACKAGE = oldNeedlePackage;
 		}
 	}
 });
@@ -473,8 +493,9 @@ test("Pi package status explains package selection", async () => {
 	assert.match(rendered, /- e24z\/pi-local-mac-soft-lamr/);
 	assert.match(rendered, /no AST repair/);
 	assert.match(rendered, /python AST repair/);
-	assert.match(rendered, /uv run -m pruner package use <package-id>/);
-	assert.match(rendered, /HAY_PACKAGE=<package-id> pi/);
+	assert.match(rendered, /needle packages:/);
+	assert.match(rendered, /needle package use <package-id>/);
+	assert.match(rendered, /NEEDLE_PACKAGE=<package-id> pi/);
 
 	const live = await buildPackageStatus(process.cwd());
 	assert.match(live, /e24z\/pi-local-mac/);
@@ -615,13 +636,13 @@ test("Pi status formatter is honest about cold and degraded states", () => {
 		/^\x1b\[38;5;87m/,
 	);
 	assert.notEqual(formatIndicator("ready", undefined, { nowMs: 0 }), formatIndicator("ready", undefined, { nowMs: 400 }));
-	assert.match(formatStatus(null, { savedChars: 400, calls: 1 }, undefined, { columns: 100 }), /^.+ hay · 400 chars trimmed · 1 prune$/);
-	assert.match(formatStatus({ ok: true, resident: false }, { savedChars: 0, calls: 0 }, undefined, { columns: 100 }), /hay · 0 chars trimmed · 0 prunes/);
+	assert.match(formatStatus(null, { savedChars: 400, calls: 1 }, undefined, { columns: 100 }), /^.+ needle · 400 chars trimmed · 1 prune$/);
+	assert.match(formatStatus({ ok: true, resident: false }, { savedChars: 0, calls: 0 }, undefined, { columns: 100 }), /needle · 0 chars trimmed · 0 prunes/);
 	assert.match(
 		formatStatus({ ok: true, resident: true, backend: "code-pruner" }, { calls: 12, savedChars: 4096 }, undefined, {
 			columns: 12,
 		}),
-		/^.+ hay$/,
+		/^.+ needle$/,
 	);
 });
 

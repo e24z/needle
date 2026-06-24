@@ -1,7 +1,7 @@
 [
   {
     "name": "hay-session",
-    "command": "cd \"${CLAUDE_PLUGIN_ROOT}\" && HAY_BACKEND=\"${HAY_BACKEND:-code-pruner}\" uv run -m pruner session --session \"$CLAUDE_SESSION_ID\"",
+    "command": "cd \"${CLAUDE_PLUGIN_ROOT}\" && HAY_BACKEND=\"${HAY_BACKEND:-code-pruner}\" uv run --extra mlx -m pruner session --session \"$CLAUDE_SESSION_ID\"",
     "description": "Hay session lease — ensures the machine-wide manager is up and keeps it warm while this session is alive"
   }
 ]

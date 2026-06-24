@@ -31,7 +31,7 @@ const STATUS_MS = envMs("HAY_PI_STATUS_INTERVAL_SECS", 0.4);
 const STATUS_POLL_MS = envMs("HAY_PI_STATUS_POLL_SECS", 1);
 const ANIMATION_MS = envMs("HAY_PI_ANIMATION_INTERVAL_SECS", 0.4);
 const ACTIVE_MS = Number.parseFloat(process.env.HAY_PI_ACTIVE_SECS || "3") * 1000;
-const CUSTOM_STATE = "hay-state";
+const CUSTOM_STATE = "needle-state";
 const SEP = " · ";
 const SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const PULSE_FRAMES = ["⠤", "⠶", "⠿", "⠶"];
@@ -63,7 +63,7 @@ export function installHayPiExtension(pi, options = {}) {
 	let heartbeatTimer;
 	let statusTimer;
 
-	registerHayCommand(pi, counters, { repoRoot, extensionPath });
+	registerNeedleCommand(pi, counters, { repoRoot, extensionPath });
 	registerReadOverride(pi, counters, options.createReadTool, statusCache);
 	registerBashOverride(pi, counters, options.createBashTool, statusCache);
 
@@ -289,7 +289,7 @@ async function updateStatus(ctx, counters, cache = undefined, options = {}) {
 	const managerBusy = snapshot === "loading" || Boolean(cache?.pending);
 	const busy = Number(cache?.busyPrunes || 0) > 0 || (managerBusy && previousResident);
 	if (snapshot === "loading" && previousResident) snapshot = cache.snapshot;
-	ctx.ui?.setStatus?.("hay", formatStatus(snapshot, counters, ctx.ui.theme, { nowMs: now, busy }));
+	ctx.ui?.setStatus?.("needle", formatStatus(snapshot, counters, ctx.ui.theme, { nowMs: now, busy }));
 }
 
 function shouldPollStatus(cache, now) {
@@ -364,9 +364,9 @@ export function formatStatus(snapshot, counters = {}, theme, options = {}) {
 	const state = decideStatusState(snapshot, counters, options);
 	const plural = calls === 1 ? "" : "s";
 	const forms = [
-		`hay${SEP}${formatCount(savedChars)} chars trimmed${SEP}${calls} prune${plural}`,
-		`hay${SEP}${formatCount(savedChars)}c${SEP}${calls}p`,
-		"hay",
+		`needle${SEP}${formatCount(savedChars)} chars trimmed${SEP}${calls} prune${plural}`,
+		`needle${SEP}${formatCount(savedChars)}c${SEP}${calls}p`,
+		"needle",
 	];
 	const cols = Number(options.columns || process.env.COLUMNS || 80);
 	const indicator = formatIndicator(state, theme, options);
@@ -375,45 +375,47 @@ export function formatStatus(snapshot, counters = {}, theme, options = {}) {
 			return `${indicator} ${line}`;
 		}
 	}
-	return `${indicator} hay`;
+	return `${indicator} needle`;
 }
 
-function registerHayCommand(pi, counters, runtime) {
-	pi.registerCommand?.("hay", {
-		description: "Show Hay manager status",
-		getArgumentCompletions: (prefix) => {
-			const items = ["status", "doctor", "events", "packages"].filter((item) => item.startsWith(prefix));
-			return items.length ? items.map((value) => ({ value, label: value })) : null;
-		},
-		handler: async (args, ctx) => {
-			const parsed = parseHayArgs(args);
-			if (!parsed.ok) {
-				ctx.ui?.notify?.("Usage: /hay [status|doctor|events|packages] [count]", "warning");
-				return;
-			}
-			const content =
-				parsed.mode === "packages"
-					? await buildPackageStatus(runtime.repoRoot)
-					: await buildOperatorStatus(counters, {
-							events: parsed.events,
-							includeSource: parsed.mode === "doctor",
-							...runtime,
-						});
-			if (typeof pi.sendMessage === "function") {
-				pi.sendMessage({
-					customType: "hay-status",
-					content,
-					display: true,
-					details: { events: parsed.events, mode: parsed.mode },
-				});
-			} else {
-				ctx.ui?.notify?.(content, "info");
-			}
-		},
-	});
+function registerNeedleCommand(pi, counters, runtime) {
+	for (const command of ["needle", "hay"]) {
+		pi.registerCommand?.(command, {
+			description: command === "needle" ? "Show Needle runtime status" : "Alias for /needle",
+			getArgumentCompletions: (prefix) => {
+				const items = ["status", "doctor", "events", "packages"].filter((item) => item.startsWith(prefix));
+				return items.length ? items.map((value) => ({ value, label: value })) : null;
+			},
+			handler: async (args, ctx) => {
+				const parsed = parseNeedleArgs(args);
+				if (!parsed.ok) {
+					ctx.ui?.notify?.(`Usage: /${command} [status|doctor|events|packages] [count]`, "warning");
+					return;
+				}
+				const content =
+					parsed.mode === "packages"
+						? await buildPackageStatus(runtime.repoRoot)
+						: await buildOperatorStatus(counters, {
+								events: parsed.events,
+								includeSource: parsed.mode === "doctor",
+								...runtime,
+							});
+				if (typeof pi.sendMessage === "function") {
+					pi.sendMessage({
+						customType: "needle-status",
+						content,
+						display: true,
+						details: { events: parsed.events, mode: parsed.mode },
+					});
+				} else {
+					ctx.ui?.notify?.(content, "info");
+				}
+			},
+		});
+	}
 }
 
-function parseHayArgs(args) {
+function parseNeedleArgs(args) {
 	const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
 	const sub = parts[0] || "status";
 	if (!["status", "doctor", "events", "packages"].includes(sub)) return { ok: false };
@@ -429,7 +431,7 @@ export async function buildPackageStatus(repoRoot = repoRootFromModuleUrl(import
 }
 
 export function renderPackageStatus(packages) {
-	const lines = ["hay packages:"];
+	const lines = ["needle packages:"];
 	if (!packages.length) {
 		lines.push("  none found");
 		return lines.join("\n");
@@ -444,11 +446,11 @@ export function renderPackageStatus(packages) {
 		lines.push(`      backend ${backend} | ${repair}`);
 	}
 	lines.push("");
-	lines.push("select default package:");
-	lines.push("  uv run -m pruner package use <package-id>");
+	lines.push("select package for its host binding:");
+	lines.push("  needle package use <package-id>");
 	lines.push("one-run override:");
-	lines.push("  HAY_PACKAGE=<package-id> pi");
-	lines.push("restart the Hay manager if it is already resident.");
+	lines.push("  NEEDLE_PACKAGE=<package-id> pi");
+	lines.push("restart the resident Needle runtime if it is already running.");
 	return lines.join("\n");
 }
 
@@ -474,9 +476,9 @@ export async function buildOperatorStatus(counters = {}, options = {}) {
 export function renderOperatorStatus(snapshot, recent = [], counters = {}, options = {}) {
 	const lines = [];
 	if (snapshot === "loading") {
-		lines.push("hay manager: loading or pruning (socket busy)");
+		lines.push("needle runtime: loading or pruning (socket busy)");
 	} else if (!snapshot?.ok) {
-		lines.push("hay manager: down (not running)");
+		lines.push("needle runtime: down (not running)");
 	} else {
 		const backend = snapshot.backend;
 		let state;
@@ -487,7 +489,7 @@ export function renderOperatorStatus(snapshot, recent = [], counters = {}, optio
 		} else {
 			state = `ready (${backend || "unknown"} resident)`;
 		}
-		lines.push(`hay manager: ${state}`);
+		lines.push(`needle runtime: ${state}`);
 		lines.push(
 			`  sessions ${snapshot.sessions ?? 0}` +
 				`  |  version ${String(snapshot.version || "").slice(0, 12) || "?"}` +

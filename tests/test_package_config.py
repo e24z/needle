@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pruner.package_config import (  # noqa: E402
+from needle.registry import (  # noqa: E402
     PackageConfigError,
     active_package_selection,
     configured_package_id,
@@ -146,19 +146,27 @@ def test_package_selection_can_come_from_user_config() -> None:
     with tempfile.TemporaryDirectory() as td:
         path = Path(td) / "config.json"
         old_config = os.environ.get("HAY_CONFIG")
+        old_needle_config = os.environ.get("NEEDLE_CONFIG")
         old_package = os.environ.get("HAY_PACKAGE")
         old_needle_package = os.environ.get("NEEDLE_PACKAGE")
-        os.environ["HAY_CONFIG"] = str(path)
+        os.environ["NEEDLE_CONFIG"] = str(path)
+        os.environ.pop("HAY_CONFIG", None)
         os.environ.pop("HAY_PACKAGE", None)
         os.environ.pop("NEEDLE_PACKAGE", None)
         try:
             selected = set_configured_package_id("e24z/pi-local-mac-soft-lamr", root=ROOT)
             assert selected.package_id == "e24z/pi-local-mac-soft-lamr"
-            assert configured_package_id() == "e24z/pi-local-mac-soft-lamr"
-            assert active_package_selection()[0] == "e24z/pi-local-mac-soft-lamr"
-            assert load_active_package(ROOT).package_id == "e24z/pi-local-mac-soft-lamr"
+            assert configured_package_id(host_binding="pi/native-tools") == "e24z/pi-local-mac-soft-lamr"
+            assert active_package_selection(host_binding="pi/native-tools")[0] == "e24z/pi-local-mac-soft-lamr"
+            assert load_active_package(ROOT, host_binding="pi/native-tools").package_id == "e24z/pi-local-mac-soft-lamr"
 
             os.environ["HAY_PACKAGE"] = "e24z/pi-local-mac"
+            os.environ["NEEDLE_PACKAGE"] = "e24z/pi-local-mac-soft-lamr"
+            package_id, source = active_package_selection()
+            assert package_id == "e24z/pi-local-mac-soft-lamr"
+            assert source == "env:NEEDLE_PACKAGE"
+
+            os.environ.pop("NEEDLE_PACKAGE", None)
             package_id, source = active_package_selection()
             assert package_id == "e24z/pi-local-mac"
             assert source == "env:HAY_PACKAGE"
@@ -167,6 +175,10 @@ def test_package_selection_can_come_from_user_config() -> None:
                 os.environ.pop("HAY_CONFIG", None)
             else:
                 os.environ["HAY_CONFIG"] = old_config
+            if old_needle_config is None:
+                os.environ.pop("NEEDLE_CONFIG", None)
+            else:
+                os.environ["NEEDLE_CONFIG"] = old_needle_config
             if old_package is None:
                 os.environ.pop("HAY_PACKAGE", None)
             else:
@@ -185,6 +197,42 @@ def test_package_summaries_can_filter_by_host_binding() -> None:
     assert all(item["host_binding"] == "pi/native-tools" for item in summaries)
 
 
+def test_host_scoped_load_rejects_wrong_binding() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        for name in ("protocols", "capabilities", "backends", "bindings", "packages", "claims", "package-cards"):
+            src = ROOT / name
+            if src.exists():
+                shutil.copytree(src, tmp / name)
+
+        binding_path = tmp / "bindings/example/other.yaml"
+        binding_path.parent.mkdir(parents=True, exist_ok=True)
+        binding_path.write_text(
+            json.dumps(
+                {
+                    "schema": "needle.host_binding.v1",
+                    "id": "example/other",
+                    "host": "example",
+                    "tools": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        package_path = tmp / "packages/e24z/pi-local-mac-soft-lamr.yaml"
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+        package["host_binding"] = "example/other"
+        package_path.write_text(json.dumps(package, indent=2), encoding="utf-8")
+
+        try:
+            load_active_package(tmp, "e24z/pi-local-mac-soft-lamr", host_binding="pi/native-tools")
+        except PackageConfigError as exc:
+            msg = str(exc)
+        else:
+            raise AssertionError("expected host binding mismatch to fail")
+
+    assert "not requested host binding" in msg
+
+
 def main() -> int:
     test_default_package_graph_loads()
     test_reference_capability_has_no_ast_repair()
@@ -195,6 +243,7 @@ def main() -> int:
     test_registry_root_and_package_can_come_from_environment()
     test_package_selection_can_come_from_user_config()
     test_package_summaries_can_filter_by_host_binding()
+    test_host_scoped_load_rejects_wrong_binding()
     print("test_package_config OK")
     return 0
 

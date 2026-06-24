@@ -186,7 +186,7 @@ PYTHONPATH=. python3 tests/test_package_config.py
 
 File ownership:
 
-- `pruner/package_config.py` or similar.
+- `needle/registry.py` or similar.
 - `tests/test_package_config.py`.
 - No Pi adapter edits unless absolutely necessary.
 
