@@ -4,7 +4,9 @@ __pycache__/
 *.egg-info/
 eval/
 evals/
-docs
+docs/*
+!docs/
+!docs/READING-MAP.md
 MISSION.md
 NOTES.md
 RESOURCES.md

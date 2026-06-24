@@ -87,6 +87,12 @@ without relying on chat memory.
   - Printed exact character accounting, `/needle status`, and recent local
     events.
   - Documented what the canary proves and what it does not prove.
+- `docs(needle): refresh 1.0 docs after structural slices`
+  - Updated the PRD current-state section to match the Pi/native package branch.
+  - Made `docs/READING-MAP.md` trackable and pointed it at registry, CLI,
+    runtime, Pi adapter, and the demo canary.
+  - Kept tester docs install/use/uninstall oriented and explicit about what
+    token/dollar claims are not proven.
 
 ## Now
 
@@ -123,7 +129,7 @@ Issue Set:
 - #5 Convert needle CLI to Typer with stable command names (landed on branch)
 - #6 Define HTTP backend contract and registry metadata (landed on branch)
 - #7 Add live Pi demo canary around evidence fixtures (landed on branch)
-- #8 Refresh Needle 1.0 PRD and tester docs after structural slices
+- #8 Refresh Needle 1.0 PRD and tester docs after structural slices (landed on branch)
 
 Acceptance:
 
@@ -134,17 +140,17 @@ Acceptance:
 
 ## Next
 
-- Pick one issue and branch/PR against it instead of expanding this local queue.
-- Work issue #8 next: refresh the PRD and tester docs after structural slices.
+- Review and merge PR #9 when ready.
+- Pick any follow-up from GitHub issues rather than expanding this local queue.
 - Finish backend physical re-home under `needle.backends`.
-- Refresh the PRD current-state sections after the structural slices land.
+- Add backend timing/whole-file chunk metrics before making performance claims.
 
 ## Decisions Needed
 
 These should be surfaced before they block code:
 
-1. Should HTTP backend support be a 1.0 promise or a post-1.0 documented path?
-2. Should package policy own min chars and minimum savings ratio directly, or
+1. Should package policy own min chars and minimum savings ratio directly, or
    should those remain adapter-local overrides with package-visible defaults?
-3. How strict should the first evidence validation be: checked local fixture
-   files now, or recognized placeholder references until the demo slice?
+2. How much HTTP backend implementation is required before public 1.0, now that
+   the registry contract exists?
+3. How much MLX batching/instrumentation is enough before public tester launch?

@@ -1,7 +1,7 @@
 # Needle 1.0 PRD
 
-Status: Draft
-Date: 2026-06-22
+Status: Implementation-aligned draft
+Date: 2026-06-24
 Current project name: Hay
 Target 1.0 name: Needle
 Primary 1.0 host agent: Pi
@@ -147,7 +147,7 @@ The public model has four registry object kinds:
   `swe-pruner/reference` is the canonical SWE-Pruner reference capability.
 - Backend: a swappable compute implementation. A backend supports one or more
   capabilities, but it is not the user-facing product surface. Examples:
-  `e24z/code-pruner-mlx` and `e24z/code-pruner-cuda-http`.
+  `e24z/code-pruner-mlx` and `e24z/code-pruner-http`.
 - Package: the installable delivery vehicle. A package implements capabilities,
   uses a backend, and carries host binding, lifecycle, privacy, accounting,
   status, docs, and evidence. Example: `e24z/pi-local-mac`.
@@ -179,13 +179,13 @@ flowchart BT
     Ref["Capability<br/>swe-pruner/reference<br/>upstream SWE-Pruner behavior"]
     Soft["Capability<br/>e24z/soft-lamr<br/>SWE-Pruner + AST repair"]
     MLX["Backend<br/>e24z/code-pruner-mlx"]
-    CUDA["Backend<br/>e24z/code-pruner-cuda-http"]
+    HTTP["Backend<br/>e24z/code-pruner-http"]
     Package["Package<br/>e24z/pi-local-mac"]
 
     Ref -->|"conforms_to"| Protocol
     Soft -->|"extends"| Ref
     MLX -->|"supports"| Ref
-    CUDA -->|"supports"| Ref
+    HTTP -->|"supports"| Ref
     Package -->|"implements"| Ref
     Package -->|"uses"| MLX
 ```
@@ -464,7 +464,7 @@ uses:
   backend: e24z/code-pruner-mlx
 focus_contract:
   prompt_bundle: pi/context-focus-question@0.1
-  missing_focus_behavior: passthrough
+  missing_focus_behavior: passthrough_original
 compute:
   default: local_mlx
   alternatives:
@@ -511,24 +511,35 @@ AST expansion can restore enclosing classes/functions/imports, but it can also
 return too much code. This capability must be retested with explicit goal hints
 before becoming a public default.
 
-### 7.3 Current gap on this branch
+### 7.3 Current implementation on this branch
 
-The current Pi branch is a strong first slice, but not yet the 1.0 package:
+The `pi-native-pruning` branch now has a real Pi package slice:
 
-- It overrides Pi `read`.
-- It does not yet prune Pi `bash`.
-- It still infers the query from session text instead of requiring a
-  `context_focus_question` parameter.
-- It uses a `MIN_CHARS` default of 200 and `MIN_RATIO` default of 0.10 in the Pi
-  adapter.
-- It labels estimated saved chars as "tokens saved" in the status surface.
-- The MLX wrapper currently enables repair by default, so strict
-  `swe-pruner/reference` parity needs explicit repair-off configuration.
-- The MLX backend processes whole-file chunks serially rather than using a
-  batched, length-bucketed whole-file scoring path.
+- Pi `read` and `bash` are both extended through native Pi tool wrappers.
+- Both prunable tools expose `context_focus_question`.
+- Missing focus questions pass through unchanged.
+- The status surface reports exact characters trimmed, not fake tokens.
+- Runtime state defaults to `~/.needle`; `HAY_*` remains compatibility aliasing.
+- The resident runtime lives under `needle.runtime`, with `pruner.*` kept as
+  compatibility wrappers.
+- `needle package ...`, `needle evidence check`, `needle status`, `needle stop`,
+  `needle uninstall`, and `needle model ...` are Typer CLI commands.
+- Local fixture packs validate read prune, bash prune, and missing-focus
+  pass-through.
+- `npm run demo:pi-canary` replays those fixtures through the Pi extension path
+  with a mock Needle manager.
+- `e24z/code-pruner-http` documents the HTTP backend contract and
+  requires explicit endpoint configuration plus fail-open behavior.
 
-These are not signs that the project is a dud. They are the exact delta between
-"native Pi read pruning exists" and "Needle 1.0 package is defined."
+Remaining gaps are narrower:
+
+- The default MLX backend still needs performance instrumentation for chunk,
+  batch, timing, and memory behavior.
+- The HTTP backend has registry metadata and a contract, but no runtime caller
+  implementation yet.
+- Backend code still needs physical re-home under `needle.backends`.
+- Token and dollar savings remain estimates unless backed by paired runs,
+  provider token counts, or billing data.
 
 ## 8. Architecture
 
@@ -659,7 +670,7 @@ local profiling found that the forward path inside `_process_single_chunk`
 dominates runtime, while tokenization and line aggregation are much smaller.
 That points to batching and length bucketing as the next real performance move.
 
-Required future MLX metrics:
+Required MLX metrics:
 
 ```text
 chunks
@@ -699,12 +710,15 @@ The upstream SWE-Pruner package already exposes a FastAPI service shape. Needle
 should support a compatible HTTP backend instead of baking CUDA into the Pi
 adapter.
 
-1.0 target:
+Current contract:
 
-- `backend = http`
-- `NEEDLE_PRUNER_URL = http://localhost:8000/prune`
-- Optional bearer token.
-- Same package/capability metadata as local MLX.
+- Backend id: `e24z/code-pruner-http`
+- Endpoint env: `NEEDLE_HTTP_PRUNER_URL`
+- Request: `POST /v1/prune` with JSON `text`, optional
+  `context_focus_question`, optional `capability`, and optional `metadata`.
+- Response: JSON `text`, with optional `changed`, `reason`, and `accounting`.
+- Failure behavior: pass through the original text unchanged.
+- Privacy: remote endpoints receive unredacted tool output and focus hints.
 
 ### 10.3 Hosted GPU services
 
@@ -1081,7 +1095,7 @@ Before LinkedIn/Twitter/public tester launch:
 
 - Fresh Pi install can load Needle.
 - `/needle doctor` confirms the active checkout/package.
-- Model files live under Needle/Hay-owned directories.
+- Model files live under Needle-owned directories, defaulting to `~/.needle`.
 - Uninstall instructions remove extension wiring and model files.
 
 ### 15.2 Capability/package trust gate
@@ -1152,21 +1166,30 @@ Before LinkedIn/Twitter/public tester launch:
 
 ## 17. Proposed immediate work order
 
-1. Convert this PRD into issues.
-2. Add a `needle/text-transform` Protocol document/config.
-3. Add a `swe-pruner/reference` Capability document/config.
-4. Add `pi/native-tools` host binding and `e24z/pi-local-mac` Package configs.
-5. Add a Package Card, claim card, and fixture/evidence pack for the demo path.
-6. Change the status line from "tokens saved" to exact chars trimmed; put token
-   method details in `/needle status`, reports, and docs.
-7. Add explicit `context_focus_question` to Pi `read`.
-8. Add Pi `bash` pruning under the same capability.
-9. Tighten status ontology so `active` means in-flight.
-10. Add backend timing/whole-file chunk metrics.
-11. Add HTTP backend transport compatible with upstream SWE-Pruner service.
-12. Re-run small structural diagnostics with explicit goal hints, comparing
+Landed structural work:
+
+1. Convert the PRD plan into GitHub issues.
+2. Add `needle/text-transform`, `swe-pruner/reference`, `e24z/soft-lamr`,
+   `pi/native-tools`, `e24z/pi-local-mac`, package cards, claim cards, and
+   fixture evidence packs.
+3. Move the resident runtime under `needle.runtime` with `pruner.*`
+   compatibility wrappers.
+4. Move default state to `~/.needle`.
+5. Convert the public `needle` CLI to Typer.
+6. Add explicit `context_focus_question` to Pi `read` and `bash`.
+7. Show exact characters trimmed in status.
+8. Add `needle evidence check`.
+9. Add the HTTP backend contract and `e24z/code-pruner-http` metadata.
+10. Add `npm run demo:pi-canary`.
+
+Next work:
+
+1. Refresh public docs and package cards after this structural branch lands.
+2. Add backend timing/whole-file chunk metrics.
+3. Implement the HTTP backend caller if HTTP remains a 1.0 promise.
+4. Physically re-home backend implementation code under `needle.backends`.
+5. Re-run small structural diagnostics with explicit goal hints, comparing
    `swe-pruner/reference` and `e24z/soft-lamr`.
-13. Re-run one demo trace.
 
 ## 18. Sources
 
