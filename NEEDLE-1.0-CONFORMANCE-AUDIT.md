@@ -94,7 +94,7 @@ or more ontology prose.
 | Evidence/claims | Claim cards, `evidence/fixture-packs/*`, and `needle evidence check` exist | Mostly landed | Fixture packs are validated and listable; a live Pi demo script can still wrap an actual session later. |
 | Claude | `archive/claude/` | Archived | Not a 1.0 host. Revive only through a new host binding, package card, claim card, and active tests. |
 | CLI shape | `needle/cli.py` uses argparse | Working but straining | Typer likely fits the nested product surface better, but it is secondary to ownership. |
-| Issue tracking | `NEEDLE-1.0-ISSUE-MAP.md` is a local Markdown queue | Transitional | Useful for staging, but not a real project tracker. GitHub issues should become the durable public/internal coordination layer once the work is ready to externalize. |
+| Issue tracking | GitHub issues #1-#8 and `NEEDLE-1.0-WORK-QUEUE.md` | Mostly landed | GitHub now owns durable work items; local docs still need refresh to avoid stale parallel tracking. |
 | Docs | Tester handoff is current-ish; reading map and issue map are stale | Mixed | Need docs refresh after structural refactor. |
 
 ## Main Diagnosis
@@ -258,16 +258,12 @@ Target:
 
 Priority: P1, but should happen before parallel external work.
 
-Problem:
-The current issue map is a Markdown planning artifact inside the repo. That is
-good for reflection and prompt handoff, but weak as an operating system for a
-project that may have branches, PRs, testers, and external collaborators.
+Status:
+Landed. GitHub issues #3-#8 now split the remaining Needle 1.0 work under the
+broad Pi-native parent #1. Issue #2 remains the separate MCP lane.
 
-Target:
+Follow-up:
 
-- Decide when the GitHub remote is authoritative enough to receive issues.
-- Convert the next concrete work set into GitHub issues with labels, acceptance
-  criteria, and verification commands.
 - Keep this local map as design history, not as the canonical tracker.
 - Link PRs to issues once implementation starts moving in parallel.
 
@@ -323,8 +319,7 @@ These are product/architecture calls, not chores.
 3. Re-home runtime/backend modules under Needle names, keeping `pruner` shims.
 4. Convert CLI to Typer and add `backend`/`runtime` doctor views.
 5. Add a live Pi demo script around an actual session, if needed.
-6. Migrate the accepted next issue set into GitHub issues.
-7. Refresh PRD/current-state sections, issue map, tester handoff, and reading
+6. Refresh PRD/current-state sections, issue map, tester handoff, and reading
    map.
 
 Do not start with benchmarks. Do not start with more ontology prose. The next

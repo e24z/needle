@@ -57,6 +57,9 @@ without relying on chat memory.
   - Added `needle evidence check [package]`.
   - Listed fixture manifests and read/bash/pass-through cases for testers.
   - Documented the command in the Pi README and tester handoff.
+- `docs(needle): migrate work queue to github issues`
+  - Created GitHub issues #3-#8 for the remaining Needle 1.0 slices.
+  - Kept issue #1 as the broad Pi-native parent and issue #2 as the MCP lane.
 
 ## Now
 
@@ -79,20 +82,32 @@ Acceptance:
 - `needle evidence check` prints the fixture cases in a tester-facing form.
   (Landed.)
 
-### 2. Convert Work Queue Into GitHub Issues
+### 2. GitHub Issues Are The Durable Tracker
 
 Goal:
-Move durable coordination out of local Markdown once the evidence-pack shape is
-concrete enough to split into public issues.
+Use GitHub issues for implementation tracking from this point forward.
+
+Issue Set:
+
+- #1 Build Pi-native Hay pruning contract from SWE-Pruner parity principles
+- #2 Build bash-minimal Needle MCP package
+- #3 Finish Needle runtime re-home under Needle namespaces
+- #4 Migrate runtime state from `~/.hay` to `~/.needle`
+- #5 Convert needle CLI to Typer with stable command names
+- #6 Define HTTP backend contract and registry metadata
+- #7 Add live Pi demo canary around evidence fixtures
+- #8 Refresh Needle 1.0 PRD and tester docs after structural slices
 
 Acceptance:
 
 - GitHub issues exist for demo/evidence, Typer CLI, runtime physical re-home,
-  state rename/migration, and HTTP/backend contract.
+  state rename/migration, and HTTP/backend contract. (Landed.)
 - The local queue points to those issues instead of becoming a second tracker.
+  (Landed.)
 
 ## Next
 
+- Pick one issue and branch/PR against it instead of expanding this local queue.
 - Convert the CLI to Typer once command ownership is stable enough.
 - Finish physical runtime re-home under `needle.runtime`/`needle.backends`.
 - Refresh the PRD current-state sections after the structural slices land.
