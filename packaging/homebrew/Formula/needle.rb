@@ -3,7 +3,7 @@ class Needle < Formula
 
   desc "Local context-pruning for agent coding tools"
   homepage "https://github.com/e24z/needle"
-  head "https://github.com/e24z/needle.git", branch: "pi-native-pruning"
+  head "https://github.com/e24z/needle.git"
 
   depends_on "python@3.13"
 
