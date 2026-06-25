@@ -32,7 +32,7 @@ Three active layers:
 
 3. **`needle/cli.py`** — *How does a user control packages and runtime state?*
    The public Typer CLI owns `needle setup pi`, `needle setup claude-code`,
-   `needle mcp serve`, `needle package ...`, `needle evidence check`,
+   `needle setup codex`, `needle mcp serve`, `needle package ...`, `needle evidence check`,
    `needle status`, `needle stop`, `needle uninstall`, and `needle model ...`.
 
 4. **`needle/runtime/protocol.py` + `needle/runtime/client.py`** — *How do the pieces talk?* The
@@ -90,6 +90,7 @@ uv run needle package doctor --host-binding mcp/bash
 uv run needle evidence check --host-binding mcp/bash
 uv run needle setup pi --dry-run
 uv run needle setup claude-code --dry-run
+uv run needle setup codex --dry-run
 
 # terminal 1: a manager on its own socket/home (downloads the model on first prune)
 cd /tmp/needle-sandbox && NEEDLE_HOME=/tmp/needle-sandbox-home uv run needle runtime manage

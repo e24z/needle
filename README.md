@@ -166,11 +166,12 @@ The public release surface is intentionally small:
 - `packaging/`: Homebrew formula source used by the tap.
 - `docs/getting-started/`: tester and dogfood flows.
 - `docs/reference/`: stable user/developer references.
-- `docs/planning/`: 1.0 planning history and tester handoff.
 - `tests/` and `tools/`: direct-script tests and local diagnostics.
 
-Ignored local archaeology, old benchmark runs, and teaching scratch files should
-stay out of the source root. If needed locally, keep them under `.local-archive/`.
+Planning history, archived host experiments, and performance notes live under
+`docs/internal/`. They are maintainer notes, not the public tester path. Ignored
+local archaeology, old benchmark runs, and teaching scratch files should stay
+out of the source root. If needed locally, keep them under `.local-archive/`.
 
 ## Developer Notes
 
