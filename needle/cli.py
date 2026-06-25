@@ -521,6 +521,14 @@ _SETUP_HOSTS = {
         "verify": "Open Claude Code and run `/mcp`.",
         "uninstall": "needle setup claude-code --uninstall",
     },
+    "codex": {
+        "label": "Codex MCP dogfood adapter",
+        "binding": "mcp/bash",
+        "package": "e24z/mlx-mcp-bash-reference",
+        "setup": "needle setup codex",
+        "verify": "Open Codex and run `/mcp`.",
+        "uninstall": "needle setup codex --uninstall",
+    },
 }
 
 
@@ -562,10 +570,13 @@ def _setup_host(value: str | None) -> str | None:
         "claude": "claude-code",
         "claude_code": "claude-code",
         "mcp": "claude-code",
+        "codex-cli": "codex",
+        "codex_app": "codex",
+        "codex-app": "codex",
     }
     normalized = aliases.get(normalized, normalized)
     if normalized not in _SETUP_HOSTS:
-        raise ValueError("host must be one of: pi, claude-code")
+        raise ValueError("host must be one of: pi, claude-code, codex")
     return normalized
 
 
@@ -594,7 +605,7 @@ def _print_setup_checklist(
         print(f"      verify:  {meta['verify']}")
         print("      model:   run `needle model dir`; use `needle model download` after installing backend deps")
     print("")
-    print("Needle will not change Pi or Claude Code until you confirm an install.")
+    print("Needle will not change Pi, Claude Code, or Codex until you confirm an install.")
     if dry_run:
         print("dry run: no changes made")
     else:
@@ -634,23 +645,33 @@ def _run_setup_host(
     skip_canary: bool,
     scope: str,
 ) -> int:
+    if host == "claude-code":
+        try:
+            _claude_scope(scope)
+        except ValueError as exc:
+            _print_error(exc)
+            return 1
     code = _select_setup_package(host, package_id, dry_run=dry_run)
     if code:
         return code
     print("")
     if host == "pi":
         return _setup_pi(_ns(dry_run=dry_run, uninstall=False, skip_canary=skip_canary))
+    if host == "codex":
+        return _setup_codex(_ns(dry_run=dry_run, uninstall=False))
     return _setup_claude_code(_ns(dry_run=dry_run, uninstall=False, scope=scope))
 
 
 def _setup_native_command(host: str, scope: str) -> list[str]:
     if host == "pi":
         return ["pi", "install", str(_pi_package_dir())]
+    if host == "codex":
+        return _codex_add_command()
     return _claude_code_add_command(scope)
 
 
 def _prompt_setup_host(default: str = "pi") -> str:
-    raw = typer.prompt("Host agent (pi or claude-code)", default=default)
+    raw = typer.prompt("Host agent (pi, claude-code, or codex)", default=default)
     try:
         host = _setup_host(raw)
     except ValueError as exc:
@@ -821,6 +842,24 @@ def _claude_code_mcp_json() -> dict[str, object]:
     }
 
 
+def _codex_add_command() -> list[str]:
+    return ["codex", "mcp", "add", "needle-bash", "--", "needle", "mcp", "serve"]
+
+
+def _codex_remove_command() -> list[str]:
+    return ["codex", "mcp", "remove", "needle-bash"]
+
+
+def _codex_config_toml() -> str:
+    return "\n".join(
+        [
+            "[mcp_servers.needle-bash]",
+            'command = "needle"',
+            'args = ["mcp", "serve"]',
+        ]
+    )
+
+
 def _setup_claude_code(args: argparse.Namespace) -> int:
     try:
         scope = _claude_scope(args.scope)
@@ -877,6 +916,61 @@ def _setup_claude_code(args: argparse.Namespace) -> int:
     if code:
         return code
     print("Needle Claude Code MCP server installed. Open Claude Code and run `/mcp`.")
+    print("Agent contract: use `needle_bash` for observation; keep edits on native tools.")
+    return 0
+
+
+def _setup_codex(args: argparse.Namespace) -> int:
+    if args.uninstall:
+        command = _codex_remove_command()
+        print("Needle Codex MCP server: needle-bash")
+        print(f"Codex command: {_format_command(command)}")
+        if args.dry_run:
+            print("dry run: no changes made")
+            print("next: run `needle setup codex --uninstall` without `--dry-run` to remove it.")
+            return 0
+        if shutil.which("codex") is None:
+            _print_error("Codex CLI was not found on PATH; `codex --help` should work first.")
+            return 1
+        code = _run_visible(command)
+        if code:
+            return code
+        print("Needle Codex MCP server removed through Codex's native MCP command.")
+        return 0
+
+    try:
+        loaded = load_active_package(package_id="e24z/mlx-mcp-bash-reference", host_binding="mcp/bash")
+    except PackageConfigError as exc:
+        _print_error(exc)
+        return 1
+
+    command = _codex_add_command()
+    print("Needle Codex MCP setup")
+    print(f"package: {loaded.package_id}")
+    print(f"host binding: {loaded.binding_id}")
+    print(f"server: needle-bash")
+    print(f"server command: needle mcp serve")
+    print(f"Codex command: {_format_command(command)}")
+    print("")
+    print("Project .codex/config.toml shape, if you prefer project-scoped setup:")
+    print(_codex_config_toml())
+    print("")
+    print("Dogfood contract: ask Codex to use `needle_bash` for large read-only observations.")
+    print("Needle does not transparently rewrite Codex's built-in Bash output.")
+
+    if args.dry_run:
+        print("dry run: no changes made")
+        print("next: run `needle setup codex`, then open Codex and run `/mcp`.")
+        return 0
+
+    if shutil.which("codex") is None:
+        _print_error("Codex CLI was not found on PATH; `codex --help` should work first.")
+        return 1
+
+    code = _run_visible(command)
+    if code:
+        return code
+    print("Needle Codex MCP server installed. Start a fresh Codex thread and run `/mcp`.")
     print("Agent contract: use `needle_bash` for observation; keep edits on native tools.")
     return 0
 
@@ -1161,7 +1255,7 @@ def setup(
     host: str | None = typer.Option(
         None,
         "--host",
-        help="Host agent to set up: pi or claude-code.",
+        help="Host agent to set up: pi, claude-code, or codex.",
     ),
     package_id: str | None = typer.Option(
         None,
@@ -1219,9 +1313,24 @@ def setup_pi(
         "--skip-canary",
         help="Skip the local Pi adapter canary after install.",
     ),
+    package_id: str | None = typer.Option(
+        None,
+        "--package",
+        help="Package id to select before installing the Pi adapter.",
+    ),
 ) -> None:
     """Install or remove Needle's Pi adapter using Pi's native package flow."""
-    _exit_with(_setup_pi(_ns(dry_run=dry_run, uninstall=uninstall_adapter, skip_canary=skip_canary)))
+    if uninstall_adapter:
+        _exit_with(_setup_pi(_ns(dry_run=dry_run, uninstall=True, skip_canary=skip_canary)))
+    _exit_with(
+        _run_setup_host(
+            host="pi",
+            package_id=package_id,
+            dry_run=dry_run,
+            skip_canary=skip_canary,
+            scope="local",
+        )
+    )
 
 
 @setup_app.command("claude-code")
@@ -1241,9 +1350,56 @@ def setup_claude_code(
         "--scope",
         help="Claude MCP scope: local, project, or user.",
     ),
+    package_id: str | None = typer.Option(
+        None,
+        "--package",
+        help="Package id to select before installing the Claude Code MCP server.",
+    ),
 ) -> None:
     """Install or remove Needle's Claude Code MCP server."""
-    _exit_with(_setup_claude_code(_ns(dry_run=dry_run, uninstall=uninstall_adapter, scope=scope)))
+    if uninstall_adapter:
+        _exit_with(_setup_claude_code(_ns(dry_run=dry_run, uninstall=True, scope=scope)))
+    _exit_with(
+        _run_setup_host(
+            host="claude-code",
+            package_id=package_id,
+            dry_run=dry_run,
+            skip_canary=False,
+            scope=scope,
+        )
+    )
+
+
+@setup_app.command("codex")
+def setup_codex(
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print Codex MCP setup without changing Codex.",
+    ),
+    uninstall_adapter: bool = typer.Option(
+        False,
+        "--uninstall",
+        help="Remove Needle's MCP server through Codex's native MCP command.",
+    ),
+    package_id: str | None = typer.Option(
+        None,
+        "--package",
+        help="Package id to select before installing the Codex MCP server.",
+    ),
+) -> None:
+    """Install or remove Needle's Codex MCP dogfood server."""
+    if uninstall_adapter:
+        _exit_with(_setup_codex(_ns(dry_run=dry_run, uninstall=True)))
+    _exit_with(
+        _run_setup_host(
+            host="codex",
+            package_id=package_id,
+            dry_run=dry_run,
+            skip_canary=False,
+            scope="local",
+        )
+    )
 
 
 @statusline_app.command("claude-code")

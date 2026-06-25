@@ -10,8 +10,8 @@ tool output -> Needle -> original or pruned text
 
 The 1.0 product path is [Pi](https://github.com/mariozechner/pi). Needle extends
 Pi's native `read` and `bash` tools, so users keep the normal Pi workflow. The
-portable path is a bash-minimal MCP server for Claude Code and other MCP hosts;
-it exposes one observation tool,
+portable path is a bash-minimal MCP server for Claude Code, Codex, and other MCP
+hosts; it exposes one observation tool,
 `needle_bash(command, context_focus_question?)`.
 
 In both paths, Needle only shortens large textual observations when the tool call
@@ -57,6 +57,12 @@ Needle's Claude Code setup expects Claude's CLI to be available:
 
 ```bash
 claude --help
+```
+
+Needle's Codex dogfood setup expects the Codex CLI to be available:
+
+```bash
+codex --help
 ```
 
 Check the adapter from inside Pi:
@@ -146,6 +152,11 @@ The portable MCP package is `e24z/mlx-mcp-bash-reference`. It also implements
 `swe-pruner/reference`, but its host binding is `mcp/bash` and its only tool is
 `needle_bash`.
 
+For local dogfooding across Pi, Claude Code, and Codex, use
+[docs/getting-started/DOGFOODING.md](docs/getting-started/DOGFOODING.md). A
+Claude Code or Codex run only counts as pruned when the transcript shows a
+`needle_bash` MCP tool call; MCP setup does not rewrite native shell output.
+
 ## Source Layout
 
 The public release surface is intentionally small:
@@ -153,6 +164,7 @@ The public release surface is intentionally small:
 - `needle/`: CLI, runtime, host adapters, and built-in registry snapshot.
 - `pruner/`: compatibility facade plus the current MLX code-pruner backend.
 - `packaging/`: Homebrew formula source used by the tap.
+- `docs/getting-started/`: tester and dogfood flows.
 - `docs/reference/`: stable user/developer references.
 - `docs/planning/`: 1.0 planning history and tester handoff.
 - `tests/` and `tools/`: direct-script tests and local diagnostics.
@@ -172,6 +184,7 @@ needle evidence check --host-binding mcp/bash
 needle setup --dry-run
 needle setup pi --dry-run
 needle setup claude-code --dry-run
+needle setup codex --dry-run
 needle statusline claude-code --plain
 ```
 

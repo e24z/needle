@@ -284,14 +284,17 @@ def test_setup_root_dry_run_lists_hosts_without_mutating() -> None:
     assert "Needle setup" in out
     assert "Pi native adapter" in out
     assert "Claude Code MCP adapter" in out
+    assert "Codex MCP dogfood adapter" in out
     assert "package: e24z/mlx-pi-soft-lamr" in out
     assert "setup:   needle setup pi" in out
     assert "setup:   needle setup claude-code" in out
+    assert "setup:   needle setup codex" in out
     assert "native:  pi install" in out
     assert "native:  claude mcp add --transport stdio --scope local needle-bash -- needle mcp serve" in out
+    assert "native:  codex mcp add needle-bash -- needle mcp serve" in out
     assert "needle model dir" in out
     assert "needle model download" in out
-    assert "Needle will not change Pi or Claude Code" in out
+    assert "Needle will not change Pi, Claude Code, or Codex" in out
     assert "dry run: no changes made" in out
 
 
@@ -311,6 +314,7 @@ def test_setup_homebrew_entrypoint_defers_in_noninteractive_shell() -> None:
             assert data["resume"] == "needle setup"
             assert data["hosts"]["pi"]["setup"] == "needle setup pi"
             assert data["hosts"]["claude-code"]["setup"] == "needle setup claude-code"
+            assert data["hosts"]["codex"]["setup"] == "needle setup codex"
         finally:
             if old_home is None:
                 os.environ.pop("NEEDLE_HOME", None)
@@ -340,6 +344,20 @@ def test_setup_claude_code_dry_run_prints_native_mcp_setup() -> None:
     assert code == 0, err
     assert "Claude scope: project" in out
     assert "Project .mcp.json shape" in out
+
+
+def test_setup_codex_dry_run_prints_native_mcp_setup() -> None:
+    code, out, err = _run(["setup", "codex", "--dry-run"])
+    assert code == 0, err
+    assert "Needle Codex MCP setup" in out
+    assert "package: e24z/mlx-mcp-bash-reference" in out
+    assert "host binding: mcp/bash" in out
+    assert "server command: needle mcp serve" in out
+    assert "Codex command: codex mcp add needle-bash -- needle mcp serve" in out
+    assert "Project .codex/config.toml shape" in out
+    assert "[mcp_servers.needle-bash]" in out
+    assert "Needle does not transparently rewrite Codex's built-in Bash output." in out
+    assert "dry run: no changes made" in out
 
 
 def test_setup_claude_code_rejects_unknown_scope() -> None:
@@ -419,6 +437,7 @@ def main() -> int:
     test_setup_root_rejects_unknown_host()
     test_setup_pi_dry_run_uses_packaged_adapter()
     test_setup_claude_code_dry_run_prints_native_mcp_setup()
+    test_setup_codex_dry_run_prints_native_mcp_setup()
     test_setup_claude_code_rejects_unknown_scope()
     test_claude_code_statusline_plain_reports_runtime_health()
     test_runtime_status_wrapper_is_available()
