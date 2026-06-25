@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -56,6 +57,12 @@ def _clear_mlx_cache() -> None:
     fn = _mlx_func("clear_cache")
     if fn is not None:
         fn()
+
+
+def _force_mlx_eval(*arrays: mx.array) -> None:
+    fn = getattr(mx, "eval", None)
+    if fn is not None:
+        fn(*arrays)
 
 
 def _viterbi_decode_numpy(
@@ -390,6 +397,7 @@ class MLXSwePrunerBackend:
             "true",
             "yes",
         }
+        self.last_stats: dict[str, object] = {}
 
     def _build_backbone_light(self, backbone_name: str):
         """Build the Qwen3 backbone architecture from its config (no Qwen
@@ -468,7 +476,14 @@ class MLXSwePrunerBackend:
         max_length: int = 8192,
         use_viterbi: bool = False,
     ):
+        total_start = time.perf_counter()
+        profile_forced_eval = _env_flag("NEEDLE_PROFILE_MLX", False) or _env_flag(
+            "HAY_PROFILE_MLX",
+            False,
+        )
+
         # Format instruction prompt
+        tokenize_start = time.perf_counter()
         prefix = '<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n'
         suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
         formatted_query = (
@@ -489,12 +504,14 @@ class MLXSwePrunerBackend:
         )
         code_ids = code_enc["input_ids"]
         code_offsets = code_enc["offset_mapping"]
+        original_code_tokens = len(code_ids)
 
         # Truncate code if sequence exceeds max length
         available_len = max_length - len(prefix_ids) - len(suffix_ids) - len(query_ids)
         if len(code_ids) > available_len:
             code_ids = code_ids[:available_len]
             code_offsets = code_offsets[:available_len]
+        tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
 
         input_ids = prefix_ids + query_ids + code_ids + suffix_ids
         real_len = len(input_ids)
@@ -512,6 +529,7 @@ class MLXSwePrunerBackend:
         attention_mask_mx = mx.array([attention_mask])
 
         # Run Backbone to collect hidden states
+        graph_start = time.perf_counter()
         hidden_states = []
 
         # We hook into layers output by running the layers sequentially
@@ -538,6 +556,17 @@ class MLXSwePrunerBackend:
 
         # Run Custom TokenScorer once; Viterbi can decode from the same emissions.
         outputs = self.scorer(hidden_states, attention_mask_mx)
+        graph_build_ms = (time.perf_counter() - graph_start) * 1000
+        forward_eval_ms = None
+        if profile_forced_eval:
+            eval_start = time.perf_counter()
+            to_eval = [outputs["token_logits"], outputs["score_logits"]]
+            if "token_emissions" in outputs:
+                to_eval.append(outputs["token_emissions"])
+            _force_mlx_eval(*to_eval)
+            forward_eval_ms = (time.perf_counter() - eval_start) * 1000
+
+        decode_start = time.perf_counter()
         if use_viterbi:
             best_paths = self.scorer.decode_outputs(outputs, attention_mask_mx)
             probs = best_paths[0, doc_start:doc_end].astype(mx.float32)
@@ -545,8 +574,10 @@ class MLXSwePrunerBackend:
             # Calculate probability scores using sigmoid on token logits
             token_logits_seq = outputs["token_logits"][0, doc_start:doc_end]
             probs = mx.sigmoid(token_logits_seq)
+        decode_graph_ms = (time.perf_counter() - decode_start) * 1000
 
         # Calculate final relevance score (exp since it is log_softmax)
+        host_sync_start = time.perf_counter()
         score_prob = mx.exp(outputs["score_logits"][0])
         chunk_score = float(score_prob.astype(mx.float32).item())
 
@@ -554,8 +585,33 @@ class MLXSwePrunerBackend:
         # string conversion and host syncs.
         probs_np = np.array(probs.astype(mx.float32), dtype=np.float32)
         code_token_scores = [("", float(score)) for score in probs_np.tolist()]
+        host_sync_ms = (time.perf_counter() - host_sync_start) * 1000
 
-        return chunk_score, code_token_scores, code_offsets
+        stats = {
+            "chunks": 1,
+            "batches": 1,
+            "max_length": max_length,
+            "available_code_tokens": available_len,
+            "original_code_tokens": original_code_tokens,
+            "code_tokens": len(code_ids),
+            "truncated_code_tokens": max(0, original_code_tokens - len(code_ids)),
+            "prefix_tokens": len(prefix_ids),
+            "query_tokens": len(query_ids),
+            "suffix_tokens": len(suffix_ids),
+            "real_tokens": real_len,
+            "padded_tokens": len(input_ids),
+            "pad_tokens": pad_len,
+            "padding_waste_ratio": pad_len / len(input_ids) if input_ids else 0.0,
+            "profile_forced_eval": profile_forced_eval,
+            "tokenize_ms": tokenize_ms,
+            "graph_build_ms": graph_build_ms,
+            "forward_eval_ms": forward_eval_ms,
+            "decode_graph_ms": decode_graph_ms,
+            "host_sync_ms": host_sync_ms,
+            "chunk_total_ms": (time.perf_counter() - total_start) * 1000,
+        }
+
+        return chunk_score, code_token_scores, code_offsets, stats
 
     def evict(self) -> None:
         """Release any cached device memory held by the backend. Idempotent."""
@@ -577,14 +633,19 @@ class MLXSwePrunerBackend:
             use_viterbi = self.use_viterbi
 
         # Process single code chunk
-        chunk_score, code_token_scores, code_offsets = self._process_single_chunk(
+        total_start = time.perf_counter()
+        chunk_score, code_token_scores, code_offsets, chunk_stats = self._process_single_chunk(
             query, text, max_length=max_length, use_viterbi=use_viterbi
         )
 
         # Map token-level scores back to line numbers
+        aggregate_start = time.perf_counter()
         line_scores = aggregate_token_scores_to_lines(
             text, code_token_scores, code_offsets
         )
+        line_aggregate_ms = (time.perf_counter() - aggregate_start) * 1000
+
+        render_start = time.perf_counter()
         pruned, kept_lines = prune_code_lines(text, line_scores, threshold, False)
 
         # Optional AST structural repair (off by default): an alternative render
@@ -600,7 +661,18 @@ class MLXSwePrunerBackend:
             except SyntaxError:
                 result = pruned
 
-        return _apply_floor(text, result)
+        result = _apply_floor(text, result)
+        self.last_stats = {
+            **chunk_stats,
+            "chunk_score": chunk_score,
+            "input_chars": len(text),
+            "output_chars": len(result),
+            "saved_chars": max(0, len(text) - len(result)),
+            "line_aggregate_ms": line_aggregate_ms,
+            "render_ms": (time.perf_counter() - render_start) * 1000,
+            "total_ms": (time.perf_counter() - total_start) * 1000,
+        }
+        return result
 
 
 def _looks_like_python(text: str) -> bool:
@@ -729,6 +801,10 @@ class CodePrunerBackend:
         finally:
             if self._clear_cache_after_prune:
                 _clear_mlx_cache()
+
+    @property
+    def last_stats(self) -> dict[str, object]:
+        return dict(self._impl.last_stats)
 
     def evict(self) -> None:
         self._impl.evict()
