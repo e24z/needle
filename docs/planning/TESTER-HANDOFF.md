@@ -58,8 +58,13 @@ spending model context on irrelevant file sections or noisy command output.
    active package e24z/mlx-pi-soft-lamr
    capability e24z/soft-lamr
    backend e24z/code-pruner-mlx
+   runtime profile local_mlx_adaptive
    compute local_mlx | privacy local_only
    ```
+
+   The runtime profile is local MLX tuning, not a separate capability. The
+   package still claims `e24z/soft-lamr`; the profile only controls launch-time
+   defaults such as max window sizing and batch size.
 
 4. She asks Pi to inspect a large file or run a noisy command. Pi's tool call
    includes a `context_focus_question`, so Needle can score the output against
@@ -100,6 +105,12 @@ spending model context on irrelevant file sections or noisy command output.
    `needle evidence check` validates and lists the local fixture pack behind the
    package claim: one read prune case, one bash prune case, and one missing-focus
    pass-through case.
+
+   `needle package doctor --host-binding pi/native-tools` also shows
+   `runtime profile: local_mlx_adaptive`. For current Mac defaults, that means
+   batch size 1, a 2048-token window for small/medium observations, and a
+   1024-token window for larger observations. `NEEDLE_MLX_MAX_LENGTH` can still
+   override this for lab work.
 
    To run those same fixture cases through the Pi extension path without a live
    model or benchmark:
@@ -218,7 +229,7 @@ Claude Code's native tools.
    entrypoint installed in step 1. If she used the developer path, the last
    command is `uv tool uninstall needle`.
 
-10. If she wants to preview cleanup first:
+5. If she wants to preview cleanup first:
 
    ```bash
    needle uninstall
@@ -232,6 +243,8 @@ Claude Code's native tools.
 - The default package keeps tool text on the local Mac.
 - Runtime state defaults to `~/.needle`; old `HAY_*` env vars are compatibility
   aliases, not the preferred public surface.
+- The default local MLX runtime profile is adaptive launch tuning, not a
+  separate pruning capability.
 
 ## What Needle Does Not Claim
 

@@ -41,6 +41,12 @@ needle setup
 This still exposes the user to a source checkout, so it is not the preferred
 public 1.0 path.
 
+Keep source-only benchmark runs, lesson files, and temporary research artifacts
+out of the root checkout. The source repo should read like a release surface:
+CLI/runtime, packages, protocols, backends, host adapters, docs, packaging,
+tests, and tools. Local archaeology belongs under ignored paths such as
+`.local-archive/`.
+
 ### Python App Path
 
 Once a wheel is published, `pipx` is the fallback for users who do not want
@@ -54,6 +60,12 @@ needle setup
 ## Registry
 
 1.0 ships a built-in registry snapshot under `needle/registry_data`.
+
+Runtime tuning that is specific to a package install lives on the package as a
+runtime profile. It is not a capability claim. For example,
+`e24z/mlx-pi-soft-lamr` implements the `e24z/soft-lamr` capability, uses the
+`e24z/code-pruner-mlx` backend, and launches with the `local_mlx_adaptive`
+runtime profile.
 
 An external registry can be selected with:
 

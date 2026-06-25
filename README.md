@@ -8,12 +8,15 @@ It sits between an agent tool and the model:
 tool output -> Needle -> original or pruned text
 ```
 
-The 1.0 target hosts are [Pi](https://github.com/mariozechner/pi) and Claude
-Code. Pi uses a native package that extends Pi's `read` and `bash` tools. Claude
-Code uses a bash-minimal MCP server that exposes one observation tool,
-`needle_bash(command, context_focus_question?)`. In both paths, Needle only
-shortens large textual observations when the tool call includes a
-`context_focus_question`.
+The 1.0 product path is [Pi](https://github.com/mariozechner/pi). Needle extends
+Pi's native `read` and `bash` tools, so users keep the normal Pi workflow. The
+portable path is a bash-minimal MCP server for Claude Code and other MCP hosts;
+it exposes one observation tool,
+`needle_bash(command, context_focus_question?)`.
+
+In both paths, Needle only shortens large textual observations when the tool call
+includes a `context_focus_question`. Missing focus questions pass through
+unchanged.
 
 ## Install
 
@@ -60,6 +63,17 @@ Check the adapter from inside Pi:
 
 ```text
 /needle doctor
+```
+
+The important doctor lines should show the active package, capability, backend,
+and runtime profile:
+
+```text
+active package e24z/mlx-pi-soft-lamr
+capability e24z/soft-lamr
+backend e24z/code-pruner-mlx
+runtime profile local_mlx_adaptive
+compute local_mlx | privacy local_only
 ```
 
 Run the no-model canary:
@@ -122,9 +136,29 @@ SWE-Pruner scoring path. The comparison package `e24z/mlx-pi-reference`
 implements `swe-pruner/reference` without AST repair and should be treated as
 the no-AST reference path, not the default product path.
 
+Both MLX Pi packages use the `local_mlx_adaptive` runtime profile. That profile
+is local launch tuning, not a capability claim: it keeps batch size at 1 on
+constrained Macs, uses a 2048-token window for small and medium observations,
+and switches to 1024-token windows for larger observations. Explicit
+`NEEDLE_MLX_MAX_LENGTH` still wins for experiments.
+
 The portable MCP package is `e24z/mlx-mcp-bash-reference`. It also implements
 `swe-pruner/reference`, but its host binding is `mcp/bash` and its only tool is
 `needle_bash`.
+
+## Source Layout
+
+The public release surface is intentionally small:
+
+- `needle/`: CLI, runtime, host adapters, and built-in registry snapshot.
+- `pruner/`: compatibility facade plus the current MLX code-pruner backend.
+- `packaging/`: Homebrew formula source used by the tap.
+- `docs/reference/`: stable user/developer references.
+- `docs/planning/`: 1.0 planning history and tester handoff.
+- `tests/` and `tools/`: direct-script tests and local diagnostics.
+
+Ignored local archaeology, old benchmark runs, and teaching scratch files should
+stay out of the source root. If needed locally, keep them under `.local-archive/`.
 
 ## Developer Notes
 
