@@ -165,7 +165,9 @@ For the Claude-specific flow, see
 The public release surface is intentionally small:
 
 - `needle/`: CLI, runtime, host adapters, and built-in registry snapshot.
-- `pruner/`: compatibility facade plus the current MLX code-pruner backend.
+- `needle/backends/`: backend contract, fake/debug backends, and the current
+  MLX code-pruner backend.
+- `pruner/`: compatibility facade for legacy imports and `python -m pruner`.
 - `packaging/`: Homebrew formula source used by the tap.
 - `docs/getting-started/`: tester and dogfood flows.
 - `docs/reference/`: stable user/developer references.

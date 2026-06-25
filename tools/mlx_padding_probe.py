@@ -13,7 +13,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Iterable
 
-from pruner.backends.code_pruner.profiling import (
+from needle.backends.code_pruner.profiling import (
     BatchProfile,
     current_serial_fixed_padding,
     length_bucket_batches,

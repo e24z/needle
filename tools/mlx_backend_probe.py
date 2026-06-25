@@ -179,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     ]
 
-    from pruner.backends.code_pruner.model import CodePrunerBackend
+    from needle.backends.code_pruner.model import CodePrunerBackend
 
     before_load = _snapshot()
     load_started = time.perf_counter()

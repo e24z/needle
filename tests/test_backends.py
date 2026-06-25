@@ -16,15 +16,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pruner.backends import FakePruner, _degraded, get_backend, is_code_pruner_backend_name  # noqa: E402
-from pruner.backends.code_pruner.config import (  # noqa: E402
+from needle.backends import FakePruner, _degraded, get_backend, is_code_pruner_backend_name  # noqa: E402
+from needle.backends.code_pruner.config import (  # noqa: E402
     choose_mlx_max_length,
     configured_max_length,
     repair_enabled_for_active_package,
     repair_enabled_for_capabilities,
 )
-from pruner.backends.code_pruner.lines import prune_code_lines  # noqa: E402
-from pruner.backends.code_pruner.repair import repair_python_mask  # noqa: E402
+from needle.backends.code_pruner.lines import prune_code_lines  # noqa: E402
+from needle.backends.code_pruner.repair import repair_python_mask  # noqa: E402
+from pruner.backends import get_backend as legacy_get_backend  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,6 +36,10 @@ def test_routing() -> None:
     assert get_backend("fake").prune(text="abcd", query="") == "abcd"
     # halve is the debug shrinker: visibly shorter, proves the replacement path
     assert len(get_backend("halve").prune(text="abcdefgh", query="")) < 8
+
+
+def test_legacy_pruner_backend_import_still_routes() -> None:
+    assert legacy_get_backend("fake").prune(text="abcd", query="") == "abcd"
 
 
 def test_canonical_backend_id_is_code_pruner() -> None:
@@ -231,6 +236,7 @@ def test_plain_renderer_keeps_tiny_gaps_when_marker_is_longer() -> None:
 
 def main() -> int:
     test_routing()
+    test_legacy_pruner_backend_import_still_routes()
     test_canonical_backend_id_is_code_pruner()
     test_degraded_is_loud()
     test_reference_capability_leaves_repair_off()

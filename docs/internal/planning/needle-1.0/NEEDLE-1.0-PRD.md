@@ -540,7 +540,8 @@ Remaining gaps are narrower:
   batch, timing, and memory behavior.
 - The HTTP backend has registry metadata and a contract, but no runtime caller
   implementation yet.
-- Backend code still needs physical re-home under `needle.backends`.
+- Backend code now lives under `needle.backends`; `pruner.backends` remains a
+  compatibility facade.
 - Token and dollar savings remain estimates unless backed by paired runs,
   provider token counts, or billing data.
 
@@ -1190,8 +1191,7 @@ Next work:
 1. Refresh public docs and package cards after this structural branch lands.
 2. Add backend timing/whole-file chunk metrics.
 3. Implement the HTTP backend caller if HTTP remains a 1.0 promise.
-4. Physically re-home backend implementation code under `needle.backends`.
-5. Re-run small structural diagnostics with explicit goal hints, comparing
+4. Re-run small structural diagnostics with explicit goal hints, comparing
    `swe-pruner/reference` and `e24z/soft-lamr`.
 
 ## 18. Sources

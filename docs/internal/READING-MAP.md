@@ -11,9 +11,11 @@ Three active layers:
   graph: what a user installs, what it claims, which backend it uses, and what
   evidence backs it. Package-level runtime profiles live here too; they are
   launch/tuning presets, not capabilities.
+- `needle/backends/` is the backend contract plus fake/debug backends and the
+  current MLX code-pruner backend.
 - `needle/runtime/` is the resident runtime: socket protocol, client, manager,
   session leases, event log, memory guard.
-- `pruner/` is now a compatibility facade for old imports and `python -m pruner`.
+- `pruner/` is a compatibility facade for old imports and `python -m pruner`.
 - `needle/hosts/pi/` is the packaged Pi host binding: native read/bash
   wrappers, status, package identity, and the Pi package manifest.
 - `needle/hosts/mcp/` is the packaged MCP host binding: one bash observation
@@ -72,7 +74,7 @@ Then the **adapter surface** (how it becomes visible and safe):
     portable reference adapter?* A single `needle_bash` observation tool,
     explicit optional focus, fail-open behavior, and no mutation ownership.
 
-**Do NOT start with** `pruner/backends/code_pruner/model.py` to "understand the
+**Do NOT start with** `needle/backends/code_pruner/model.py` to "understand the
 product." It's the sealed box: `prune_text(text, query) -> text`. Read it only
 when working on MLX performance or model behavior.
 

@@ -138,8 +138,8 @@ Likely files:
 ### B. Runtime re-home and compatibility shim
 
 Priority: P0
-Status: namespace shim and Needle-owned runtime launcher landed; physical
-re-home remains.
+Status: namespace shim, Needle-owned runtime launcher, and backend physical
+re-home landed.
 
 Problem:
 `pruner` still means runtime, CLI, backend, old product identity, and manager
@@ -148,7 +148,7 @@ protocol. This keeps the code mentally anchored in the old architecture.
 Target:
 
 - Move runtime modules toward `needle.runtime`. (Landed for resident runtime.)
-- Move backend code toward `needle.backends.code_pruner_mlx`.
+- Move backend code under `needle.backends`. (Landed with compatibility shims.)
 - Keep `pruner` as a thin compatibility import/entrypoint while the branch is
   in transition.
 - Update docs/tests to describe Needle runtime, not "the pruner app".

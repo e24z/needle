@@ -142,7 +142,7 @@ Acceptance:
 
 - Review and merge PR #9 when ready.
 - Pick any follow-up from GitHub issues rather than expanding this local queue.
-- Finish backend physical re-home under `needle.backends`.
+- Finish removing stale public/internal references to pre-Needle backend layout.
 - Add backend timing/whole-file chunk metrics before making performance claims.
 
 ## Decisions Needed

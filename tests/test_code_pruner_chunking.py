@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pruner.backends.code_pruner.chunking import (  # noqa: E402
+from needle.backends.code_pruner.chunking import (  # noqa: E402
     TokenChunk,
     bucket_token_chunks,
     merge_token_scores_from_chunks,

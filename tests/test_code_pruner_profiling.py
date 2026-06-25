@@ -10,7 +10,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pruner.backends.code_pruner.profiling import (  # noqa: E402
+from needle.backends.code_pruner.profiling import (  # noqa: E402
     current_serial_fixed_padding,
     length_bucket_batches,
     one_dynamic_batch,
