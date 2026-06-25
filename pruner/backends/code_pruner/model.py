@@ -89,6 +89,29 @@ def _clear_mlx_cache() -> None:
         fn()
 
 
+def _reset_mlx_peak_memory() -> None:
+    fn = _mlx_func("reset_peak_memory")
+    if fn is not None:
+        fn()
+
+
+def _mlx_memory_mb() -> dict[str, float]:
+    stats: dict[str, float] = {}
+    for key, fn_name in (
+        ("active_mb", "get_active_memory"),
+        ("cache_mb", "get_cache_memory"),
+        ("peak_mb", "get_peak_memory"),
+    ):
+        fn = _mlx_func(fn_name)
+        if fn is None:
+            continue
+        try:
+            stats[key] = float(fn()) / (1024 * 1024)
+        except Exception:  # noqa: BLE001
+            continue
+    return stats
+
+
 def _force_mlx_eval(*arrays: mx.array) -> None:
     fn = getattr(mx, "eval", None)
     if fn is not None:
@@ -200,11 +223,12 @@ class MLXTokenScorer(nn.Module):
         super().__init__()
         self.use_multi_layer_fusion = use_multi_layer_fusion
         self.compression_head_type = compression_head_type
+        self.num_hidden_layers = num_hidden_layers
+        self.final_layer_idx = num_hidden_layers
 
         if self.use_multi_layer_fusion:
             self.early_layer_idx = max(1, int(num_hidden_layers * early_layer_ratio))
             self.middle_layer_idx = max(1, int(num_hidden_layers * middle_layer_ratio))
-            self.final_layer_idx = num_hidden_layers
             self.fused_hidden_size = hidden_size * 3
         else:
             self.fused_hidden_size = hidden_size
@@ -248,21 +272,38 @@ class MLXTokenScorer(nn.Module):
         self.token_yes_id = 9581  # Default token IDs for yes/no in Qwen vocab
         self.token_no_id = 1684
 
+    def required_hidden_state_indices(self) -> set[int]:
+        if self.use_multi_layer_fusion:
+            return {
+                self.early_layer_idx,
+                self.middle_layer_idx,
+                self.final_layer_idx,
+            }
+        return {self.final_layer_idx}
+
+    def _hidden_at(
+        self, hidden_states: list[mx.array | None], index: int
+    ) -> mx.array:
+        hidden = hidden_states[index]
+        if hidden is None:
+            raise RuntimeError(f"missing required hidden state at layer {index}")
+        return hidden
+
     def __call__(
         self,
-        hidden_states: list[mx.array],
+        hidden_states: list[mx.array | None],
         attention_mask: mx.array = None,
     ) -> dict[str, mx.array]:
         # 1. Extract and fuse hidden states
         if self.use_multi_layer_fusion:
-            early_hidden = hidden_states[self.early_layer_idx]
-            middle_hidden = hidden_states[self.middle_layer_idx]
-            final_hidden = hidden_states[self.final_layer_idx]
+            early_hidden = self._hidden_at(hidden_states, self.early_layer_idx)
+            middle_hidden = self._hidden_at(hidden_states, self.middle_layer_idx)
+            final_hidden = self._hidden_at(hidden_states, self.final_layer_idx)
             h = mx.concatenate([early_hidden, middle_hidden, final_hidden], axis=-1)
         else:
-            h = hidden_states[-1]
+            h = self._hidden_at(hidden_states, -1)
 
-        h_for_scoring = hidden_states[-1]
+        h_for_scoring = self._hidden_at(hidden_states, -1)
 
         # 2. Compile attention mask for MLX MultiHeadAttention
         # MLX expects a mask that is added to attention scores, where 1s (real) -> 0 and 0s (pad) -> -1e9
@@ -327,15 +368,17 @@ class MLXTokenScorer(nn.Module):
             return self.compression_head.crf.decode(outputs["token_emissions"], mask)
         return outputs["token_logits"] > 0
 
-    def decode(self, hidden_states: list[mx.array], mask: mx.array = None) -> mx.array:
+    def decode(
+        self, hidden_states: list[mx.array | None], mask: mx.array = None
+    ) -> mx.array:
         # Full Viterbi decoding pass
         if self.use_multi_layer_fusion:
-            early_hidden = hidden_states[self.early_layer_idx]
-            middle_hidden = hidden_states[self.middle_layer_idx]
-            final_hidden = hidden_states[self.final_layer_idx]
+            early_hidden = self._hidden_at(hidden_states, self.early_layer_idx)
+            middle_hidden = self._hidden_at(hidden_states, self.middle_layer_idx)
+            final_hidden = self._hidden_at(hidden_states, self.final_layer_idx)
             h = mx.concatenate([early_hidden, middle_hidden, final_hidden], axis=-1)
         else:
-            h = hidden_states[-1]
+            h = self._hidden_at(hidden_states, -1)
 
         if mask is not None:
             attn_mask = (1.0 - mask[:, None, None, :]) * -1e9
@@ -557,6 +600,10 @@ class MLXSwePrunerBackend:
         dict[str, object],
     ]:
         total_start = time.perf_counter()
+        memory_start: dict[str, float] = {}
+        if profile_forced_eval:
+            _reset_mlx_peak_memory()
+            memory_start = _mlx_memory_mb()
         if not prepared:
             return [], {
                 "chunks": 0,
@@ -581,9 +628,12 @@ class MLXSwePrunerBackend:
         attention_mask_mx = mx.array(mask_rows)
 
         graph_start = time.perf_counter()
-        hidden_states = []
+        layers = self.backbone.model.layers
+        required_hidden = self.scorer.required_hidden_state_indices()
+        hidden_states: list[mx.array | None] = [None] * (len(layers) + 1)
         h = self.backbone.model.embed_tokens(input_ids_mx)
-        hidden_states.append(h)
+        if 0 in required_hidden:
+            hidden_states[0] = h
 
         import sys
 
@@ -592,9 +642,10 @@ class MLXSwePrunerBackend:
         create_attention_mask = getattr(model_module, "create_attention_mask")
         mask = create_attention_mask(h, None)
 
-        for layer in self.backbone.model.layers:
+        for layer_idx, layer in enumerate(layers, start=1):
             h = layer(h, mask=mask)
-            hidden_states.append(h)
+            if layer_idx in required_hidden:
+                hidden_states[layer_idx] = h
 
         h = self.backbone.model.norm(h)
         hidden_states[-1] = h
@@ -641,6 +692,7 @@ class MLXSwePrunerBackend:
                 )
             )
         host_sync_ms = (time.perf_counter() - host_sync_start) * 1000
+        memory_end = _mlx_memory_mb() if profile_forced_eval else {}
 
         real_tokens = sum(item.real_len for item in prepared)
         padded_tokens = len(prepared) * batch_len
@@ -666,12 +718,25 @@ class MLXSwePrunerBackend:
             if padded_tokens
             else 0.0,
             "profile_forced_eval": profile_forced_eval,
+            "retained_hidden_states": len(required_hidden),
+            "available_hidden_states": len(layers) + 1,
             "graph_build_ms": graph_build_ms,
             "forward_eval_ms": forward_eval_ms,
             "decode_graph_ms": decode_graph_ms,
             "host_sync_ms": host_sync_ms,
             "batch_total_ms": (time.perf_counter() - total_start) * 1000,
         }
+        if memory_start or memory_end:
+            stats.update(
+                {
+                    "mlx_active_mb_start": memory_start.get("active_mb"),
+                    "mlx_cache_mb_start": memory_start.get("cache_mb"),
+                    "mlx_peak_mb_start": memory_start.get("peak_mb"),
+                    "mlx_active_mb_end": memory_end.get("active_mb"),
+                    "mlx_cache_mb_end": memory_end.get("cache_mb"),
+                    "mlx_peak_mb_end": memory_end.get("peak_mb"),
+                }
+            )
         return results, stats
 
     def _process_single_chunk(
@@ -735,12 +800,15 @@ class MLXSwePrunerBackend:
 
         # Run Backbone to collect hidden states
         graph_start = time.perf_counter()
-        hidden_states = []
+        layers = self.backbone.model.layers
+        required_hidden = self.scorer.required_hidden_state_indices()
+        hidden_states: list[mx.array | None] = [None] * (len(layers) + 1)
 
         # We hook into layers output by running the layers sequentially
         # First, run the embedding layer
         h = self.backbone.model.embed_tokens(input_ids_mx)
-        hidden_states.append(h)
+        if 0 in required_hidden:
+            hidden_states[0] = h
 
         # Get the appropriate create_attention_mask helper for the loaded model architecture
         import sys
@@ -751,9 +819,10 @@ class MLXSwePrunerBackend:
         mask = create_attention_mask(h, None)
 
         # Run layers one by one to collect hidden states at each step
-        for layer in self.backbone.model.layers:
+        for layer_idx, layer in enumerate(layers, start=1):
             h = layer(h, mask=mask)
-            hidden_states.append(h)
+            if layer_idx in required_hidden:
+                hidden_states[layer_idx] = h
 
         # Run final norm
         h = self.backbone.model.norm(h)
@@ -988,6 +1057,31 @@ class MLXSwePrunerBackend:
             for stats in batch_stats
             if stats.get("forward_eval_ms") is not None
         ]
+        retained_hidden_values = [
+            int(stats["retained_hidden_states"])
+            for stats in batch_stats
+            if stats.get("retained_hidden_states") is not None
+        ]
+        available_hidden_values = [
+            int(stats["available_hidden_states"])
+            for stats in batch_stats
+            if stats.get("available_hidden_states") is not None
+        ]
+        mlx_active_end_values = [
+            float(stats["mlx_active_mb_end"])
+            for stats in batch_stats
+            if stats.get("mlx_active_mb_end") is not None
+        ]
+        mlx_cache_end_values = [
+            float(stats["mlx_cache_mb_end"])
+            for stats in batch_stats
+            if stats.get("mlx_cache_mb_end") is not None
+        ]
+        mlx_peak_values = [
+            float(stats["mlx_peak_mb_end"])
+            for stats in batch_stats
+            if stats.get("mlx_peak_mb_end") is not None
+        ]
         chunk_scores = [score for score, _tokens, _offsets, _start in scored_results]
         self.last_stats = {
             **base_stats,
@@ -1027,6 +1121,19 @@ class MLXSwePrunerBackend:
             "batch_total_ms": sum(
                 float(stats.get("batch_total_ms", 0.0)) for stats in batch_stats
             ),
+            "retained_hidden_states": max(retained_hidden_values)
+            if retained_hidden_values
+            else None,
+            "available_hidden_states": max(available_hidden_values)
+            if available_hidden_values
+            else None,
+            "mlx_active_mb_end": mlx_active_end_values[-1]
+            if mlx_active_end_values
+            else None,
+            "mlx_cache_mb_end": mlx_cache_end_values[-1]
+            if mlx_cache_end_values
+            else None,
+            "mlx_peak_mb_max": max(mlx_peak_values) if mlx_peak_values else None,
             "input_chars": len(text),
             "output_chars": len(result),
             "saved_chars": max(0, len(text) - len(result)),
