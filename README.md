@@ -156,6 +156,8 @@ For local dogfooding across Pi, Claude Code, and Codex, use
 [docs/getting-started/DOGFOODING.md](docs/getting-started/DOGFOODING.md). A
 Claude Code or Codex run only counts as pruned when the transcript shows a
 `needle_bash` MCP tool call; MCP setup does not rewrite native shell output.
+For the Claude-specific flow, see
+[docs/getting-started/CLAUDE-CODE-MCP.md](docs/getting-started/CLAUDE-CODE-MCP.md).
 
 ## Source Layout
 
