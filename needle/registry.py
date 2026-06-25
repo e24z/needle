@@ -91,6 +91,7 @@ class RuntimeLaunchPlan:
     kind: str
     command: list[str]
     env: dict[str, str]
+    runtime_profile: str = ""
     extra: str = ""
     module: str = ""
     args: list[str] = field(default_factory=list)
@@ -131,12 +132,14 @@ def runtime_launch_plan(
     """Resolve the active package into a concrete local runtime launch plan."""
     loaded = load_active_package(root, package_id, host_binding=host_binding)
     launcher = _validate_backend_launcher(loaded.backend)
+    runtime_profile = _validate_runtime_profile(loaded.package)
     return RuntimeLaunchPlan(
         package_id=loaded.package_id,
         backend_id=loaded.backend_id,
         kind=launcher["kind"],
         command=launcher["command"],
-        env=launcher["env"],
+        env={**launcher["env"], **runtime_profile["env"]},
+        runtime_profile=runtime_profile["id"],
         extra=launcher["extra"],
         module=launcher["module"],
         args=launcher["args"],
@@ -189,6 +192,7 @@ def package_summaries(
                 "protocol": loaded.protocol["id"],
                 "backend": loaded.backend_id,
                 "host_binding": loaded.binding_id,
+                "runtime_profile": _validate_runtime_profile(loaded.package)["id"],
                 "claim_card": loaded.claim_card["id"],
                 "package_card": str(loaded.package_card_path),
             }
@@ -608,10 +612,32 @@ def _validate_package_manifest(package: dict[str, Any]) -> None:
     _required_string(accounting, "status")
     if "async" in accounting:
         _string_list(accounting, "async")
+    _validate_runtime_profile(package)
     for ref in _string_list(package, "evidence"):
         _validate_evidence_ref(package_id, ref)
     _required_string(package, "package_card")
     _required_string(package, "claim_card")
+
+
+def _validate_runtime_profile(package: dict[str, Any]) -> dict[str, Any]:
+    package_id = str(package.get("id", "<package>"))
+    profile = package.get("runtime_profile")
+    if profile is None:
+        return {"id": "", "env": {}}
+    if not isinstance(profile, dict):
+        raise PackageConfigError(f"package {package_id!r} runtime_profile must be a mapping")
+    profile_id = _required_string(profile, "id")
+    env = profile.get("env", {})
+    if not isinstance(env, dict) or not all(
+        isinstance(key, str)
+        and key.startswith("NEEDLE_")
+        and isinstance(value, str)
+        for key, value in env.items()
+    ):
+        raise PackageConfigError(
+            f"package {package_id!r} runtime_profile.env must map NEEDLE_* keys to strings"
+        )
+    return {"id": profile_id, "env": dict(env)}
 
 
 def _validate_evidence_ref(package_id: str, ref: str) -> None:

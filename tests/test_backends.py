@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pruner.backends import FakePruner, _degraded, get_backend, is_code_pruner_backend_name  # noqa: E402
 from pruner.backends.code_pruner.config import (  # noqa: E402
+    choose_mlx_max_length,
+    configured_max_length,
     repair_enabled_for_active_package,
     repair_enabled_for_capabilities,
 )
@@ -82,6 +84,37 @@ def test_repair_env_override_wins() -> None:
         ["e24z/soft-lamr"],
         {"NEEDLE_REPAIR": "false"},
     )
+
+
+def test_adaptive_mlx_profile_uses_2048_for_small_observations() -> None:
+    assert choose_mlx_max_length(
+        original_tokens=1200,
+        prompt_tokens=82,
+        min_code_tokens=100,
+        environ={"NEEDLE_MLX_PROFILE": "local_adaptive"},
+    ) == (2048, "local_adaptive")
+
+
+def test_adaptive_mlx_profile_uses_1024_for_large_observations() -> None:
+    assert choose_mlx_max_length(
+        original_tokens=2600,
+        prompt_tokens=82,
+        min_code_tokens=100,
+        environ={"NEEDLE_MLX_PROFILE": "local_adaptive"},
+    ) == (1024, "local_adaptive")
+
+
+def test_explicit_mlx_max_length_overrides_adaptive_profile() -> None:
+    assert configured_max_length({"NEEDLE_MLX_MAX_LENGTH": "1536"}) == 1536
+    assert choose_mlx_max_length(
+        original_tokens=2600,
+        prompt_tokens=82,
+        min_code_tokens=100,
+        environ={
+            "NEEDLE_MLX_PROFILE": "local_adaptive",
+            "NEEDLE_MLX_MAX_LENGTH": "1536",
+        },
+    ) == (1536, "explicit")
 
 
 def test_default_active_package_enables_repair() -> None:
@@ -203,6 +236,9 @@ def main() -> int:
     test_reference_capability_leaves_repair_off()
     test_soft_lamr_capability_opts_into_repair()
     test_repair_env_override_wins()
+    test_adaptive_mlx_profile_uses_2048_for_small_observations()
+    test_adaptive_mlx_profile_uses_1024_for_large_observations()
+    test_explicit_mlx_max_length_overrides_adaptive_profile()
     test_default_active_package_enables_repair()
     test_reference_active_package_disables_repair()
     test_soft_lamr_active_package_enables_repair()

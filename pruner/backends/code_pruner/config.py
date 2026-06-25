@@ -13,6 +13,9 @@ from collections.abc import Iterable, Mapping
 REFERENCE_CAPABILITY = "swe-pruner/reference"
 SOFT_LAMR_CAPABILITY = "e24z/soft-lamr"
 REPAIR_ENV_NAMES = ("HAY_REPAIR", "NEEDLE_REPAIR")
+MLX_PROFILE_ENV_NAMES = ("NEEDLE_MLX_PROFILE", "HAY_MLX_PROFILE")
+MAX_LENGTH_ENV_NAMES = ("NEEDLE_MLX_MAX_LENGTH", "NEEDLE_MAX_LENGTH", "HAY_MAX_LENGTH")
+ADAPTIVE_MLX_PROFILES = {"local_adaptive", "local-mlx-adaptive", "local_mlx_adaptive"}
 
 
 def repair_enabled_for_active_package() -> bool:
@@ -36,6 +39,62 @@ def repair_enabled_for_capabilities(
     return SOFT_LAMR_CAPABILITY in set(capability_ids)
 
 
+def configured_max_length(environ: Mapping[str, str] | None = None) -> int | None:
+    """Explicit max-length override for local experiments.
+
+    Package runtime profiles should not set this. They should set
+    NEEDLE_MLX_PROFILE so the backend can choose per input.
+    """
+    env = os.environ if environ is None else environ
+    value = _first_env(MAX_LENGTH_ENV_NAMES, env)
+    if value is None:
+        return None
+    return _parse_positive_int(value, "max length")
+
+
+def active_mlx_profile(environ: Mapping[str, str] | None = None) -> str:
+    env = os.environ if environ is None else environ
+    return (_first_env(MLX_PROFILE_ENV_NAMES, env) or "").strip().lower()
+
+
+def choose_mlx_max_length(
+    *,
+    original_tokens: int,
+    prompt_tokens: int,
+    min_code_tokens: int,
+    default_max_length: int = 4096,
+    environ: Mapping[str, str] | None = None,
+) -> tuple[int, str]:
+    """Choose the sequence length for one prune request.
+
+    This is a runtime profile, not a capability rule: it changes local MLX
+    performance shape while leaving the text->text pruning contract intact.
+    """
+    env = os.environ if environ is None else environ
+    explicit = configured_max_length(env)
+    if explicit is not None:
+        return max(explicit, prompt_tokens + min_code_tokens), "explicit"
+
+    profile = active_mlx_profile(env)
+    if profile not in ADAPTIVE_MLX_PROFILES:
+        return default_max_length, "fixed-default"
+
+    single_chunk_until = _parse_positive_int(
+        env.get("NEEDLE_MLX_ADAPTIVE_SINGLE_CHUNK_UNTIL_TOKENS", "1500"),
+        "single chunk token threshold",
+    )
+    small_max_length = _parse_positive_int(
+        env.get("NEEDLE_MLX_ADAPTIVE_SMALL_MAX_LENGTH", "2048"),
+        "small adaptive max length",
+    )
+    large_max_length = _parse_positive_int(
+        env.get("NEEDLE_MLX_ADAPTIVE_LARGE_MAX_LENGTH", "1024"),
+        "large adaptive max length",
+    )
+    selected = small_max_length if original_tokens <= single_chunk_until else large_max_length
+    return max(selected, prompt_tokens + min_code_tokens), profile
+
+
 def _active_capability_ids() -> list[str]:
     try:
         from ...package_config import load_active_package
@@ -55,3 +114,13 @@ def _first_env(names: tuple[str, ...], env: Mapping[str, str]) -> str | None:
 
 def _parse_bool(value: str) -> bool:
     return value.lower() not in {"0", "false", "no", "off"}
+
+
+def _parse_positive_int(value: str, label: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ValueError(f"{label} must be an integer") from exc
+    if parsed <= 0:
+        raise ValueError(f"{label} must be positive")
+    return parsed

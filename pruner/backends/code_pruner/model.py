@@ -16,7 +16,11 @@ from .chunking import (
     merge_token_scores_from_chunks,
     split_text_into_token_chunks,
 )
-from .config import repair_enabled_for_active_package
+from .config import (
+    choose_mlx_max_length,
+    configured_max_length,
+    repair_enabled_for_active_package,
+)
 from .lines import aggregate_token_scores_to_lines, prune_code_lines
 
 # The optional C++ Viterbi extension never shipped to Hay; the numpy decoder
@@ -914,13 +918,22 @@ class MLXSwePrunerBackend:
         tokenize_start = time.perf_counter()
         prefix_ids, query_ids, suffix_ids = self._prompt_token_ids(query)
         prompt_tokens = len(prefix_ids) + len(query_ids) + len(suffix_ids)
-        code_token_budget = max_length - prompt_tokens
         original_tokens = estimate_token_count(text, self.tokenizer)
+        if max_length <= 0:
+            max_length, max_length_profile = choose_mlx_max_length(
+                original_tokens=original_tokens,
+                prompt_tokens=prompt_tokens,
+                min_code_tokens=_MIN_CODE_TOKENS,
+            )
+        else:
+            max_length_profile = "fixed"
+        code_token_budget = max_length - prompt_tokens
         base_stats: dict[str, object] = {
             "original_tokens": original_tokens,
             "chunks": 0,
             "batches": 0,
             "max_length": max_length,
+            "max_length_profile": max_length_profile,
             "available_code_tokens": code_token_budget,
             "prefix_tokens": len(prefix_ids),
             "query_tokens": len(query_ids),
@@ -1257,7 +1270,7 @@ class CodePrunerBackend:
             model_name=model_dir or _resolve_model_dir(), repair=repair
         )
         self._threshold = float(os.environ.get("HAY_THRESHOLD", "0.5"))
-        self._max_length = int(os.environ.get("HAY_MAX_LENGTH", "4096"))
+        self._max_length = configured_max_length() or 0
 
     def prune(self, *, text: str, query: str) -> str:
         try:

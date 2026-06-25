@@ -86,6 +86,9 @@ def test_default_package_resolves_runtime_launch_plan() -> None:
     ]
     assert plan.env["NEEDLE_BACKEND"] == "e24z/code-pruner-mlx"
     assert plan.env["HAY_BACKEND"] == "code-pruner"
+    assert plan.runtime_profile == "local_mlx_adaptive"
+    assert plan.env["NEEDLE_MLX_PROFILE"] == "local_adaptive"
+    assert plan.env["NEEDLE_MLX_MAX_BATCH_SIZE"] == "1"
 
 
 def test_http_backend_contract_validates_without_server() -> None:
@@ -192,6 +195,9 @@ def test_mlx_package_family_has_explicit_surface_parity() -> None:
     assert reference.capability_ids == ["swe-pruner/reference"]
     assert soft_lamr.capability_ids == ["e24z/soft-lamr"]
     assert mcp_bash.capability_ids == ["swe-pruner/reference"]
+    assert reference.package["runtime_profile"]["id"] == "local_mlx_adaptive"
+    assert soft_lamr.package["runtime_profile"]["id"] == "local_mlx_adaptive"
+    assert mcp_bash.package["runtime_profile"]["id"] == "local_mlx_adaptive"
 
 
 def test_missing_backend_reference_fails_clearly() -> None:
@@ -325,6 +331,7 @@ def test_package_summaries_can_filter_by_host_binding() -> None:
     assert "e24z/mlx-pi-reference" in ids
     assert "e24z/mlx-pi-soft-lamr" in ids
     assert all(item["host_binding"] == "pi/native-tools" for item in summaries)
+    assert all(item["runtime_profile"] == "local_mlx_adaptive" for item in summaries)
 
 
 def test_package_summaries_can_filter_mcp_binding() -> None:
@@ -395,6 +402,25 @@ def test_package_requires_focus_contract() -> None:
             raise AssertionError("expected missing focus_contract to fail")
 
     assert "requires mapping field 'focus_contract'" in msg
+
+
+def test_package_runtime_profile_env_is_public_needle_scoped() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        _copy_registry(tmp)
+        package_path = tmp / "packages/e24z/mlx-pi-soft-lamr.yaml"
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+        package["runtime_profile"]["env"] = {"HAY_MAX_LENGTH": "1024"}
+        package_path.write_text(json.dumps(package, indent=2), encoding="utf-8")
+
+        try:
+            load_active_package(tmp)
+        except PackageConfigError as exc:
+            msg = str(exc)
+        else:
+            raise AssertionError("expected non-NEEDLE runtime profile env to fail")
+
+    assert "runtime_profile.env must map NEEDLE_* keys to strings" in msg
 
 
 def test_binding_tool_mapping_must_use_known_artifact_kind() -> None:
@@ -608,6 +634,7 @@ def main() -> int:
     test_package_summaries_can_filter_mcp_binding()
     test_host_scoped_load_rejects_wrong_binding()
     test_package_requires_focus_contract()
+    test_package_runtime_profile_env_is_public_needle_scoped()
     test_binding_tool_mapping_must_use_known_artifact_kind()
     test_package_rejects_unknown_evidence_reference()
     test_package_rejects_missing_evidence_reference()

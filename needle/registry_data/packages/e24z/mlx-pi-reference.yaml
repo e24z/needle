@@ -20,6 +20,13 @@
     ]
   },
   "runtime": "local_manager",
+  "runtime_profile": {
+    "id": "local_mlx_adaptive",
+    "env": {
+      "NEEDLE_MLX_PROFILE": "local_adaptive",
+      "NEEDLE_MLX_MAX_BATCH_SIZE": "1"
+    }
+  },
   "privacy": {
     "default": "local_only",
     "remote_requires_explicit_endpoint": true

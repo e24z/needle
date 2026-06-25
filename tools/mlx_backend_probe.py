@@ -5,7 +5,7 @@ This intentionally bypasses agents, Docker, Modal, and SWE-bench. It is for the
 local question: "what did one pruning call cost, and why?"
 
 Example:
-  HAY_PROFILE_MLX=1 HAY_MAX_LENGTH=2048 \
+  HAY_PROFILE_MLX=1 NEEDLE_MLX_PROFILE=local_adaptive \
     uv run --extra backend-code-pruner-mlx python3 tools/mlx_backend_probe.py
 """
 
@@ -33,6 +33,7 @@ def _compact_stats(stats: dict[str, object]) -> dict[str, object]:
         "batch_sizes",
         "batched",
         "max_length",
+        "max_length_profile",
         "max_batch_size",
         "original_code_tokens",
         "scored_code_tokens",
@@ -165,13 +166,17 @@ def main(argv: list[str] | None = None) -> int:
         os.environ["HAY_MAX_LENGTH"] = str(args.max_length)
     os.environ.setdefault("HAY_PROFILE_MLX", "1")
     functions_values = args.functions_list or [args.functions]
-    max_lengths = args.max_lengths or [
-        args.max_length
-        if args.max_length is not None
-        else int(os.environ.get("HAY_MAX_LENGTH", "4096"))
-    ]
+    if args.max_lengths is not None:
+        max_lengths = args.max_lengths
+    elif args.max_length is not None:
+        max_lengths = [args.max_length]
+    else:
+        max_lengths = [None]
     batch_sizes = args.batch_sizes or [
-        int(os.environ.get("HAY_MLX_MAX_BATCH_SIZE", "1"))
+        int(
+            os.environ.get("NEEDLE_MLX_MAX_BATCH_SIZE")
+            or os.environ.get("HAY_MLX_MAX_BATCH_SIZE", "1")
+        )
     ]
 
     from pruner.backends.code_pruner.model import CodePrunerBackend
@@ -184,7 +189,8 @@ def main(argv: list[str] | None = None) -> int:
 
     runs = []
     for max_length in max_lengths:
-        backend._max_length = max_length
+        if max_length is not None:
+            backend._max_length = max_length
         for batch_size in batch_sizes:
             os.environ["HAY_MLX_MAX_BATCH_SIZE"] = str(batch_size)
             for functions in functions_values:
@@ -200,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
                         {
                             "run": idx + 1,
                             "functions": functions,
-                            "max_length": max_length,
+                            "max_length": max_length if max_length is not None else "adaptive",
                             "batch_size": batch_size,
                             "elapsed_ms": elapsed_ms,
                             "input_chars": len(text),

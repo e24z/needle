@@ -272,6 +272,7 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 						kind: "needle-cli",
 						command: ["needle", "runtime", "manage"],
 					},
+					runtimeProfile: "local_mlx_adaptive",
 					hostBinding: "pi/native-tools",
 					packageCard: "package-cards/e24z/mlx-pi-reference",
 					claimCard: "claims/mlx-pi-reference",
@@ -293,6 +294,7 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 	assert.match(rendered, /capability swe-pruner\/reference/);
 	assert.match(rendered, /backend e24z\/code-pruner-mlx/);
 	assert.match(rendered, /backend launch needle runtime manage/);
+	assert.match(rendered, /runtime profile local_mlx_adaptive/);
 	assert.match(rendered, /host binding pi\/native-tools/);
 	assert.match(rendered, /compute local_mlx \| privacy local_only/);
 	assert.match(rendered, /prompt bundle pi\/context-focus-question@0\.1/);
@@ -327,6 +329,9 @@ test("Pi source identity reads package, pyproject, git state, and active Needle 
 		assert.equal(identity.activePackage.backendRuntime, "local_manager");
 		assert.equal(identity.activePackage.backendLauncher.kind, "needle-cli");
 		assert.deepEqual(identity.activePackage.backendLauncher.command, ["needle", "runtime", "manage"]);
+		assert.equal(identity.activePackage.runtimeProfile, "local_mlx_adaptive");
+		assert.equal(identity.activePackage.runtimeProfileEnv.NEEDLE_MLX_PROFILE, "local_adaptive");
+		assert.equal(identity.activePackage.runtimeProfileEnv.NEEDLE_MLX_MAX_BATCH_SIZE, "1");
 		assert.equal(identity.activePackage.hostBinding, "pi/native-tools");
 		assert.equal(identity.activePackage.claimCard, "claims/mlx-pi-soft-lamr");
 		assert.equal(typeof identity.git.available, "boolean");
@@ -368,6 +373,9 @@ test("Pi resolves backend launch plan from the active package graph", async () =
 	assert.deepEqual(plan.command, ["needle", "runtime", "manage"]);
 	assert.equal(plan.env.NEEDLE_BACKEND, "e24z/code-pruner-mlx");
 	assert.equal(plan.env.HAY_BACKEND, "code-pruner");
+	assert.equal(plan.runtimeProfile, "local_mlx_adaptive");
+	assert.equal(plan.env.NEEDLE_MLX_PROFILE, "local_adaptive");
+	assert.equal(plan.env.NEEDLE_MLX_MAX_BATCH_SIZE, "1");
 });
 
 test("Pi ensureManager spawns from backend launch metadata", async () => {
@@ -389,6 +397,8 @@ test("Pi ensureManager spawns from backend launch metadata", async () => {
 	assert.deepEqual(spawned[0].args, ["runtime", "manage"]);
 	assert.equal(spawned[0].options.env.NEEDLE_BACKEND, "e24z/code-pruner-mlx");
 	assert.equal(spawned[0].options.env.HAY_BACKEND, "code-pruner");
+	assert.equal(spawned[0].options.env.NEEDLE_MLX_PROFILE, "local_adaptive");
+	assert.equal(spawned[0].options.env.NEEDLE_MLX_MAX_BATCH_SIZE, "1");
 });
 
 test("Pi package identity can load from an external registry root", async () => {
@@ -410,6 +420,7 @@ test("Pi package identity can load from an external registry root", async () => 
 		assert.equal(identity.available, true);
 		assert.equal(identity.id, "e24z/mlx-pi-soft-lamr");
 		assert.equal(identity.backend, "e24z/code-pruner-mlx");
+		assert.equal(identity.runtimeProfile, "local_mlx_adaptive");
 	} finally {
 		if (oldRoot === undefined) {
 			delete process.env.HAY_REGISTRY_ROOT;
@@ -499,6 +510,10 @@ test("Pi package inventory lists reference and Soft-LaMR packages", async () => 
 			packages.find((pkg) => pkg.id === "e24z/mlx-pi-soft-lamr").capabilities,
 			["e24z/soft-lamr"],
 		);
+		assert.equal(
+			packages.find((pkg) => pkg.id === "e24z/mlx-pi-soft-lamr").runtimeProfile,
+			"local_mlx_adaptive",
+		);
 	} finally {
 		if (oldPackage === undefined) {
 			delete process.env.HAY_PACKAGE;
@@ -529,6 +544,7 @@ test("Pi package status explains package selection", async () => {
 			id: "e24z/mlx-pi-reference",
 			capabilities: ["swe-pruner/reference"],
 			backend: "e24z/code-pruner-mlx",
+			runtimeProfile: "local_mlx_adaptive",
 		},
 		{
 			available: true,
@@ -536,12 +552,14 @@ test("Pi package status explains package selection", async () => {
 			id: "e24z/mlx-pi-soft-lamr",
 			capabilities: ["e24z/soft-lamr"],
 			backend: "e24z/code-pruner-mlx",
+			runtimeProfile: "local_mlx_adaptive",
 		},
 	]);
 	assert.match(rendered, /\[active\] e24z\/mlx-pi-reference/);
 	assert.match(rendered, /\[ \] e24z\/mlx-pi-soft-lamr/);
 	assert.match(rendered, /no AST repair/);
 	assert.match(rendered, /python AST repair/);
+	assert.match(rendered, /runtime profile local_mlx_adaptive/);
 	assert.match(rendered, /needle packages:/);
 	assert.match(rendered, /needle package use <package-id>/);
 	assert.match(rendered, /NEEDLE_PACKAGE=<package-id> pi/);

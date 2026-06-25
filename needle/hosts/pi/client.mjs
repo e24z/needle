@@ -191,6 +191,7 @@ export async function packageIdentity(
 		}
 		const backendId = typeof pkg.uses?.backend === "string" ? pkg.uses.backend : null;
 		const backend = backendId ? await backendIdentity(repoRoot, backendId) : null;
+		const runtimeProfile = normalizeRuntimeProfile(pkg, packageId);
 		return {
 			available: true,
 			id: pkg.id || packageId,
@@ -203,6 +204,8 @@ export async function packageIdentity(
 			backendAvailable: backend ? backend.available : false,
 			backendReason: backend && !backend.available ? backend.reason : null,
 			hostBinding,
+			runtimeProfile: runtimeProfile.id,
+			runtimeProfileEnv: runtimeProfile.env,
 			packageCard: typeof pkg.package_card === "string" ? pkg.package_card : null,
 			claimCard: typeof pkg.claim_card === "string" ? pkg.claim_card : null,
 			compute: typeof pkg.compute?.default === "string" ? pkg.compute.default : null,
@@ -253,7 +256,8 @@ export async function runtimeLaunchPlan(repoRoot, options = {}) {
 		backendId: pkg.backend,
 		launcher,
 		command: launcherCommand(launcher),
-		env: { ...launcher.env },
+		env: { ...launcher.env, ...pkg.runtimeProfileEnv },
+		runtimeProfile: pkg.runtimeProfile || "",
 	};
 }
 
@@ -362,6 +366,29 @@ function normalizeLauncher(backend, backendId = backend?.id || "<backend>") {
 		command: [...command],
 		env: { ...env },
 	};
+}
+
+function normalizeRuntimeProfile(pkg, packageId = pkg?.id || "<package>") {
+	const profile = pkg?.runtime_profile;
+	if (profile === undefined || profile === null) return { id: null, env: {} };
+	if (!profile || typeof profile !== "object" || Array.isArray(profile)) {
+		throw new Error(`package ${packageId} runtime_profile must be an object`);
+	}
+	if (typeof profile.id !== "string" || !profile.id) {
+		throw new Error(`package ${packageId} runtime_profile.id must be a non-empty string`);
+	}
+	const id = profile.id;
+	const env = profile.env && typeof profile.env === "object" && !Array.isArray(profile.env)
+		? profile.env
+		: {};
+	const out = {};
+	for (const [key, value] of Object.entries(env)) {
+		if (!key.startsWith("NEEDLE_") || typeof value !== "string") {
+			throw new Error(`package ${packageId} runtime_profile.env must map NEEDLE_* keys to strings`);
+		}
+		out[key] = value;
+	}
+	return { id, env: out };
 }
 
 function launcherCommand(launcher) {

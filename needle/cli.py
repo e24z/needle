@@ -128,7 +128,8 @@ def _package_list(args: argparse.Namespace) -> int:
                 f"implements={capabilities}  "
                 f"protocol={item.get('protocol', '?')}  "
                 f"uses={item.get('backend', '?')}  "
-                f"host={item.get('host_binding', '?')}"
+                f"host={item.get('host_binding', '?')}  "
+                f"runtime_profile={item.get('runtime_profile') or '?'}"
             )
             continue
         capability_labels = ", ".join(
@@ -139,6 +140,8 @@ def _package_list(args: argparse.Namespace) -> int:
         print(f"    host:     {_package_label(item.get('host_binding'), _HOST_LABELS)}")
         print(f"    behavior: {capability_labels or 'unknown'}")
         print(f"    backend:  {_package_label(item.get('backend'), _BACKEND_LABELS)}")
+        if item.get("runtime_profile"):
+            print(f"    profile:  {item['runtime_profile']}")
     if not args.verbose:
         print("")
         print("* = active package for this host/config. Use --verbose for registry ids.")
@@ -167,6 +170,7 @@ def _package_use(args: argparse.Namespace) -> int:
     print(f"protocol: {loaded.protocol['id']}")
     print(f"uses backend: {loaded.backend_id}")
     plan = runtime_launch_plan(package_id=loaded.package_id, host_binding=args.host_binding or None)
+    print(f"runtime profile: {plan.runtime_profile or 'none'}")
     print(f"runtime command: {' '.join(plan.command)}")
     print("restart the resident runtime for running sessions: needle stop")
     return 0
@@ -210,6 +214,7 @@ def _package_doctor(args: argparse.Namespace) -> int:
         f"implements: {', '.join(loaded.capability_ids)}",
         f"uses backend: {loaded.backend_id}",
         f"runtime launcher: {plan.kind}",
+        f"runtime profile: {plan.runtime_profile or 'none'}",
         f"runtime command: {' '.join(plan.command)}",
         *_backend_readiness_notes(loaded),
         f"host binding: {loaded.binding_id}",

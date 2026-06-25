@@ -439,6 +439,7 @@ export function renderPackageStatus(packages) {
 		lines.push(`  ${marker} ${pkg.id}`);
 		lines.push(`      capability ${capability}`);
 		lines.push(`      backend ${backend} | ${repair}`);
+		if (pkg.runtimeProfile) lines.push(`      runtime profile ${pkg.runtimeProfile}`);
 	}
 	lines.push("");
 	lines.push("select package for its host binding:");
@@ -562,6 +563,7 @@ function renderPackageIdentity(activePackage) {
 		}
 	}
 	if (activePackage.hostBinding) lines.push(`host binding ${activePackage.hostBinding}`);
+	if (activePackage.runtimeProfile) lines.push(`runtime profile ${activePackage.runtimeProfile}`);
 	if (activePackage.compute || activePackage.privacy) {
 		lines.push(`compute ${activePackage.compute || "?"} | privacy ${activePackage.privacy || "?"}`);
 	}
