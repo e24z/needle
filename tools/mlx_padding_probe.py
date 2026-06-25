@@ -67,12 +67,12 @@ def main(argv: list[str] | None = None) -> int:
         "--max-length",
         type=int,
         default=2048,
-        help="Current single-chunk fixed padding length.",
+        help="Old single-chunk fixed padding length.",
     )
     parser.add_argument(
         "--max-batch-size",
         type=int,
-        default=4,
+        default=2,
         help="Maximum rows in a bucketed batch.",
     )
     parser.add_argument(
@@ -87,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"lengths: {lengths}")
     print("")
     _print_batches(
-        f"current serial path: one row per call, padded to {args.max_length}",
+        f"old serial path: one row per call, padded to {args.max_length}",
         current_serial_fixed_padding(lengths, max_length=args.max_length),
     )
     _print_batches(

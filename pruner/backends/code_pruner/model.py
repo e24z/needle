@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from dataclasses import dataclass
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -8,12 +9,41 @@ import numpy as np
 from mlx_lm import load
 
 from ... import naming
+from .chunking import (
+    TokenChunk,
+    bucket_token_chunks,
+    estimate_token_count,
+    merge_token_scores_from_chunks,
+    split_text_into_token_chunks,
+)
 from .config import repair_enabled_for_active_package
 from .lines import aggregate_token_scores_to_lines, prune_code_lines
 
 # The optional C++ Viterbi extension never shipped to Hay; the numpy decoder
 # below is the only path. (Original lives in ~/repos/needle if ever worth porting.)
 viterbi_cpp = None
+
+_PROMPT_PREFIX = '<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n'
+_PROMPT_SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+_MIN_CODE_TOKENS = 100
+
+
+@dataclass(frozen=True)
+class _PreparedChunk:
+    chunk: TokenChunk
+    input_ids: list[int]
+    code_offsets: list[tuple[int, int]]
+    doc_start: int
+    doc_end: int
+    original_code_tokens: int
+
+    @property
+    def real_len(self) -> int:
+        return len(self.input_ids)
+
+    @property
+    def code_tokens(self) -> int:
+        return self.doc_end - self.doc_start
 
 
 def _mlx_func(name: str):
@@ -469,6 +499,181 @@ class MLXSwePrunerBackend:
         self.backbone.update(nested_backbone_weights)
         self.scorer.update(nested_scorer_weights)
 
+    def _prompt_token_ids(self, query: str) -> tuple[list[int], list[int], list[int]]:
+        formatted_query = (
+            f"<Instruct>: {self.instruction}\n<Query>: {query}\n<Document>: "
+        )
+        prefix_ids = self.tokenizer.encode(_PROMPT_PREFIX, add_special_tokens=False)
+        suffix_ids = self.tokenizer.encode(_PROMPT_SUFFIX, add_special_tokens=False)
+        query_ids = self.tokenizer.encode(formatted_query, add_special_tokens=False)
+        return prefix_ids, query_ids, suffix_ids
+
+    def _prepare_chunk_row(
+        self,
+        *,
+        chunk: TokenChunk,
+        prefix_ids: list[int],
+        query_ids: list[int],
+        suffix_ids: list[int],
+        max_length: int,
+    ) -> _PreparedChunk:
+        code_enc = self.tokenizer(
+            chunk.text,
+            add_special_tokens=False,
+            truncation=False,
+            return_attention_mask=False,
+            return_offsets_mapping=True,
+        )
+        code_ids = code_enc["input_ids"]
+        code_offsets = code_enc["offset_mapping"]
+        original_code_tokens = len(code_ids)
+
+        available_len = max_length - len(prefix_ids) - len(suffix_ids) - len(query_ids)
+        if len(code_ids) > available_len:
+            code_ids = code_ids[:available_len]
+            code_offsets = code_offsets[:available_len]
+
+        doc_start = len(prefix_ids) + len(query_ids)
+        doc_end = doc_start + len(code_ids)
+        input_ids = prefix_ids + query_ids + code_ids + suffix_ids
+        return _PreparedChunk(
+            chunk=chunk,
+            input_ids=input_ids,
+            code_offsets=code_offsets,
+            doc_start=doc_start,
+            doc_end=doc_end,
+            original_code_tokens=original_code_tokens,
+        )
+
+    def _score_prepared_batch(
+        self,
+        prepared: list[_PreparedChunk],
+        *,
+        max_length: int,
+        use_viterbi: bool,
+        profile_forced_eval: bool,
+    ) -> tuple[
+        list[tuple[float, list[tuple[str, float]], list[tuple[int, int]], int]],
+        dict[str, object],
+    ]:
+        total_start = time.perf_counter()
+        if not prepared:
+            return [], {
+                "chunks": 0,
+                "batches": 0,
+                "max_length": max_length,
+                "real_tokens": 0,
+                "padded_tokens": 0,
+                "pad_tokens": 0,
+                "padding_waste_ratio": 0.0,
+            }
+
+        batch_len = max(item.real_len for item in prepared)
+        pad_id = self.tokenizer.pad_token_id
+        input_rows: list[list[int]] = []
+        mask_rows: list[list[int]] = []
+        for item in prepared:
+            pad_len = batch_len - item.real_len
+            input_rows.append(item.input_ids + [pad_id] * pad_len)
+            mask_rows.append([1] * item.real_len + [0] * pad_len)
+
+        input_ids_mx = mx.array(input_rows)
+        attention_mask_mx = mx.array(mask_rows)
+
+        graph_start = time.perf_counter()
+        hidden_states = []
+        h = self.backbone.model.embed_tokens(input_ids_mx)
+        hidden_states.append(h)
+
+        import sys
+
+        model_module_name = self.backbone.model.__class__.__module__
+        model_module = sys.modules[model_module_name]
+        create_attention_mask = getattr(model_module, "create_attention_mask")
+        mask = create_attention_mask(h, None)
+
+        for layer in self.backbone.model.layers:
+            h = layer(h, mask=mask)
+            hidden_states.append(h)
+
+        h = self.backbone.model.norm(h)
+        hidden_states[-1] = h
+
+        outputs = self.scorer(hidden_states, attention_mask_mx)
+        graph_build_ms = (time.perf_counter() - graph_start) * 1000
+        forward_eval_ms = None
+        if profile_forced_eval:
+            eval_start = time.perf_counter()
+            to_eval = [outputs["token_logits"], outputs["score_logits"]]
+            if "token_emissions" in outputs:
+                to_eval.append(outputs["token_emissions"])
+            _force_mlx_eval(*to_eval)
+            forward_eval_ms = (time.perf_counter() - eval_start) * 1000
+
+        decode_start = time.perf_counter()
+        if use_viterbi:
+            best_paths = self.scorer.decode_outputs(outputs, attention_mask_mx)
+        else:
+            best_paths = None
+        decode_graph_ms = (time.perf_counter() - decode_start) * 1000
+
+        host_sync_start = time.perf_counter()
+        score_probs = mx.exp(outputs["score_logits"])
+        score_probs_np = np.array(score_probs.astype(mx.float32), dtype=np.float32)
+
+        results: list[tuple[float, list[tuple[str, float]], list[tuple[int, int]], int]] = []
+        for row_idx, item in enumerate(prepared):
+            if use_viterbi:
+                probs = best_paths[row_idx, item.doc_start : item.doc_end].astype(mx.float32)
+            else:
+                token_logits_seq = outputs["token_logits"][
+                    row_idx, item.doc_start : item.doc_end
+                ]
+                probs = mx.sigmoid(token_logits_seq)
+            probs_np = np.array(probs.astype(mx.float32), dtype=np.float32)
+            token_scores = [("", float(score)) for score in probs_np.tolist()]
+            results.append(
+                (
+                    float(score_probs_np[row_idx]),
+                    token_scores,
+                    item.code_offsets,
+                    item.chunk.start_char,
+                )
+            )
+        host_sync_ms = (time.perf_counter() - host_sync_start) * 1000
+
+        real_tokens = sum(item.real_len for item in prepared)
+        padded_tokens = len(prepared) * batch_len
+        pad_tokens = padded_tokens - real_tokens
+        stats = {
+            "chunks": len(prepared),
+            "batches": 1,
+            "max_length": max_length,
+            "batch_size": len(prepared),
+            "batch_length": batch_len,
+            "original_code_tokens": sum(
+                item.original_code_tokens for item in prepared
+            ),
+            "code_tokens": sum(item.code_tokens for item in prepared),
+            "truncated_code_tokens": sum(
+                max(0, item.original_code_tokens - item.code_tokens)
+                for item in prepared
+            ),
+            "real_tokens": real_tokens,
+            "padded_tokens": padded_tokens,
+            "pad_tokens": pad_tokens,
+            "padding_waste_ratio": pad_tokens / padded_tokens
+            if padded_tokens
+            else 0.0,
+            "profile_forced_eval": profile_forced_eval,
+            "graph_build_ms": graph_build_ms,
+            "forward_eval_ms": forward_eval_ms,
+            "decode_graph_ms": decode_graph_ms,
+            "host_sync_ms": host_sync_ms,
+            "batch_total_ms": (time.perf_counter() - total_start) * 1000,
+        }
+        return results, stats
+
     def _process_single_chunk(
         self,
         query: str,
@@ -632,10 +837,123 @@ class MLXSwePrunerBackend:
         if use_viterbi is None:
             use_viterbi = self.use_viterbi
 
-        # Process single code chunk
         total_start = time.perf_counter()
-        chunk_score, code_token_scores, code_offsets, chunk_stats = self._process_single_chunk(
-            query, text, max_length=max_length, use_viterbi=use_viterbi
+        profile_forced_eval = _env_flag("NEEDLE_PROFILE_MLX", False) or _env_flag(
+            "HAY_PROFILE_MLX",
+            False,
+        )
+        tokenize_start = time.perf_counter()
+        prefix_ids, query_ids, suffix_ids = self._prompt_token_ids(query)
+        prompt_tokens = len(prefix_ids) + len(query_ids) + len(suffix_ids)
+        code_token_budget = max_length - prompt_tokens
+        original_tokens = estimate_token_count(text, self.tokenizer)
+        base_stats: dict[str, object] = {
+            "original_tokens": original_tokens,
+            "chunks": 0,
+            "batches": 0,
+            "max_length": max_length,
+            "available_code_tokens": code_token_budget,
+            "prefix_tokens": len(prefix_ids),
+            "query_tokens": len(query_ids),
+            "suffix_tokens": len(suffix_ids),
+            "profile_forced_eval": profile_forced_eval,
+            "chunked": False,
+            "batched": False,
+        }
+        if code_token_budget < _MIN_CODE_TOKENS:
+            self.last_stats = {
+                **base_stats,
+                "passthrough_reason": "query-too-long",
+                "input_chars": len(text),
+                "output_chars": len(text),
+                "saved_chars": 0,
+                "total_ms": (time.perf_counter() - total_start) * 1000,
+            }
+            return text
+
+        overlap_tokens = int(
+            os.environ.get("NEEDLE_CHUNK_OVERLAP_TOKENS")
+            or os.environ.get("HAY_CHUNK_OVERLAP_TOKENS", "50")
+        )
+        max_batch_size = int(
+            os.environ.get("NEEDLE_MLX_MAX_BATCH_SIZE")
+            or os.environ.get("HAY_MLX_MAX_BATCH_SIZE", "2")
+        )
+        max_length_ratio = float(
+            os.environ.get("NEEDLE_MLX_MAX_LENGTH_RATIO")
+            or os.environ.get("HAY_MLX_MAX_LENGTH_RATIO", "1.5")
+        )
+
+        chunks = split_text_into_token_chunks(
+            text,
+            self.tokenizer,
+            chunk_max_tokens=code_token_budget,
+            overlap_tokens=overlap_tokens,
+        )
+        if not chunks:
+            self.last_stats = {
+                **base_stats,
+                "passthrough_reason": "empty-tokenization",
+                "input_chars": len(text),
+                "output_chars": len(text),
+                "saved_chars": 0,
+                "total_ms": (time.perf_counter() - total_start) * 1000,
+            }
+            return text
+
+        chunk_batches = bucket_token_chunks(
+            chunks,
+            max_batch_size=max_batch_size,
+            max_length_ratio=max_length_ratio,
+        )
+        prepared_batches = [
+            [
+                self._prepare_chunk_row(
+                    chunk=chunk,
+                    prefix_ids=prefix_ids,
+                    query_ids=query_ids,
+                    suffix_ids=suffix_ids,
+                    max_length=max_length,
+                )
+                for chunk in batch
+            ]
+            for batch in chunk_batches
+        ]
+        tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
+
+        scored_results: list[
+            tuple[float, list[tuple[str, float]], list[tuple[int, int]], int]
+        ] = []
+        batch_stats: list[dict[str, object]] = []
+        for prepared in prepared_batches:
+            results, stats = self._score_prepared_batch(
+                prepared,
+                max_length=max_length,
+                use_viterbi=use_viterbi,
+                profile_forced_eval=profile_forced_eval,
+            )
+            scored_results.extend(results)
+            batch_stats.append(stats)
+
+        if not scored_results:
+            self.last_stats = {
+                **base_stats,
+                "passthrough_reason": "no-scored-chunks",
+                "chunks": len(chunks),
+                "batches": len(chunk_batches),
+                "input_chars": len(text),
+                "output_chars": len(text),
+                "saved_chars": 0,
+                "total_ms": (time.perf_counter() - total_start) * 1000,
+            }
+            return text
+
+        code_token_scores, code_offsets = merge_token_scores_from_chunks(
+            text,
+            [
+                (token_scores, offsets, start_char)
+                for _score, token_scores, offsets, start_char in scored_results
+            ],
         )
 
         # Map token-level scores back to line numbers
@@ -662,9 +980,53 @@ class MLXSwePrunerBackend:
                 result = pruned
 
         result = _apply_floor(text, result)
+        real_tokens = sum(int(stats.get("real_tokens", 0)) for stats in batch_stats)
+        padded_tokens = sum(int(stats.get("padded_tokens", 0)) for stats in batch_stats)
+        pad_tokens = padded_tokens - real_tokens
+        forward_values = [
+            float(stats["forward_eval_ms"])
+            for stats in batch_stats
+            if stats.get("forward_eval_ms") is not None
+        ]
+        chunk_scores = [score for score, _tokens, _offsets, _start in scored_results]
         self.last_stats = {
-            **chunk_stats,
-            "chunk_score": chunk_score,
+            **base_stats,
+            "chunks": len(chunks),
+            "batches": len(batch_stats),
+            "batch_sizes": [len(batch) for batch in prepared_batches],
+            "max_batch_size": max_batch_size,
+            "max_length_ratio": max_length_ratio,
+            "chunk_overlap_tokens": overlap_tokens,
+            "chunked": len(chunks) > 1,
+            "batched": any(len(batch) > 1 for batch in prepared_batches),
+            "original_code_tokens": original_tokens,
+            "scored_code_tokens": sum(
+                int(stats.get("code_tokens", 0)) for stats in batch_stats
+            ),
+            "truncated_code_tokens": sum(
+                int(stats.get("truncated_code_tokens", 0)) for stats in batch_stats
+            ),
+            "real_tokens": real_tokens,
+            "padded_tokens": padded_tokens,
+            "pad_tokens": pad_tokens,
+            "padding_waste_ratio": pad_tokens / padded_tokens
+            if padded_tokens
+            else 0.0,
+            "max_chunk_score": max(chunk_scores) if chunk_scores else 0.0,
+            "tokenize_ms": tokenize_ms,
+            "graph_build_ms": sum(
+                float(stats.get("graph_build_ms", 0.0)) for stats in batch_stats
+            ),
+            "forward_eval_ms": sum(forward_values) if forward_values else None,
+            "decode_graph_ms": sum(
+                float(stats.get("decode_graph_ms", 0.0)) for stats in batch_stats
+            ),
+            "host_sync_ms": sum(
+                float(stats.get("host_sync_ms", 0.0)) for stats in batch_stats
+            ),
+            "batch_total_ms": sum(
+                float(stats.get("batch_total_ms", 0.0)) for stats in batch_stats
+            ),
             "input_chars": len(text),
             "output_chars": len(result),
             "saved_chars": max(0, len(text) - len(result)),

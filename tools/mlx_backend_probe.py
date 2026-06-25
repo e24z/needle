@@ -12,6 +12,7 @@ Example:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import time
@@ -65,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
                 "elapsed_ms": elapsed_ms,
                 "input_chars": len(text),
                 "output_chars": len(output),
+                "output_sha256": hashlib.sha256(output.encode()).hexdigest()[:16],
                 "stats": backend.last_stats,
             }
         )
