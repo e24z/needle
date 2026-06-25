@@ -16,11 +16,15 @@ Needle's user-facing product is an installed CLI/runtime, not a source checkout.
 
 ## Release Surfaces
 
-### Public Mac Path
+### Public Mac Path: Main/Tap Or Release
 
 ```bash
 brew install --HEAD e24z/tap/needle
 ```
+
+Use Homebrew for code that is already on `main` and reflected in the tap, or for
+a stable release after the formula has a release URL and SHA256. The formula's
+`head` points at `main` by design; do not point it at feature branches.
 
 The formula's `post_install` hook calls `needle setup --from-homebrew`. In an
 interactive install this starts the guided setup flow. In a non-interactive
@@ -34,18 +38,28 @@ Do not describe a plain Homebrew install as proof of live model pruning until
 that backend packaging path is cut.
 
 The tap lives in the separate `e24z/homebrew-tap` repository. Before the first
-stable release, it is a head-only formula. When cutting a stable release, add the
-release tarball URL and SHA256 to the tap formula.
+stable release, it is a head-only formula that tracks `main`. When cutting a
+stable release, add the release tarball URL and SHA256 to the tap formula.
 
-### Early Tester Path
+### Source/Dev Path For Feature Branches
 
 ```bash
 uv tool install --editable .
 needle setup
 ```
 
-This still exposes the user to a source checkout, so it is not the preferred
-public 1.0 path.
+Use this path for feature-branch validation, including
+`perf/mlx-batched-pruning`, until the branch is merged to `main`, copied into
+the tap, or cut into a release. This still exposes the user to a source checkout,
+so it is not the preferred public 1.0 path.
+
+Real local MLX pruning from a feature branch also needs the developer-preview
+backend extra and model files from the source checkout:
+
+```bash
+uv tool install --editable '.[backend-code-pruner-mlx]'
+needle model download
+```
 
 Keep source-only benchmark runs, lesson files, and temporary research artifacts
 out of the root checkout. The source repo should read like a release surface:
@@ -94,16 +108,20 @@ user benefit.
 6. Run `needle setup codex --dry-run` from the installed artifact.
 7. Run `needle mcp serve` through a stdio MCP client smoke.
 8. Run `npm run demo:pi-canary` from the source checkout.
-9. For pre-release taps, install with `brew install --HEAD e24z/tap/needle`.
-10. For stable releases, tag the release and update the Homebrew formula URL and
+9. On feature branches, validate with the source/dev install path, not Homebrew.
+10. After merging to `main` and updating the tap, install with
+   `brew install --HEAD e24z/tap/needle`.
+11. For stable releases, tag the release and update the Homebrew formula URL and
    SHA256 in the tap.
-11. Install with `brew install --HEAD e24z/tap/needle`; confirm the setup hook runs or
+12. Install the stable formula without `--HEAD`; confirm the setup hook runs or
     prints a pending setup path.
-12. Run `needle setup pi`, open Pi, and verify `/needle doctor`.
-13. Run `needle setup claude-code`, open Claude Code, and verify `/mcp`.
-14. Run `needle setup codex --dry-run` and verify the Codex MCP command/config.
-15. Run `needle statusline claude-code --plain`.
+13. Run `needle setup pi`, open Pi, and verify `/needle doctor`.
+14. Run `needle setup claude-code`, open Claude Code, and verify `/mcp`.
+15. Run `needle setup codex --dry-run` and verify the Codex MCP command/config.
+16. Run `needle statusline claude-code --plain`.
 
-For local pre-release Homebrew smoke tests, copy `packaging/homebrew/Formula/needle.rb`
-into a throwaway tap and install `--HEAD` from that tap. Homebrew 6 rejects
-direct formula-file installs outside a tap.
+For local pre-release Homebrew smoke tests after merge, copy
+`packaging/homebrew/Formula/needle.rb` into a throwaway tap and install `--HEAD`
+from that tap. This validates the Homebrew path against `main`; it does not prove
+feature-branch behavior. Homebrew 6 rejects direct formula-file installs outside
+a tap.

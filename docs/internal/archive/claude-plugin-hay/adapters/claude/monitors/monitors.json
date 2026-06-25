@@ -1,7 +1,0 @@
-[
-  {
-    "name": "hay-session",
-    "command": "cd \"${CLAUDE_PLUGIN_ROOT}\" && NEEDLE_BACKEND=\"${NEEDLE_BACKEND:-e24z/code-pruner-mlx}\" uv run --extra backend-code-pruner-mlx -m pruner session --session \"$CLAUDE_SESSION_ID\"",
-    "description": "Hay session lease — ensures the machine-wide manager is up and keeps it warm while this session is alive"
-  }
-]

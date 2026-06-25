@@ -5,7 +5,7 @@ This intentionally bypasses agents, Docker, Modal, and SWE-bench. It is for the
 local question: "what did one pruning call cost, and why?"
 
 Example:
-  HAY_PROFILE_MLX=1 NEEDLE_MLX_PROFILE=local_adaptive \
+  NEEDLE_PROFILE_MLX=1 NEEDLE_MLX_PROFILE=local_adaptive \
     uv run --extra backend-code-pruner-mlx python3 tools/mlx_backend_probe.py
 """
 
@@ -24,6 +24,23 @@ def _parse_int_list(raw: str) -> list[int]:
     if not values:
         raise argparse.ArgumentTypeError("provide at least one integer")
     return values
+
+
+def _configure_env(*, max_length: int | None) -> None:
+    if max_length is not None:
+        os.environ["NEEDLE_MLX_MAX_LENGTH"] = str(max_length)
+    os.environ.setdefault("NEEDLE_PROFILE_MLX", "1")
+
+
+def _batch_sizes(explicit: list[int] | None) -> list[int]:
+    if explicit:
+        return explicit
+    return [
+        int(
+            os.environ.get("NEEDLE_MLX_MAX_BATCH_SIZE")
+            or os.environ.get("HAY_MLX_MAX_BATCH_SIZE", "1")
+        )
+    ]
 
 
 def _compact_stats(stats: dict[str, object]) -> dict[str, object]:
@@ -148,7 +165,10 @@ def main(argv: list[str] | None = None) -> int:
         "--batch-sizes",
         type=_parse_int_list,
         default=None,
-        help="Comma-separated HAY_MLX_MAX_BATCH_SIZE values to sweep.",
+        help=(
+            "Comma-separated batch sizes to sweep via NEEDLE_MLX_MAX_BATCH_SIZE "
+            "(legacy HAY_MLX_MAX_BATCH_SIZE is still read)."
+        ),
     )
     parser.add_argument(
         "--compact",
@@ -162,9 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model-dir", default=None)
     args = parser.parse_args(argv)
 
-    if args.max_length is not None:
-        os.environ["HAY_MAX_LENGTH"] = str(args.max_length)
-    os.environ.setdefault("HAY_PROFILE_MLX", "1")
+    _configure_env(max_length=args.max_length)
     functions_values = args.functions_list or [args.functions]
     if args.max_lengths is not None:
         max_lengths = args.max_lengths
@@ -172,12 +190,7 @@ def main(argv: list[str] | None = None) -> int:
         max_lengths = [args.max_length]
     else:
         max_lengths = [None]
-    batch_sizes = args.batch_sizes or [
-        int(
-            os.environ.get("NEEDLE_MLX_MAX_BATCH_SIZE")
-            or os.environ.get("HAY_MLX_MAX_BATCH_SIZE", "1")
-        )
-    ]
+    batch_sizes = _batch_sizes(args.batch_sizes)
 
     from needle.backends.code_pruner.model import CodePrunerBackend
 
@@ -192,7 +205,7 @@ def main(argv: list[str] | None = None) -> int:
         if max_length is not None:
             backend._max_length = max_length
         for batch_size in batch_sizes:
-            os.environ["HAY_MLX_MAX_BATCH_SIZE"] = str(batch_size)
+            os.environ["NEEDLE_MLX_MAX_BATCH_SIZE"] = str(batch_size)
             for functions in functions_values:
                 text = _synthetic_python(functions)
                 for idx in range(args.repeats):

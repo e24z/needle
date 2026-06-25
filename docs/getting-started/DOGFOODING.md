@@ -9,6 +9,22 @@ goal is to answer three questions:
 
 This is an experiment matrix. A run is not valid just because setup completed.
 
+## Setup, Canary, Pruning
+
+Keep these results separate when reporting a first run:
+
+| Layer | What to run | Counts as success | Does not prove |
+| --- | --- | --- | --- |
+| Base install | `needle --help` and `needle setup --dry-run` | The CLI is present and can describe host setup. | Host installation or pruning. |
+| Host setup | `needle setup pi`, `needle setup claude-code`, or `needle setup codex` | The host can see Needle after setup. | That the host invoked Needle on a real observation. |
+| No-model canary | `npm run demo:pi-canary` from the source checkout | The Pi adapter/canary path works without model files. | Local MLX backend readiness. |
+| Real MLX pruning | Backend extra installed, model downloaded, and transcript/status evidence shows a shorter result | A real observation passed through the local MLX backend. | A stable packaged backend/model install path. |
+
+The base install and canary path can be healthy while real MLX pruning remains
+developer preview. Do not describe a run as real pruning unless the backend and
+model are available and the host transcript or Pi status proves Needle handled
+that observation.
+
 ## Host Matrix
 
 | Host | Setup | First check | Valid pruning signal | Invalidates the run |

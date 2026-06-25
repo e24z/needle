@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 # uv-native provisioning. Backend manifests declare which extra launches their
@@ -9,6 +9,7 @@ build-backend = "setuptools.build_meta"
 name = "needle"
 version = "0.1.0"
 description = "Local context-pruning for agent coding tools."
+license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     "click>=8,<9",

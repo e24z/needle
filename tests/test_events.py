@@ -47,7 +47,7 @@ def test_legacy_event_env_aliases_still_work() -> None:
         os.environ["HAY_HOME"] = d
         os.environ["HAY_NO_EVENTS"] = "1"
         events.emit("should_not_write")
-        assert events.tail(10) == [], "HAY_NO_EVENTS=1 must remain a compatibility alias"
+        assert events.tail(10) == [], "HAY_NO_EVENTS=1 must remain a legacy compatibility alias"
     os.environ.pop("HAY_NO_EVENTS", None)
     os.environ.pop("HAY_HOME", None)
 

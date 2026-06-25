@@ -18,8 +18,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from needle.backends import FakePruner, _degraded, get_backend, is_code_pruner_backend_name  # noqa: E402
 from needle.backends.code_pruner.config import (  # noqa: E402
+    CHUNK_OVERLAP_ENV_NAMES,
+    MAX_BATCH_SIZE_ENV_NAMES,
+    MAX_LENGTH_ENV_NAMES,
+    MAX_LENGTH_RATIO_ENV_NAMES,
+    MLX_CACHE_LIMIT_ENV_NAMES,
+    MLX_CLEAR_CACHE_ENV_NAMES,
+    MLX_LIGHT_ENV_NAMES,
+    MLX_PROFILE_ENV_NAMES,
+    MLX_WIRED_LIMIT_ENV_NAMES,
+    PROFILE_MLX_ENV_NAMES,
+    REPAIR_ENV_NAMES,
+    THRESHOLD_ENV_NAMES,
     choose_mlx_max_length,
     configured_max_length,
+    first_env,
     repair_enabled_for_active_package,
     repair_enabled_for_capabilities,
 )
@@ -75,6 +88,14 @@ def test_soft_lamr_capability_opts_into_repair() -> None:
 def test_repair_env_override_wins() -> None:
     assert repair_enabled_for_capabilities(
         ["swe-pruner/reference"],
+        {"HAY_REPAIR": "0", "NEEDLE_REPAIR": "1"},
+    )
+    assert not repair_enabled_for_capabilities(
+        ["e24z/soft-lamr"],
+        {"HAY_REPAIR": "1", "NEEDLE_REPAIR": "0"},
+    )
+    assert repair_enabled_for_capabilities(
+        ["swe-pruner/reference"],
         {"HAY_REPAIR": "1"},
     )
     assert not repair_enabled_for_capabilities(
@@ -89,6 +110,30 @@ def test_repair_env_override_wins() -> None:
         ["e24z/soft-lamr"],
         {"NEEDLE_REPAIR": "false"},
     )
+
+
+def test_code_pruner_env_tuples_prefer_needle_names() -> None:
+    tuples = [
+        REPAIR_ENV_NAMES,
+        MLX_PROFILE_ENV_NAMES,
+        MAX_LENGTH_ENV_NAMES,
+        MLX_LIGHT_ENV_NAMES,
+        PROFILE_MLX_ENV_NAMES,
+        CHUNK_OVERLAP_ENV_NAMES,
+        MAX_BATCH_SIZE_ENV_NAMES,
+        MAX_LENGTH_RATIO_ENV_NAMES,
+        MLX_CACHE_LIMIT_ENV_NAMES,
+        MLX_WIRED_LIMIT_ENV_NAMES,
+        MLX_CLEAR_CACHE_ENV_NAMES,
+        THRESHOLD_ENV_NAMES,
+    ]
+    for names in tuples:
+        assert names[0].startswith("NEEDLE_"), names
+        assert all(not name.startswith("HAY_") for name in names[:1]), names
+        environ = {names[0]: "canonical"}
+        if len(names) > 1:
+            environ[names[-1]] = "legacy"
+        assert first_env(names, environ) == "canonical"
 
 
 def test_adaptive_mlx_profile_uses_2048_for_small_observations() -> None:
@@ -111,6 +156,10 @@ def test_adaptive_mlx_profile_uses_1024_for_large_observations() -> None:
 
 def test_explicit_mlx_max_length_overrides_adaptive_profile() -> None:
     assert configured_max_length({"NEEDLE_MLX_MAX_LENGTH": "1536"}) == 1536
+    assert configured_max_length(
+        {"NEEDLE_MLX_MAX_LENGTH": "1536", "HAY_MAX_LENGTH": "1024"}
+    ) == 1536
+    assert configured_max_length({"HAY_MAX_LENGTH": "1024"}) == 1024
     assert choose_mlx_max_length(
         original_tokens=2600,
         prompt_tokens=82,
@@ -242,6 +291,7 @@ def main() -> int:
     test_reference_capability_leaves_repair_off()
     test_soft_lamr_capability_opts_into_repair()
     test_repair_env_override_wins()
+    test_code_pruner_env_tuples_prefer_needle_names()
     test_adaptive_mlx_profile_uses_2048_for_small_observations()
     test_adaptive_mlx_profile_uses_1024_for_large_observations()
     test_explicit_mlx_max_length_overrides_adaptive_profile()

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 
-os.environ["HAY_NO_EVENTS"] = "1"  # compatibility alias; don't write the real local event log
+os.environ["HAY_NO_EVENTS"] = "1"  # legacy compatibility alias; don't write the real local event log
 
 import socket  # noqa: E402
 import sys  # noqa: E402
@@ -19,7 +19,7 @@ from pathlib import Path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # runnable bare, like its siblings
 
-from needle.runtime.manager import serve_manager  # noqa: E402
+from needle.runtime.manager import MANAGER_CONFIG_ENVS, _env, serve_manager  # noqa: E402
 from needle.runtime.protocol import decode, encode  # noqa: E402
 
 
@@ -57,7 +57,27 @@ def _wait_until(pred, timeout: float = 2.0, interval: float = 0.02) -> bool:
     return False
 
 
+def test_manager_config_env_prefers_needle_names() -> None:
+    env_names = [name for names in MANAGER_CONFIG_ENVS.values() for name in names]
+    old = {name: os.environ.get(name) for name in env_names}
+    try:
+        for idx, names in enumerate(MANAGER_CONFIG_ENVS.values(), start=1):
+            needle, legacy = names
+            os.environ[legacy] = f"legacy-{idx}"
+            os.environ[needle] = f"needle-{idx}"
+            assert _env(names, "default") == f"needle-{idx}"
+            os.environ.pop(needle)
+            assert _env(names, "default") == f"legacy-{idx}"
+    finally:
+        for name, value in old.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
 def main() -> int:
+    test_manager_config_env_prefers_needle_names()
     tmp = Path(tempfile.mkdtemp()) / "manager.sock"
     builds: list[SpyBackend] = []
 

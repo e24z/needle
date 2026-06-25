@@ -12,9 +12,23 @@ from collections.abc import Iterable, Mapping
 
 REFERENCE_CAPABILITY = "swe-pruner/reference"
 SOFT_LAMR_CAPABILITY = "e24z/soft-lamr"
-REPAIR_ENV_NAMES = ("HAY_REPAIR", "NEEDLE_REPAIR")
+# NEEDLE_* names are canonical; HAY_* entries remain legacy compatibility
+# aliases for early installs and local experiment scripts.
+REPAIR_ENV_NAMES = ("NEEDLE_REPAIR", "HAY_REPAIR")
 MLX_PROFILE_ENV_NAMES = ("NEEDLE_MLX_PROFILE", "HAY_MLX_PROFILE")
 MAX_LENGTH_ENV_NAMES = ("NEEDLE_MLX_MAX_LENGTH", "NEEDLE_MAX_LENGTH", "HAY_MAX_LENGTH")
+MLX_LIGHT_ENV_NAMES = ("NEEDLE_MLX_LIGHT", "HAY_MLX_LIGHT")
+PROFILE_MLX_ENV_NAMES = ("NEEDLE_PROFILE_MLX", "HAY_PROFILE_MLX")
+CHUNK_OVERLAP_ENV_NAMES = ("NEEDLE_CHUNK_OVERLAP_TOKENS", "HAY_CHUNK_OVERLAP_TOKENS")
+MAX_BATCH_SIZE_ENV_NAMES = ("NEEDLE_MLX_MAX_BATCH_SIZE", "HAY_MLX_MAX_BATCH_SIZE")
+MAX_LENGTH_RATIO_ENV_NAMES = ("NEEDLE_MLX_MAX_LENGTH_RATIO", "HAY_MLX_MAX_LENGTH_RATIO")
+MLX_CACHE_LIMIT_ENV_NAMES = ("NEEDLE_MLX_CACHE_LIMIT_MB", "HAY_MLX_CACHE_LIMIT_MB")
+MLX_WIRED_LIMIT_ENV_NAMES = ("NEEDLE_MLX_WIRED_LIMIT_MB", "HAY_MLX_WIRED_LIMIT_MB")
+MLX_CLEAR_CACHE_ENV_NAMES = (
+    "NEEDLE_MLX_CLEAR_CACHE_AFTER_PRUNE",
+    "HAY_MLX_CLEAR_CACHE_AFTER_PRUNE",
+)
+THRESHOLD_ENV_NAMES = ("NEEDLE_THRESHOLD", "HAY_THRESHOLD")
 ADAPTIVE_MLX_PROFILES = {"local_adaptive", "local-mlx-adaptive", "local_mlx_adaptive"}
 
 
@@ -55,6 +69,16 @@ def configured_max_length(environ: Mapping[str, str] | None = None) -> int | Non
 def active_mlx_profile(environ: Mapping[str, str] | None = None) -> str:
     env = os.environ if environ is None else environ
     return (_first_env(MLX_PROFILE_ENV_NAMES, env) or "").strip().lower()
+
+
+def first_env(
+    names: tuple[str, ...],
+    environ: Mapping[str, str] | None = None,
+    default: str | None = None,
+) -> str | None:
+    env = os.environ if environ is None else environ
+    value = _first_env(names, env)
+    return default if value is None else value
 
 
 def choose_mlx_max_length(

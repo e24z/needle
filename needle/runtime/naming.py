@@ -1,7 +1,7 @@
 """Single source of truth for the product name and where runtime files live.
 
 The product name is deliberately confined to this one module. NEEDLE_* env vars
-are canonical; HAY_* remains as a compatibility alias for early installs.
+are canonical; HAY_* remains as a legacy compatibility alias for early installs.
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ from pathlib import Path
 # Product name. The ONLY place the default product name appears in runtime code.
 APP_NAME = os.environ.get("NEEDLE_APP_NAME") or os.environ.get("HAY_APP_NAME", "needle")
 
-# Built-in package names during the Hay -> Needle migration. Long-term, these
-# aliases should disappear once old alpha configs and env vars no longer exist.
+# Built-in package aliases for legacy alpha package ids. Long-term, these aliases
+# should disappear once old alpha configs and env vars no longer exist.
 DEFAULT_PACKAGE_ID = "e24z/mlx-pi-soft-lamr"
 PACKAGE_ALIASES = {
     "e24z/pi-local-mac": "e24z/mlx-pi-reference",

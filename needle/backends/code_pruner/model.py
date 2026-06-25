@@ -17,14 +17,25 @@ from .chunking import (
     split_text_into_token_chunks,
 )
 from .config import (
+    CHUNK_OVERLAP_ENV_NAMES,
+    MAX_BATCH_SIZE_ENV_NAMES,
+    MAX_LENGTH_RATIO_ENV_NAMES,
+    MLX_CACHE_LIMIT_ENV_NAMES,
+    MLX_CLEAR_CACHE_ENV_NAMES,
+    MLX_LIGHT_ENV_NAMES,
+    MLX_WIRED_LIMIT_ENV_NAMES,
+    PROFILE_MLX_ENV_NAMES,
+    THRESHOLD_ENV_NAMES,
     choose_mlx_max_length,
     configured_max_length,
+    first_env,
     repair_enabled_for_active_package,
 )
 from .lines import aggregate_token_scores_to_lines, prune_code_lines
 
-# The optional C++ Viterbi extension never shipped to Hay; the numpy decoder
-# below is the only path. (Original lives in ~/repos/needle if ever worth porting.)
+# The optional C++ Viterbi extension is not part of current Needle; the numpy
+# decoder below is the only active path. (Historical source lives in
+# ~/repos/needle if ever worth porting.)
 viterbi_cpp = None
 
 _PROMPT_PREFIX = '<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n'
@@ -58,23 +69,27 @@ def _mlx_func(name: str):
     return getattr(metal, name, None) if metal is not None else None
 
 
-def _env_flag(name: str, default: bool) -> bool:
-    value = os.environ.get(name)
+def _env_flag(names: str | tuple[str, ...], default: bool) -> bool:
+    if isinstance(names, str):
+        names = (names,)
+    value = first_env(names)
     if value is None:
         return default
     return value.lower() not in {"0", "false", "no", "off"}
 
 
-def _env_mb(name: str) -> int | None:
-    value = os.environ.get(name)
+def _env_mb(names: str | tuple[str, ...]) -> int | None:
+    if isinstance(names, str):
+        names = (names,)
+    value = first_env(names)
     if not value:
         return None
     try:
         mb = int(value)
     except ValueError as exc:
-        raise ValueError(f"{name} must be an integer number of MB") from exc
+        raise ValueError(f"{names[0]} must be an integer number of MB") from exc
     if mb < 0:
-        raise ValueError(f"{name} must be non-negative")
+        raise ValueError(f"{names[0]} must be non-negative")
     return mb
 
 
@@ -431,7 +446,7 @@ class MLXSwePrunerBackend:
         )
 
         # 2. Get the backbone architecture + tokenizer.
-        if os.environ.get("HAY_MLX_LIGHT", "1").lower() in {"1", "true", "yes"}:
+        if _env_flag(MLX_LIGHT_ENV_NAMES, True):
             # Light path: code-pruner already ships the FULL backbone weights and
             # its own tokenizer, so build the Qwen3 architecture from the backbone's
             # tiny config.json and skip loading Qwen's ~1.2GB of weights entirely
@@ -751,10 +766,7 @@ class MLXSwePrunerBackend:
         use_viterbi: bool = False,
     ):
         total_start = time.perf_counter()
-        profile_forced_eval = _env_flag("NEEDLE_PROFILE_MLX", False) or _env_flag(
-            "HAY_PROFILE_MLX",
-            False,
-        )
+        profile_forced_eval = _env_flag(PROFILE_MLX_ENV_NAMES, False)
 
         # Format instruction prompt
         tokenize_start = time.perf_counter()
@@ -911,10 +923,7 @@ class MLXSwePrunerBackend:
             use_viterbi = self.use_viterbi
 
         total_start = time.perf_counter()
-        profile_forced_eval = _env_flag("NEEDLE_PROFILE_MLX", False) or _env_flag(
-            "HAY_PROFILE_MLX",
-            False,
-        )
+        profile_forced_eval = _env_flag(PROFILE_MLX_ENV_NAMES, False)
         tokenize_start = time.perf_counter()
         prefix_ids, query_ids, suffix_ids = self._prompt_token_ids(query)
         prompt_tokens = len(prefix_ids) + len(query_ids) + len(suffix_ids)
@@ -953,18 +962,9 @@ class MLXSwePrunerBackend:
             }
             return text
 
-        overlap_tokens = int(
-            os.environ.get("NEEDLE_CHUNK_OVERLAP_TOKENS")
-            or os.environ.get("HAY_CHUNK_OVERLAP_TOKENS", "50")
-        )
-        max_batch_size = int(
-            os.environ.get("NEEDLE_MLX_MAX_BATCH_SIZE")
-            or os.environ.get("HAY_MLX_MAX_BATCH_SIZE", "1")
-        )
-        max_length_ratio = float(
-            os.environ.get("NEEDLE_MLX_MAX_LENGTH_RATIO")
-            or os.environ.get("HAY_MLX_MAX_LENGTH_RATIO", "1.5")
-        )
+        overlap_tokens = int(first_env(CHUNK_OVERLAP_ENV_NAMES, default="50"))
+        max_batch_size = int(first_env(MAX_BATCH_SIZE_ENV_NAMES, default="1"))
+        max_length_ratio = float(first_env(MAX_LENGTH_RATIO_ENV_NAMES, default="1.5"))
 
         chunks = split_text_into_token_chunks(
             text,
@@ -1051,7 +1051,8 @@ class MLXSwePrunerBackend:
         # Optional AST structural repair (off by default): an alternative render
         # of the kept-line mask that pulls in enclosing scopes/imports so the
         # output still parses. Gated so the model stands on its own; flip on for
-        # evals via the backend's `repair` flag (HAY_REPAIR).
+        # evals via the backend's `repair` flag (NEEDLE_REPAIR, or legacy
+        # compatibility HAY_REPAIR).
         result = pruned
         if self.repair and _looks_like_python(text):
             try:
@@ -1221,9 +1222,9 @@ def _is_filter_marker(line: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Hay wrapper: a sealed backend implementing pruner's `prune(text, query)`.
-# Everything above this line is ML ported verbatim from needle. The wrapper
-# below is the only part that talks to the rest of Hay.
+# Needle wrapper: a sealed backend implementing the `prune(text, query)` backend
+# protocol. Everything above this line is the ML port from code-pruner; the
+# wrapper below is the only part that talks to the rest of Needle.
 # ---------------------------------------------------------------------------
 
 
@@ -1233,7 +1234,7 @@ def _resolve_model_dir() -> str:
     NEEDLE_MODEL_DIR points at an exact existing model directory. Otherwise
     Needle downloads NEEDLE_MODEL from Hugging Face into a Needle-owned
     directory so uninstall can clean up without spelunking through the shared
-    Hugging Face cache. HAY_* names are still accepted as compatibility
+    Hugging Face cache. HAY_* names are still accepted as legacy compatibility
     fallbacks.
     """
     explicit = os.environ.get("NEEDLE_MODEL_DIR") or os.environ.get("HAY_MODEL_DIR")
@@ -1254,22 +1255,20 @@ def _resolve_model_dir() -> str:
 
 class CodePrunerBackend:
     """The real SWE-pruner / code-pruner relevance model on MLX. Sealed: the
-    rest of Hay only sees prune(text, query) -> str. The MLX classes above are
+    rest of Needle only sees prune(text, query) -> str. The MLX classes above are
     the *implementation*; the backend's identity is the model (code-pruner)."""
 
     name = "code-pruner"
 
     def __init__(self, model_dir: str | None = None) -> None:
         repair = repair_enabled_for_active_package()
-        _set_mlx_limit("set_cache_limit", _env_mb("HAY_MLX_CACHE_LIMIT_MB"))
-        _set_mlx_limit("set_wired_limit", _env_mb("HAY_MLX_WIRED_LIMIT_MB"))
-        self._clear_cache_after_prune = _env_flag(
-            "HAY_MLX_CLEAR_CACHE_AFTER_PRUNE", True
-        )
+        _set_mlx_limit("set_cache_limit", _env_mb(MLX_CACHE_LIMIT_ENV_NAMES))
+        _set_mlx_limit("set_wired_limit", _env_mb(MLX_WIRED_LIMIT_ENV_NAMES))
+        self._clear_cache_after_prune = _env_flag(MLX_CLEAR_CACHE_ENV_NAMES, True)
         self._impl = MLXSwePrunerBackend(
             model_name=model_dir or _resolve_model_dir(), repair=repair
         )
-        self._threshold = float(os.environ.get("HAY_THRESHOLD", "0.5"))
+        self._threshold = float(first_env(THRESHOLD_ENV_NAMES, default="0.5"))
         self._max_length = configured_max_length() or 0
 
     def prune(self, *, text: str, query: str) -> str:

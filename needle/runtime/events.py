@@ -6,8 +6,9 @@ remote sink (Cloudflare/Supabase) would plug into `emit()` behind an explicit,
 default-off opt-in. This file is just a local log, like manager.log.
 
 On by default so a tester's box is diagnosable out of the box;
-`NEEDLE_NO_EVENTS=1` disables it. `HAY_NO_EVENTS=1` remains a compatibility
-alias. Fail-silent (logging must never break the manager) and stdlib-only.
+`NEEDLE_NO_EVENTS=1` disables it. `HAY_NO_EVENTS=1` remains a legacy
+compatibility alias. Fail-silent (logging must never break the manager) and
+stdlib-only.
 """
 
 from __future__ import annotations

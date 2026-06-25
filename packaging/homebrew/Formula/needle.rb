@@ -211,7 +211,8 @@ class Needle < Formula
 
   def caveats
     <<~EOS
-      Needle is currently distributed from this tap as a pre-release HEAD formula.
+      Needle is currently distributed from this tap as a pre-release HEAD formula
+      tracking main.
 
       Install with:
         brew install --HEAD e24z/tap/needle
@@ -221,6 +222,8 @@ class Needle < Formula
       dependencies. Full local MLX pruning still needs backend dependencies and
       model files; use the developer-preview backend extra until that path is
       packaged.
+      Feature branches are not published through this formula; use a source/dev
+      install for branch validation until the branch is merged or released.
 
       If setup was deferred, resume with:
         needle setup

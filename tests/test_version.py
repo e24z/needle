@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-os.environ["HAY_NO_EVENTS"] = "1"  # compatibility alias; don't write the real local event log
+os.environ["HAY_NO_EVENTS"] = "1"  # legacy compatibility alias; don't write the real local event log
 
 import socket  # noqa: E402
 import sys  # noqa: E402

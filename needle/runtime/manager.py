@@ -36,11 +36,29 @@ from . import events, naming, sysmem
 from .backends import PrunerBackend, get_backend, is_code_pruner_backend_name
 from .protocol import decode, encode
 
-LEASE_TTL = float(os.environ.get("HAY_LEASE_TTL", "90"))
-IDLE_TIMEOUT = float(os.environ.get("HAY_IDLE_TIMEOUT", "300"))
-MIN_FREE_MB = float(os.environ.get("HAY_MIN_FREE_MB", "3072"))
-MAX_PRUNE_CHARS = int(os.environ.get("HAY_MAX_PRUNE_CHARS", "1000000"))
-MEM_POLL = float(os.environ.get("HAY_MEM_POLL", "5"))
+
+def _env(names: tuple[str, ...], default: str) -> str:
+    for name in names:
+        value = os.environ.get(name)
+        if value is not None:
+            return value
+    return default
+
+
+MANAGER_CONFIG_ENVS = {
+    "lease_ttl": ("NEEDLE_LEASE_TTL", "HAY_LEASE_TTL"),
+    "idle_timeout": ("NEEDLE_IDLE_TIMEOUT", "HAY_IDLE_TIMEOUT"),
+    "min_free_mb": ("NEEDLE_MIN_FREE_MB", "HAY_MIN_FREE_MB"),
+    "max_prune_chars": ("NEEDLE_MAX_PRUNE_CHARS", "HAY_MAX_PRUNE_CHARS"),
+    "mem_poll": ("NEEDLE_MEM_POLL", "HAY_MEM_POLL"),
+}
+
+
+LEASE_TTL = float(_env(MANAGER_CONFIG_ENVS["lease_ttl"], "90"))
+IDLE_TIMEOUT = float(_env(MANAGER_CONFIG_ENVS["idle_timeout"], "300"))
+MIN_FREE_MB = float(_env(MANAGER_CONFIG_ENVS["min_free_mb"], "3072"))
+MAX_PRUNE_CHARS = int(_env(MANAGER_CONFIG_ENVS["max_prune_chars"], "1000000"))
+MEM_POLL = float(_env(MANAGER_CONFIG_ENVS["mem_poll"], "5"))
 
 
 class Manager:

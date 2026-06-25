@@ -21,7 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-os.environ["HAY_NO_EVENTS"] = "1"  # compatibility alias; don't write the real local event log
+os.environ["HAY_NO_EVENTS"] = "1"  # legacy compatibility alias; don't write the real local event log
 
 from needle.runtime import client, naming  # noqa: E402
 from needle.runtime import session as session_mod  # noqa: E402
@@ -46,7 +46,7 @@ def test_manage_subprocess_serves(tmp_sock: Path) -> None:
         os.environ,
         HAY_MANAGER_SOCKET=str(tmp_sock),
         HAY_BACKEND="fake",
-        HAY_NO_EVENTS="1",  # don't write the real local event log from tests
+        HAY_NO_EVENTS="1",  # legacy compatibility alias; don't write the real local event log
         PYTHONPATH=_ROOT,
     )
     proc = subprocess.Popen(
