@@ -27,6 +27,12 @@ interactive install this starts the guided setup flow. In a non-interactive
 install it writes a pending setup marker and the formula caveats show how to
 resume with `needle setup`.
 
+The pre-release formula installs Needle's base control plane: CLI, package
+inspection, Pi setup, MCP server dependencies, and canaries. It does not yet
+package the full local MLX backend dependency stack or download model files.
+Do not describe a plain Homebrew install as proof of live model pruning until
+that backend packaging path is cut.
+
 The tap lives in the separate `e24z/homebrew-tap` repository. Before the first
 stable release, it is a head-only formula. When cutting a stable release, add the
 release tarball URL and SHA256 to the tap formula.
@@ -85,16 +91,18 @@ user benefit.
 3. Build the wheel/sdist and install it into a clean environment.
 4. Run `needle setup pi --dry-run` from the installed artifact.
 5. Run `needle setup claude-code --dry-run` from the installed artifact.
-6. Run `needle mcp serve` through a stdio MCP client smoke.
-7. Run `npm run demo:pi-canary` from the source checkout.
-8. For pre-release taps, install with `brew install --HEAD e24z/tap/needle`.
-9. For stable releases, tag the release and update the Homebrew formula URL and
+6. Run `needle setup codex --dry-run` from the installed artifact.
+7. Run `needle mcp serve` through a stdio MCP client smoke.
+8. Run `npm run demo:pi-canary` from the source checkout.
+9. For pre-release taps, install with `brew install --HEAD e24z/tap/needle`.
+10. For stable releases, tag the release and update the Homebrew formula URL and
    SHA256 in the tap.
-10. Install with `brew install --HEAD e24z/tap/needle`; confirm the setup hook runs or
+11. Install with `brew install --HEAD e24z/tap/needle`; confirm the setup hook runs or
     prints a pending setup path.
-11. Run `needle setup pi`, open Pi, and verify `/needle doctor`.
-12. Run `needle setup claude-code`, open Claude Code, and verify `/mcp`.
-13. Run `needle statusline claude-code --plain`.
+12. Run `needle setup pi`, open Pi, and verify `/needle doctor`.
+13. Run `needle setup claude-code`, open Claude Code, and verify `/mcp`.
+14. Run `needle setup codex --dry-run` and verify the Codex MCP command/config.
+15. Run `needle statusline claude-code --plain`.
 
 For local pre-release Homebrew smoke tests, copy `packaging/homebrew/Formula/needle.rb`
 into a throwaway tap and install `--HEAD` from that tap. Homebrew 6 rejects

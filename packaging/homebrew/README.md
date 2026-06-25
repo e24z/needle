@@ -22,6 +22,11 @@ with:
 needle setup
 ```
 
+The current formula packages the base CLI, setup flow, MCP dependencies, and
+canaries. It does not yet package the full local MLX backend dependency stack or
+download model files. Keep that limitation visible in caveats until the backend
+extra has a clean release path.
+
 Before the first release tag, smoke the development branch by copying the
 formula into a throwaway local tap. Homebrew 6 rejects formula files that are not
 inside a tap.

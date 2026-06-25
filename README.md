@@ -36,8 +36,10 @@ needle setup
 ```
 
 The Homebrew formula installs the Python runtime and base CLI/MCP dependencies
-for you. A future stable formula will drop the `--HEAD` once a real release
-tarball SHA exists.
+for setup, package inspection, canaries, and MCP dogfooding. Real local MLX
+pruning still requires backend dependencies and model files; that path is
+developer preview until the backend extra is packaged cleanly. A future stable
+formula will drop the `--HEAD` once a real release tarball SHA exists.
 
 The developer-from-clone path is only for people working on Needle itself. It
 requires Python 3.13 or newer and `uv`:
@@ -89,9 +91,8 @@ npm run demo:pi-canary
 ```
 
 The Pi canary and setup flow work without the model. Real pruning with the local
-MLX backend also needs backend dependencies and model files; that packaging path
-is still developer preview. From a clone, install the backend extra and download
-the model:
+MLX backend also needs backend dependencies and model files. From a clone,
+install the backend extra and download the model:
 
 ```bash
 uv tool install --editable '.[backend-code-pruner-mlx]'
