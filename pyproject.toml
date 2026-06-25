@@ -33,7 +33,7 @@ needle = "needle.cli:main"
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["needle*", "pruner*"]
+include = ["needle*"]
 
 [tool.setuptools.package-data]
 needle = [

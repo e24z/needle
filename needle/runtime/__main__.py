@@ -1,8 +1,4 @@
-"""Needle-owned module entrypoint for the resident runtime.
-
-Package manifests and host adapters launch this module instead of the legacy
-`pruner` compatibility package.
-"""
+"""Needle-owned module entrypoint for the resident runtime."""
 
 from __future__ import annotations
 

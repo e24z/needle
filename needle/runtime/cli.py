@@ -1,12 +1,11 @@
 """Command line for the Needle runtime.
 
-  manage   run the machine-wide model residency manager (one per machine)
-  session  hold a session lease against the manager (what the monitor runs)
-  prune    pipe stdin through the manager, print the result
-  status   operator snapshot: live residency + recent events (stdlib; works broken)
+  manage   run the machine-wide model residency manager
+  session  hold a session lease against the manager
+  prune    pipe stdin through the manager
+  status   show residency and recent events
   stop     ask the resident manager to shut down cleanly
-`python3 -m needle.runtime <cmd>` is the active runtime surface.
-`python3 -m pruner <cmd>` remains as a compatibility alias."""
+"""
 
 from __future__ import annotations
 

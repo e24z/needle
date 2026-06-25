@@ -5,8 +5,6 @@ Run: PYTHONPATH=. python3 tests/test_cli.py
 
 from __future__ import annotations
 
-from contextlib import redirect_stderr, redirect_stdout
-from io import StringIO
 import json
 import os
 import subprocess
@@ -16,9 +14,6 @@ import tomllib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from pruner.cli import main as pruner_main  # noqa: E402
-
 
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRY_ROOT = ROOT / "needle" / "registry_data"
@@ -409,19 +404,6 @@ def test_stop_is_idempotent_when_runtime_is_down() -> None:
                 os.environ["NEEDLE_MANAGER_SOCKET"] = old_socket
 
 
-def test_pruner_cli_does_not_own_packages() -> None:
-    out = StringIO()
-    err = StringIO()
-    try:
-        with redirect_stdout(out), redirect_stderr(err):
-            pruner_main(["package", "list"])
-    except SystemExit as exc:
-        assert exc.code == 2
-    else:
-        raise AssertionError("pruner package list should not exist")
-    assert "invalid choice" in err.getvalue()
-
-
 def main() -> int:
     test_typer_help_groups_public_commands()
     test_cli_version_and_usage_errors_are_human_readable()
@@ -442,7 +424,6 @@ def main() -> int:
     test_claude_code_statusline_plain_reports_runtime_health()
     test_runtime_status_wrapper_is_available()
     test_stop_is_idempotent_when_runtime_is_down()
-    test_pruner_cli_does_not_own_packages()
     print("test_cli OK")
     return 0
 

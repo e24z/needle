@@ -14,11 +14,9 @@ dist/
 /MISSION.md
 /NOTES.md
 /RESOURCES.md
-docs/CODEX-BRIEF-metal-cache.md
-docs/HACKING.md
-docs/MEMORY_AND_QUANTIZATION.md
-docs/MODEL_RESIDENCY.md
-docs/STORY.md
+/docs/
+/pruner/
+/tools/
 /assets/
 /learning-records/
 /lessons/

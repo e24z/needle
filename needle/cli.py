@@ -1,8 +1,8 @@
 """Needle's public CLI.
 
-The pruner module is the runtime engine. Needle owns package/registry selection
-because a package composes protocol, capability, backend, host binding, docs,
-privacy, accounting, and evidence.
+Needle owns package selection, setup, and runtime control because a package
+composes protocol, capability, backend, host binding, privacy, accounting, and
+evidence.
 """
 
 from __future__ import annotations

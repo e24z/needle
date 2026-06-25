@@ -1,97 +1,94 @@
 # Needle
 
-Needle is a local context-pruning layer for coding agents.
-
-It sits between an agent tool and the model:
+Needle is a local pruning layer for agent coding tools. It sits between a tool
+call and the model:
 
 ```text
-tool output -> Needle -> original or pruned text
+tool output -> Needle -> original text or shorter text
 ```
 
-The 1.0 product path is [Pi](https://github.com/mariozechner/pi). Needle extends
-Pi's native `read` and `bash` tools, so users keep the normal Pi workflow. The
-portable path is a bash-minimal MCP server for Claude Code, Codex, and other MCP
-hosts; it exposes one observation tool,
-`needle_bash(command, context_focus_question?)`.
+The default 1.0 path is [Pi](https://github.com/mariozechner/pi). Needle extends
+Pi's native `read` and `bash` tools, so the workflow still feels like Pi. The
+portable path is an MCP server for Claude Code, Codex, and other MCP hosts. That
+server exposes one observation tool:
 
-In both paths, Needle only shortens large textual observations when the tool call
-includes a `context_focus_question`. Missing focus questions pass through
-unchanged.
+```text
+needle_bash(command, context_focus_question?)
+```
+
+Needle only prunes large textual observations when the tool call includes a
+`context_focus_question`. If the focus question is missing, Needle passes the
+observation through unchanged.
 
 ## Install
 
-For code that has already landed on `main` and been copied into the public tap,
-the Mac install path is Homebrew. Until the first stable tag is cut, the tap is
-pre-release/head-only:
+For code that has landed on `main` and been copied into the public tap, install
+Needle with Homebrew:
 
 ```bash
 brew install --HEAD e24z/tap/needle
 ```
 
+This is still a head-only install. The stable formula comes after the first real
+release tag and tarball SHA.
+
 Homebrew starts `needle setup` during install when it can run interactively. It
-will not change Pi or Claude Code until you confirm a host install. If setup is
-deferred, resume it with:
+will not change Pi, Claude Code, or Codex until you confirm the host setup. If
+Homebrew defers setup, run it yourself:
 
 ```bash
 needle setup
 ```
 
-The Homebrew formula installs the Python runtime and base CLI/MCP dependencies
-for setup, package inspection, canaries, and MCP dogfooding. Real local MLX
-pruning still requires backend dependencies and model files; that path is
-developer preview until the backend extra is packaged cleanly. A future stable
-formula will drop the `--HEAD` once a real release tarball SHA exists.
-
-When validating a feature branch before it reaches `main`, use the source/dev
-install path instead of Homebrew. It requires Python 3.13 or newer and `uv`:
+Feature branches should use a source install instead:
 
 ```bash
 uv tool install --editable .
 needle setup
 ```
 
-Needle's Pi setup expects Pi's CLI to be available:
+Real local MLX pruning is a developer preview while the backend extra and model
+download path settle. From a clone, use:
+
+```bash
+uv tool install --editable '.[backend-code-pruner-mlx]'
+needle model dir
+needle model download
+```
+
+## Try it quickly
+
+Start with the dry run:
+
+```bash
+needle setup --dry-run
+```
+
+Then install the host you actually want to test:
+
+```bash
+needle setup pi
+# or
+needle setup claude-code
+# or
+needle setup codex
+```
+
+Needle checks for the host CLI before it tries to install anything:
 
 ```bash
 pi --help
-```
-
-Needle's Claude Code setup expects Claude's CLI to be available:
-
-```bash
 claude --help
-```
-
-Needle's Codex dogfood setup expects the Codex CLI to be available:
-
-```bash
 codex --help
 ```
 
-### First 10 Minutes
-
-Use this path to prove setup separately from real MLX pruning:
-
-| Goal | Command | Success means | Still not proven |
-| --- | --- | --- | --- |
-| Install the base CLI | Main/tap: `brew install --HEAD e24z/tap/needle`; feature branch: `uv tool install --editable .` | `needle` is installed with setup, registry, package, and MCP support. | Local MLX model pruning. |
-| Preview setup | `needle setup --dry-run` | Needle can show the host changes it would make. | The host has accepted those changes. |
-| Install a host adapter | `needle setup pi`, `needle setup claude-code`, or `needle setup codex` | The selected host can see Needle after you confirm setup. | That any given turn was pruned. |
-| Run the no-model canary from a source checkout | `npm run demo:pi-canary` | The Pi adapter/canary path works without backend model files. | Real MLX pruning readiness. |
-| Try real local MLX pruning from a clone | `uv tool install --editable '.[backend-code-pruner-mlx]'` then `needle model download` | The developer-preview backend deps and model path are present locally. | A stable packaged MLX install path. |
-
-Base install, setup, MCP visibility, and the Pi canary can all work while real
-local MLX pruning is still unavailable. Treat real MLX pruning as developer
-preview until the backend dependencies and model path are packaged cleanly.
-
-Check the adapter from inside Pi:
+Inside Pi, check the active package:
 
 ```text
 /needle doctor
 ```
 
-The important doctor lines should show the active package, capability, backend,
-and runtime profile:
+The useful lines look like this:
 
 ```text
 active package e24z/mlx-pi-soft-lamr
@@ -101,25 +98,50 @@ runtime profile local_mlx_adaptive
 compute local_mlx | privacy local_only
 ```
 
-Run the no-model canary:
+From a source checkout, the no-model canary exercises the Pi adapter without MLX
+or paid API calls:
 
 ```bash
 npm run demo:pi-canary
 ```
 
-The Pi canary and setup flow work without the model. Real pruning with the local
-MLX backend also needs backend dependencies and model files. From a clone,
-install the backend extra and download the model:
+For Claude Code or Codex, use the MCP tool explicitly. A run only passed through
+Needle if the transcript shows a `needle_bash` call. Native Bash output is not
+rewritten behind the host's back.
 
-```bash
-uv tool install --editable '.[backend-code-pruner-mlx]'
-needle model dir
-needle model download
-```
+## Packages in plain English
+
+Needle's registry has a few layers. Most users only choose a package, but the
+layers matter when you are comparing behavior:
+
+- Protocol: the smallest contract, `text -> text' | text`.
+- Capability: the pruning policy, such as `swe-pruner/reference` or
+  `e24z/soft-lamr`.
+- Backend: the implementation that does the scoring, such as
+  `e24z/code-pruner-mlx`.
+- Host binding: where Needle plugs into an agent, such as Pi native tools or MCP
+  bash.
+- Package: the bundle a user installs or selects.
+- Evidence: local fixtures or benchmark records for that package.
+
+Most people should start with `e24z/mlx-pi-soft-lamr`. It is the intended Pi
+product path: Pi native `read` and `bash`, the local MLX backend, SWE-Pruner
+scoring, and Python AST repair.
+
+Use `e24z/mlx-pi-reference` when you want the Pi comparison path without AST
+repair. Use `e24z/mlx-mcp-bash-reference` for Claude Code, Codex, or another MCP
+host that can call `needle_bash`.
+
+Needle reports exact characters removed locally. Token and dollar savings are
+estimates unless you pair them with a benchmark run or provider billing data.
+The `local_mlx_adaptive` runtime profile is local Mac tuning, not a product
+claim. It keeps batch size at 1 on constrained machines, uses a 2048-token window
+for small and medium observations, and switches to 1024-token windows for larger
+observations. `NEEDLE_MLX_MAX_LENGTH` wins if you set it for an experiment.
 
 ## Uninstall
 
-Remove host adapters through their native setup flows:
+Remove host adapters through Needle's setup command:
 
 ```bash
 needle setup pi --uninstall
@@ -141,72 +163,21 @@ brew uninstall needle
 uv tool uninstall needle
 ```
 
-## What Ships
+## Source layout
 
-The installable product is the `needle` CLI/runtime plus a built-in registry
-snapshot, the packaged Pi adapter, and the MCP bash adapter. The source repo
-also contains tests, internal planning notes, diagnostics, and compatibility
-shims; users should not need to clone or understand that material to try Needle.
+The public tree is meant to stay small:
 
-Needle-owned runtime state defaults to `~/.needle`.
+- `needle/` has the CLI, runtime, adapters, backends, and built-in registry.
+- `needle/hosts/pi/` has the Pi package.
+- `needle/hosts/mcp/` has the portable MCP bash server.
+- `packaging/homebrew/` has the formula source for the public tap.
+- `tests/` has direct script tests.
 
-## Which Package Should I Use?
+Local implementation notes live next to the surface they explain, for example
+`needle/hosts/pi/README.md`, `needle/hosts/mcp/README.md`, and
+`packaging/homebrew/README.md`.
 
-| Situation | Package | Host binding | Use it when | Boundary |
-| --- | --- | --- | --- | --- |
-| Default native Pi test | `e24z/mlx-pi-soft-lamr` | `pi/native-tools` | You want the intended Pi product path with AST repair. | Real pruning needs the MLX backend deps and model files. |
-| Pi reference comparison | `e24z/mlx-pi-reference` | `pi/native-tools` | You want the SWE-Pruner reference behavior without AST repair. | This is a comparison path, not the default product path. |
-| Claude Code or Codex dogfooding | `e24z/mlx-mcp-bash-reference` | `mcp/bash` | You can explicitly ask the host to call `needle_bash`. | Native Bash/shell output is not transparently rewritten. |
-
-## Claims
-
-Needle reports exact characters removed locally. Token and dollar savings are
-estimates unless backed by a paired benchmark or provider billing data.
-
-The default package is `e24z/mlx-pi-soft-lamr`. It uses the MLX backend with
-Pi's `read` and `bash` tools, then adds Python AST repair on top of the
-SWE-Pruner scoring path. The comparison package `e24z/mlx-pi-reference`
-implements `swe-pruner/reference` without AST repair and should be treated as
-the no-AST reference path, not the default product path.
-
-Both MLX Pi packages use the `local_mlx_adaptive` runtime profile. That profile
-is local launch tuning, not a capability claim: it keeps batch size at 1 on
-constrained Macs, uses a 2048-token window for small and medium observations,
-and switches to 1024-token windows for larger observations. Explicit
-`NEEDLE_MLX_MAX_LENGTH` still wins for experiments.
-
-The portable MCP package is `e24z/mlx-mcp-bash-reference`. It also implements
-`swe-pruner/reference`, but its host binding is `mcp/bash` and its only tool is
-`needle_bash`.
-
-For local dogfooding across Pi, Claude Code, and Codex, use
-[docs/getting-started/DOGFOODING.md](docs/getting-started/DOGFOODING.md). A
-Claude Code or Codex run only counts as pruned when the transcript shows a
-`needle_bash` MCP tool call; MCP setup does not rewrite native shell output.
-For the Claude-specific flow, see
-[docs/getting-started/CLAUDE-CODE-MCP.md](docs/getting-started/CLAUDE-CODE-MCP.md).
-
-## Source Layout
-
-The public release surface is intentionally small:
-
-- `needle/`: CLI, runtime, host adapters, and built-in registry snapshot.
-- `needle/backends/`: backend contract, fake/debug backends, and the current
-  MLX code-pruner backend.
-- `pruner/`: compatibility facade for legacy imports and `python -m pruner`.
-- `packaging/`: Homebrew formula source used by the tap.
-- `docs/getting-started/`: tester and dogfood flows.
-- `docs/reference/`: stable user/developer references.
-- `tests/` and `tools/`: direct-script tests and local diagnostics.
-
-Planning history, archived host experiments, and performance notes live under
-`docs/internal/`. They are maintainer notes, not the public tester path. Ignored
-local archaeology, old benchmark runs, and teaching scratch files should stay
-out of the source root. If needed locally, keep them under `.local-archive/`.
-
-## Developer Notes
-
-Useful commands:
+## Developer commands
 
 ```bash
 needle package doctor --host-binding pi/native-tools
@@ -220,5 +191,5 @@ needle setup codex --dry-run
 needle statusline claude-code --plain
 ```
 
-The built-in registry lives in `needle/registry_data`. External registries can
-be tested with `NEEDLE_REGISTRY_ROOT=/path/to/registry`.
+The built-in registry lives in `needle/registry_data`. External registries can be
+tested with `NEEDLE_REGISTRY_ROOT=/path/to/registry`.
