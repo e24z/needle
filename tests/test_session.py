@@ -5,7 +5,7 @@ Fake backend, temp socket -- no real model, no Claude. The detached-spawn path i
 exercised via a directly-managed subprocess (so we can tear it down); the lease
 loop is exercised against an in-thread manager. Run:
 
-    PYTHONPATH=. python3 tests/test_session.py
+    PYTHONPATH=src python3 tests/test_session.py
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import threading
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 os.environ["HAY_NO_EVENTS"] = "1"  # legacy compatibility alias; don't write the real local event log
 
@@ -29,7 +29,7 @@ from needle.runtime.backends import FakePruner  # noqa: E402
 from needle.runtime.manager import serve_manager  # noqa: E402
 from needle.runtime.session import run_session  # noqa: E402
 
-_ROOT = str(Path(__file__).resolve().parent.parent)
+_ROOT = str(Path(__file__).resolve().parent.parent / "src")
 
 
 def _wait(pred, timeout: float = 8.0, interval: float = 0.05) -> bool:

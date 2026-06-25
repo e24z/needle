@@ -1,6 +1,6 @@
 """Needle CLI package management.
 
-Run: PYTHONPATH=. python3 tests/test_cli.py
+Run: PYTHONPATH=src python3 tests/test_cli.py
 """
 
 from __future__ import annotations
@@ -13,10 +13,10 @@ import tempfile
 import tomllib
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 ROOT = Path(__file__).resolve().parent.parent
-REGISTRY_ROOT = ROOT / "needle" / "registry_data"
+REGISTRY_ROOT = ROOT / "src" / "needle" / "registry_data"
 
 
 def _run(args: list[str]) -> tuple[int, str, str]:

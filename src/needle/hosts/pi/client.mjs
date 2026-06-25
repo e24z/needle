@@ -47,7 +47,12 @@ export function eventsPath() {
 }
 
 export function repoRootFromModuleUrl(moduleUrl) {
-	return join(dirname(fileURLToPath(moduleUrl)), "..", "..", "..");
+	const here = dirname(fileURLToPath(moduleUrl));
+	const sourceRoot = join(here, "..", "..", "..", "..");
+	if (existsSync(join(sourceRoot, "pyproject.toml")) || existsSync(join(sourceRoot, ".git"))) {
+		return sourceRoot;
+	}
+	return join(here, "..", "..", "..");
 }
 
 export function pathFromModuleUrl(moduleUrl) {
@@ -146,6 +151,7 @@ export async function sourceIdentity(repoRoot, options = {}) {
 	};
 	for (const packagePath of [
 		join(repoRoot, "package.json"),
+		join(repoRoot, "src", "needle", "hosts", "pi", "package.json"),
 		join(repoRoot, "needle", "hosts", "pi", "package.json"),
 		join(repoRoot, "hosts", "pi", "package.json"),
 	]) {
@@ -299,6 +305,7 @@ export function registryRoot(repoRoot) {
 	if (process.env.NEEDLE_REGISTRY_ROOT) return process.env.NEEDLE_REGISTRY_ROOT;
 	if (process.env.HAY_REGISTRY_ROOT) return process.env.HAY_REGISTRY_ROOT;
 	for (const candidate of [
+		join(repoRoot, "src", "needle", "registry_data"),
 		join(repoRoot, "needle", "registry_data"),
 		join(repoRoot, "registry_data"),
 		repoRoot,
@@ -502,7 +509,9 @@ export async function ensureManager(options = {}) {
 }
 
 export async function codeVersion(repoRoot) {
-	const runtimeRoot = join(repoRoot, "needle", "runtime");
+	const runtimeRoot = existsSync(join(repoRoot, "src", "needle", "runtime"))
+		? join(repoRoot, "src", "needle", "runtime")
+		: join(repoRoot, "needle", "runtime");
 	const files = (await walkPython(runtimeRoot)).sort((a, b) =>
 		relative(runtimeRoot, a).localeCompare(relative(runtimeRoot, b)),
 	);

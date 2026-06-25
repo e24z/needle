@@ -1,7 +1,7 @@
 """Manager: lazy model lifecycle, leases, idle eviction, first-writer-wins bind.
 
 Fake spy backends + tiny timeouts -- no real model, no Claude.
-Run: PYTHONPATH=. python3 tests/test_manager.py
+Run: PYTHONPATH=src python3 tests/test_manager.py
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import threading  # noqa: E402
 import time  # noqa: E402
 from pathlib import Path  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # runnable bare, like its siblings
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))  # runnable bare, like its siblings
 
 from needle.runtime.manager import MANAGER_CONFIG_ENVS, _env, serve_manager  # noqa: E402
 from needle.runtime.protocol import decode, encode  # noqa: E402

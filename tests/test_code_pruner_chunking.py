@@ -1,6 +1,6 @@
 """Pure offset tests for code-pruner chunk splitting/merging.
 
-Run: PYTHONPATH=. python3 tests/test_code_pruner_chunking.py
+Run: PYTHONPATH=src python3 tests/test_code_pruner_chunking.py
 """
 
 from __future__ import annotations
@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from needle.backends.code_pruner.chunking import (  # noqa: E402
     TokenChunk,

@@ -2,7 +2,7 @@
 events the status surface relies on. The manager test injects a capturing emit,
 so it never touches disk.
 
-Run: PYTHONPATH=. python3 tests/test_events.py
+Run: PYTHONPATH=src python3 tests/test_events.py
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from needle.runtime import events  # noqa: E402
 from needle.runtime.manager import Manager  # noqa: E402

@@ -18,7 +18,7 @@ import {
 	socketIsLive,
 	sourceIdentity,
 	tailEvents,
-} from "../needle/hosts/pi/client.mjs";
+} from "../src/needle/hosts/pi/client.mjs";
 import {
 	buildBashResultPatch,
 	buildPackageStatus,
@@ -31,7 +31,7 @@ import {
 	installNeedlePiExtension,
 	renderPackageStatus,
 	renderOperatorStatus,
-} from "../needle/hosts/pi/extension.js";
+} from "../src/needle/hosts/pi/extension.js";
 
 test("Pi client speaks Needle newline JSON protocol", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "hay-pi-"));
@@ -255,7 +255,7 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 		{ calls: 3, savedChars: 4096, lastTool: "grep" },
 		{
 			appHome: "/tmp/hay",
-			extensionPath: "/tmp/hay/needle/hosts/pi/extension.js",
+			extensionPath: "/tmp/hay/src/needle/hosts/pi/extension.js",
 			socketPath: "/tmp/hay/manager.sock",
 			source: {
 				repoRoot: "/tmp/hay",
@@ -288,7 +288,7 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 	assert.match(rendered, /sessions 2  \|  version abcdef123456/);
 	assert.match(rendered, /pressure warning  \|  free 2.0 GB/);
 	assert.match(rendered, /this Pi session 4.1k chars trimmed  \|  3 prunes  \|  last tool grep/);
-	assert.match(rendered, /extension \/tmp\/hay\/needle\/hosts\/pi\/extension\.js/);
+	assert.match(rendered, /extension \/tmp\/hay\/src\/needle\/hosts\/pi\/extension\.js/);
 	assert.match(rendered, /model dir \/tmp\/hay\/models/);
 	assert.match(rendered, /active package e24z\/mlx-pi-reference/);
 	assert.match(rendered, /capability swe-pruner\/reference/);
@@ -404,7 +404,7 @@ test("Pi ensureManager spawns from backend launch metadata", async () => {
 test("Pi package identity can load from an external registry root", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "hay-registry-"));
 	for (const name of ["packages", "capabilities", "backends", "bindings", "claims", "package-cards", "protocols"]) {
-		await cp(join(process.cwd(), "needle", "registry_data", name), join(dir, name), { recursive: true });
+		await cp(join(process.cwd(), "src", "needle", "registry_data", name), join(dir, name), { recursive: true });
 	}
 
 	const oldRoot = process.env.HAY_REGISTRY_ROOT;
@@ -571,7 +571,7 @@ test("Pi package status explains package selection", async () => {
 });
 
 test("Pi demo canary prints proof report", () => {
-	const result = spawnSync(process.execPath, ["needle/hosts/pi/demo-canary.mjs"], {
+	const result = spawnSync(process.execPath, ["src/needle/hosts/pi/demo-canary.mjs"], {
 		cwd: process.cwd(),
 		encoding: "utf8",
 	});
@@ -729,7 +729,7 @@ test("Pi codeVersion matches the Python engine hash", async () => {
 	const jsVersion = await codeVersion(process.cwd());
 	const py = spawnSync("python3", ["-c", "from needle.runtime.naming import code_version; print(code_version())"], {
 		cwd: process.cwd(),
-		env: { ...process.env, PYTHONPATH: "." },
+		env: { ...process.env, PYTHONPATH: "src" },
 		encoding: "utf8",
 	});
 	assert.equal(py.status, 0, py.stderr);

@@ -4,7 +4,7 @@ don't need the model: the LOUD degraded fallback, and the optional repair layer.
 Both run under bare python3 (no mlx) on purpose — that's exactly the environment
 where the real backend can't load, which is what we're pinning down.
 
-Run: PYTHONPATH=. python3 tests/test_backends.py
+Run: PYTHONPATH=src python3 tests/test_backends.py
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from needle.backends import FakePruner, _degraded, get_backend, is_code_pruner_backend_name  # noqa: E402
 from needle.backends.code_pruner.config import (  # noqa: E402
@@ -41,7 +41,7 @@ from needle.backends.code_pruner.repair import repair_python_mask  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent
-REGISTRY_ROOT = ROOT / "needle" / "registry_data"
+REGISTRY_ROOT = ROOT / "src" / "needle" / "registry_data"
 
 
 def test_routing() -> None:

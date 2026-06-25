@@ -31,8 +31,10 @@ needle = "needle.cli:main"
 
 [tool.setuptools]
 include-package-data = true
+package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["needle*"]
 
 [tool.setuptools.package-data]

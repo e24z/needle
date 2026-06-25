@@ -2,7 +2,7 @@
 session leases announcing a different version, so an edit takes effect on the
 next session instead of a stale manager lingering. Fake backend, temp socket.
 
-Run: PYTHONPATH=. python3 tests/test_version.py
+Run: PYTHONPATH=src python3 tests/test_version.py
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import threading  # noqa: E402
 import time  # noqa: E402
 from pathlib import Path  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from needle.runtime import naming  # noqa: E402
 from needle.runtime.backends import FakePruner  # noqa: E402

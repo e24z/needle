@@ -111,8 +111,22 @@ rewritten behind the host's back.
 
 ## Packages in plain English
 
-Needle's registry has a few layers. Most users only choose a package, but the
-layers matter when you are comparing behavior:
+Needle ships as a Python package named `needle`. The source uses a `src/` layout:
+the importable code lives under `src/needle`, and the wheel installs that package
+plus the built-in registry and host adapter files. That keeps tests honest,
+because importing `needle` has to go through `src` or an installed wheel instead
+of accidentally finding random modules at the repository root.
+
+The package manager story is deliberately boring:
+
+- Homebrew installs the base CLI and starts setup on macOS.
+- `uv tool install --editable .` installs this checkout while the branch is in
+  development.
+- The `backend-code-pruner-mlx` extra installs the local MLX backend
+  dependencies for developer-preview pruning.
+
+Inside the package, the registry has a few layers. Most users only choose a
+package, but the layers matter when you are comparing behavior:
 
 - Protocol: the smallest contract, `text -> text' | text`.
 - Capability: the pruning policy, such as `swe-pruner/reference` or
@@ -167,15 +181,15 @@ uv tool uninstall needle
 
 The public tree is meant to stay small:
 
-- `needle/` has the CLI, runtime, adapters, backends, and built-in registry.
-- `needle/hosts/pi/` has the Pi package.
-- `needle/hosts/mcp/` has the portable MCP bash server.
+- `src/needle/` has the CLI, runtime, adapters, backends, and built-in registry.
+- `src/needle/hosts/pi/` has the Pi package.
+- `src/needle/hosts/mcp/` has the portable MCP bash server.
 - `packaging/homebrew/` has the formula source for the public tap.
 - `tests/` has direct script tests.
 
 Local implementation notes live next to the surface they explain, for example
-`needle/hosts/pi/README.md`, `needle/hosts/mcp/README.md`, and
-`packaging/homebrew/README.md`.
+`src/needle/README.md`, `src/needle/hosts/pi/README.md`,
+`src/needle/hosts/mcp/README.md`, and `packaging/homebrew/README.md`.
 
 ## Developer commands
 
@@ -191,5 +205,5 @@ needle setup codex --dry-run
 needle statusline claude-code --plain
 ```
 
-The built-in registry lives in `needle/registry_data`. External registries can be
-tested with `NEEDLE_REGISTRY_ROOT=/path/to/registry`.
+The built-in registry lives in `src/needle/registry_data`. External registries
+can be tested with `NEEDLE_REGISTRY_ROOT=/path/to/registry`.

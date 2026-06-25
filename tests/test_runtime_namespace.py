@@ -1,6 +1,6 @@
 """Needle runtime namespace surface.
 
-Run: PYTHONPATH=. python3 tests/test_runtime_namespace.py
+Run: PYTHONPATH=src python3 tests/test_runtime_namespace.py
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from needle.runtime import naming  # noqa: E402
 from needle.runtime.backends import FakePruner  # noqa: E402

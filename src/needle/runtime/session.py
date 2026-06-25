@@ -27,7 +27,7 @@ HEARTBEAT_INTERVAL = float(
     os.environ.get("NEEDLE_HEARTBEAT_INTERVAL")
     or os.environ.get("HAY_HEARTBEAT_INTERVAL", "30")
 )
-_REPO_ROOT = str(Path(__file__).resolve().parents[2])
+_REPO_ROOT = str(Path(__file__).resolve().parents[3])
 
 
 def _ensure_manager(timeout: float = 10.0) -> bool:

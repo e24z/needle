@@ -18,7 +18,7 @@ from .runtime import naming
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
-REPO_ROOT = PACKAGE_ROOT.parent
+REPO_ROOT = PACKAGE_ROOT.parents[1]
 BUILTIN_REGISTRY_ROOT = PACKAGE_ROOT / "registry_data"
 DEFAULT_PACKAGE_ID = naming.DEFAULT_PACKAGE_ID
 REGISTRY_ROOT_ENVS = ("NEEDLE_REGISTRY_ROOT", "HAY_REGISTRY_ROOT")

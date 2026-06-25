@@ -1,6 +1,6 @@
 """Static Needle package registry and loader.
 
-Run: PYTHONPATH=. python3 tests/test_package_config.py
+Run: PYTHONPATH=src python3 tests/test_package_config.py
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from needle.registry import (  # noqa: E402
     BUILTIN_REGISTRY_ROOT,

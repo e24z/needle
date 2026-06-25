@@ -1,6 +1,6 @@
 """Bash-minimal MCP tool behavior without importing the MCP SDK.
 
-Run: PYTHONPATH=. python3 tests/test_mcp_bash.py
+Run: PYTHONPATH=src python3 tests/test_mcp_bash.py
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from needle.hosts.mcp.bash import needle_bash_observation  # noqa: E402
 

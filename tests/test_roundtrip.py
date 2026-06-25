@@ -15,7 +15,7 @@ import tempfile  # noqa: E402
 import threading  # noqa: E402
 from pathlib import Path  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from needle.runtime import client  # noqa: E402
 from needle.runtime.backends import FakePruner  # noqa: E402

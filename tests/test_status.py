@@ -1,7 +1,7 @@
 """`needle.runtime status` renders an honest snapshot from (stats, events): down / cold /
 DEGRADED / ready, plus recent events. Pure function, no live manager.
 
-Run: PYTHONPATH=. python3 tests/test_status.py
+Run: PYTHONPATH=src python3 tests/test_status.py
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from needle.runtime.cli import _render_status  # noqa: E402
 
