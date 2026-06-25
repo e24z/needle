@@ -20,7 +20,7 @@ flowchart TD
 | Padding accounting | `PYTHONPATH=. python3 tools/mlx_padding_probe.py --lengths 100,120,2000` | How much work is fake padding under different batch plans? |
 | Pure unit test | `PYTHONPATH=. python3 tests/test_code_pruner_profiling.py` | Are the padding/bucketing rules stable without loading MLX? |
 | Real tiny probe | `HAY_PROFILE_MLX=1 uv run --extra backend-code-pruner-mlx python3 tools/mlx_backend_probe.py --functions 20 --max-length 2048` | How long did tokenization, graph build, forced eval, host sync, and rendering take? |
-| Batch-size probe | `HAY_MLX_MAX_BATCH_SIZE=2 HAY_PROFILE_MLX=1 uv run --extra backend-code-pruner-mlx python3 tools/mlx_backend_probe.py --functions 80 --max-length 1024` | Did chunked scoring actually batch, and was that batch size faster on this Mac? |
+| Batch-size probe | `HAY_MLX_MAX_BATCH_SIZE=2 HAY_PROFILE_MLX=1 uv run --extra backend-code-pruner-mlx python3 tools/mlx_backend_probe.py --functions 80 --max-length 1024` | Does a larger batch preserve output, and is it faster on this Mac? |
 
 ## Key Terms
 
@@ -49,8 +49,8 @@ batching saves.
 ## Current Local Signal
 
 The backend now splits long text into token chunks, groups similar chunks, and
-runs each group through MLX as `[B, L]`. On the first M1 Air probe,
-`HAY_MLX_MAX_BATCH_SIZE=2` was faster than `1` and `3` for an 80-function
-synthetic file at `HAY_MAX_LENGTH=1024`, so the default is conservative: batch
-two rows at a time unless profiling on a different machine proves a better
-setting.
+can run each group through MLX as `[B, L]`. On the M1 Air probes,
+`HAY_MLX_MAX_BATCH_SIZE=2` preserved output but did not improve latency versus
+serial full-coverage chunks. The default is therefore `1`: cover the whole input
+without truncation, but process one dynamic-length chunk at a time unless
+profiling on another machine proves batching is faster.

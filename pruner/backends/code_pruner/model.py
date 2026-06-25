@@ -877,7 +877,7 @@ class MLXSwePrunerBackend:
         )
         max_batch_size = int(
             os.environ.get("NEEDLE_MLX_MAX_BATCH_SIZE")
-            or os.environ.get("HAY_MLX_MAX_BATCH_SIZE", "2")
+            or os.environ.get("HAY_MLX_MAX_BATCH_SIZE", "1")
         )
         max_length_ratio = float(
             os.environ.get("NEEDLE_MLX_MAX_LENGTH_RATIO")

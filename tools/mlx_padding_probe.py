@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--max-batch-size",
         type=int,
-        default=2,
+        default=1,
         help="Maximum rows in a bucketed batch.",
     )
     parser.add_argument(
