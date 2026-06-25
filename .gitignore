@@ -1,9 +1,14 @@
 .venv/
+.pytest_cache/
+.DS_Store
+.claude/
+.local-archive/
 __pycache__/
 *.pyc
 *.egg-info/
 build/
 dist/
+/benchmarks/
 /eval/
 /evals/
 /MISSION.md
