@@ -50,7 +50,7 @@ def test_manage_subprocess_serves(tmp_sock: Path) -> None:
         PYTHONPATH=_ROOT,
     )
     proc = subprocess.Popen(
-        [sys.executable, "-m", "needle.runtime", "manage"],
+        [sys.executable, "-m", "needle.runtime", "manage", "--raw"],
         cwd=_ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     try:

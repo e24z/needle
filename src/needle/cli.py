@@ -1168,11 +1168,34 @@ def model_clean(
 
 
 @runtime_app.command("manage")
-def runtime_manage() -> None:
+def runtime_manage(
+    package_id: str | None = typer.Option(
+        None,
+        "--package",
+        help="Package id used to derive runtime environment.",
+    ),
+    host_binding: str | None = typer.Option(
+        None,
+        "--host-binding",
+        help="Host binding used for default package selection.",
+    ),
+    raw: bool = typer.Option(
+        False,
+        "--raw",
+        help="Debug mode: start from inherited environment instead of package graph.",
+    ),
+) -> None:
     """Run the machine-wide model residency manager."""
     from .runtime import cli as runtime_cli
 
-    _exit_with(runtime_cli.main(["manage"]))
+    argv = ["manage"]
+    if package_id:
+        argv.extend(["--package", package_id])
+    if host_binding:
+        argv.extend(["--host-binding", host_binding])
+    if raw:
+        argv.append("--raw")
+    _exit_with(runtime_cli.main(argv))
 
 
 @runtime_app.command("session")

@@ -25,6 +25,7 @@ from needle.registry import (  # noqa: E402
     runtime_launch_plan,
     set_configured_package_id,
 )
+from needle.runtime import cli as runtime_cli  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -89,6 +90,61 @@ def test_default_package_resolves_runtime_launch_plan() -> None:
     assert plan.runtime_profile == "local_mlx_adaptive"
     assert plan.env["NEEDLE_MLX_PROFILE"] == "local_adaptive"
     assert plan.env["NEEDLE_MLX_MAX_BATCH_SIZE"] == "1"
+
+
+def test_runtime_manage_applies_package_runtime_profile_env() -> None:
+    names = [
+        "NEEDLE_REGISTRY_ROOT",
+        "HAY_REGISTRY_ROOT",
+        "NEEDLE_PACKAGE",
+        "HAY_PACKAGE",
+        "NEEDLE_BACKEND",
+        "HAY_BACKEND",
+        "NEEDLE_MLX_PROFILE",
+        "NEEDLE_MLX_MAX_BATCH_SIZE",
+    ]
+    old = {name: os.environ.get(name) for name in names}
+    try:
+        os.environ["NEEDLE_REGISTRY_ROOT"] = str(REGISTRY_ROOT)
+        os.environ.pop("HAY_REGISTRY_ROOT", None)
+        os.environ.pop("NEEDLE_PACKAGE", None)
+        os.environ.pop("HAY_PACKAGE", None)
+        os.environ.pop("NEEDLE_BACKEND", None)
+        os.environ.pop("HAY_BACKEND", None)
+        os.environ.pop("NEEDLE_MLX_PROFILE", None)
+        os.environ.pop("NEEDLE_MLX_MAX_BATCH_SIZE", None)
+
+        plan = runtime_cli._apply_runtime_launch_env(
+            package_id="e24z/mlx-pi-soft-lamr",
+            host_binding="pi/native-tools",
+        )
+
+        assert plan is not None
+        assert plan.package_id == "e24z/mlx-pi-soft-lamr"
+        assert os.environ["NEEDLE_BACKEND"] == "e24z/code-pruner-mlx"
+        assert os.environ["HAY_BACKEND"] == "code-pruner"
+        assert os.environ["NEEDLE_MLX_PROFILE"] == "local_adaptive"
+        assert os.environ["NEEDLE_MLX_MAX_BATCH_SIZE"] == "1"
+    finally:
+        for name, value in old.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def test_runtime_manage_raw_mode_skips_package_runtime_profile_env() -> None:
+    old = os.environ.get("NEEDLE_MLX_PROFILE")
+    try:
+        os.environ.pop("NEEDLE_MLX_PROFILE", None)
+        plan = runtime_cli._apply_runtime_launch_env(raw=True)
+        assert plan is None
+        assert "NEEDLE_MLX_PROFILE" not in os.environ
+    finally:
+        if old is None:
+            os.environ.pop("NEEDLE_MLX_PROFILE", None)
+        else:
+            os.environ["NEEDLE_MLX_PROFILE"] = old
 
 
 def test_http_backend_contract_validates_without_server() -> None:
@@ -619,6 +675,8 @@ def main() -> int:
     test_default_package_graph_loads_soft_lamr()
     test_reference_package_graph_loads()
     test_default_package_resolves_runtime_launch_plan()
+    test_runtime_manage_applies_package_runtime_profile_env()
+    test_runtime_manage_raw_mode_skips_package_runtime_profile_env()
     test_http_backend_contract_validates_without_server()
     test_reference_capability_has_no_ast_repair()
     test_soft_lamr_is_separate_capability()

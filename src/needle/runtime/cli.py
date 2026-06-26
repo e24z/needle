@@ -19,14 +19,52 @@ from .manager import serve_manager
 from .session import run_session
 
 
+def _apply_runtime_launch_env(
+    *,
+    package_id: str = "",
+    host_binding: str = "",
+    raw: bool = False,
+):
+    """Apply package-derived runtime env for manager startup.
+
+    Raw/debug starts deliberately skip the package graph; all normal starts use
+    the same launch plan shape as host adapters.
+    """
+    if raw:
+        return None
+    from needle.registry import runtime_launch_plan
+
+    plan = runtime_launch_plan(
+        package_id=package_id or None,
+        host_binding=host_binding or None,
+    )
+    os.environ.update(plan.env)
+    return plan
+
+
 def _manage(args: argparse.Namespace) -> int:
+    try:
+        plan = _apply_runtime_launch_env(
+            package_id=args.package,
+            host_binding=args.host_binding,
+            raw=args.raw,
+        )
+    except ValueError as exc:
+        print(f"{naming.APP_NAME}: could not resolve runtime package: {exc}", file=sys.stderr)
+        return 1
+
     def ready(path) -> None:
         # stderr only: a monitor surfaces STDOUT lines to the agent as
         # notifications, and we don't want it narrating routine startup.
+        profile = (
+            f", package={plan.package_id}, profile={plan.runtime_profile}"
+            if plan is not None
+            else ", raw runtime env"
+        )
         print(
             f"{naming.APP_NAME}: manager listening on {path} "
             f"(backend={os.environ.get('NEEDLE_BACKEND') or os.environ.get('HAY_BACKEND', 'fake')}, "
-            "lazy-load on first prune)",
+            f"lazy-load on first prune{profile})",
             file=sys.stderr,
             flush=True,
         )
@@ -142,6 +180,13 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     mp = sub.add_parser("manage", help="run the machine-wide model residency manager")
+    mp.add_argument("--package", default="", help="package id used to derive runtime env")
+    mp.add_argument("--host-binding", default="", help="host binding used for package selection")
+    mp.add_argument(
+        "--raw",
+        action="store_true",
+        help="debug mode: start from the inherited environment instead of the package graph",
+    )
     mp.set_defaults(func=_manage)
 
     ssp = sub.add_parser("session", help="hold a session lease against the manager")
