@@ -21,6 +21,7 @@ MLX_LIGHT_ENV_NAMES = ("NEEDLE_MLX_LIGHT", "HAY_MLX_LIGHT")
 PROFILE_MLX_ENV_NAMES = ("NEEDLE_PROFILE_MLX", "HAY_PROFILE_MLX")
 CHUNK_OVERLAP_ENV_NAMES = ("NEEDLE_CHUNK_OVERLAP_TOKENS", "HAY_CHUNK_OVERLAP_TOKENS")
 MAX_BATCH_SIZE_ENV_NAMES = ("NEEDLE_MLX_MAX_BATCH_SIZE", "HAY_MLX_MAX_BATCH_SIZE")
+MAX_BATCH_TOKENS_ENV_NAMES = ("NEEDLE_MLX_MAX_BATCH_TOKENS", "HAY_MLX_MAX_BATCH_TOKENS")
 MAX_LENGTH_RATIO_ENV_NAMES = ("NEEDLE_MLX_MAX_LENGTH_RATIO", "HAY_MLX_MAX_LENGTH_RATIO")
 MLX_CACHE_LIMIT_ENV_NAMES = ("NEEDLE_MLX_CACHE_LIMIT_MB", "HAY_MLX_CACHE_LIMIT_MB")
 MLX_WIRED_LIMIT_ENV_NAMES = ("NEEDLE_MLX_WIRED_LIMIT_MB", "HAY_MLX_WIRED_LIMIT_MB")
@@ -69,6 +70,14 @@ def configured_max_length(environ: Mapping[str, str] | None = None) -> int | Non
 def active_mlx_profile(environ: Mapping[str, str] | None = None) -> str:
     env = os.environ if environ is None else environ
     return (_first_env(MLX_PROFILE_ENV_NAMES, env) or "").strip().lower()
+
+
+def configured_max_batch_tokens(environ: Mapping[str, str] | None = None) -> int | None:
+    env = os.environ if environ is None else environ
+    value = _first_env(MAX_BATCH_TOKENS_ENV_NAMES, env)
+    if value is None:
+        return None
+    return _parse_positive_int(value, "max batch tokens")
 
 
 def first_env(

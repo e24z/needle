@@ -161,6 +161,15 @@ def _render_prune_summary(stats: object) -> str:
     batches = _fmt_number(stats.get("batches"))
     if batches is not None:
         parts.append(f"batches {batches}")
+    guardrail_splits = _fmt_number(stats.get("batch_guardrail_splits"))
+    if guardrail_splits not in {None, "0"}:
+        parts.append(f"guardrail_splits {guardrail_splits}")
+    retries = _fmt_number(stats.get("batch_retry_count"))
+    if retries not in {None, "0"}:
+        parts.append(f"batch_retries {retries}")
+    downgrade = _fmt_number(stats.get("batch_downgrade_reason"))
+    if downgrade:
+        parts.append(downgrade)
     batch_sizes = stats.get("batch_sizes")
     if isinstance(batch_sizes, list) and batch_sizes:
         shown = ",".join(str(item) for item in batch_sizes[:8])

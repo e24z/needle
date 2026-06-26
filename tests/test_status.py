@@ -43,6 +43,8 @@ def main() -> int:
                 "saved_chars": 128,
                 "chunks": 4,
                 "batches": 2,
+                "batch_retry_count": 1,
+                "batch_downgrade_reason": "retry_serial_after_resource_error",
                 "batch_sizes": [2, 2],
                 "max_length": 1024,
                 "padding_waste_ratio": 0.25,
@@ -53,6 +55,7 @@ def main() -> int:
     )
     assert "last prune" in recent, recent
     assert "chunks 4" in recent and "batches 2" in recent, recent
+    assert "batch_retries 1" in recent, recent
     assert "batch_sizes [2,2]" in recent and "padding 25.0%" in recent, recent
 
     ev = _render_status(None, [{"ts": 0, "event": "model_load", "backend": "code-pruner"}])

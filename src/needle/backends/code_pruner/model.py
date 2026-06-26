@@ -9,6 +9,11 @@ import numpy as np
 from mlx_lm import load
 
 from ... import naming
+from .batching import (
+    BatchRetryFailed,
+    score_batches_with_retry,
+    split_batches_by_padded_token_budget,
+)
 from .chunking import (
     TokenChunk,
     bucket_token_chunks,
@@ -27,6 +32,7 @@ from .config import (
     PROFILE_MLX_ENV_NAMES,
     THRESHOLD_ENV_NAMES,
     choose_mlx_max_length,
+    configured_max_batch_tokens,
     configured_max_length,
     first_env,
     repair_enabled_for_active_package,
@@ -129,6 +135,24 @@ def _mlx_memory_mb() -> dict[str, float]:
         except Exception:  # noqa: BLE001
             continue
     return stats
+
+
+def _is_mlx_resource_error(exc: BaseException) -> bool:
+    if isinstance(exc, MemoryError):
+        return True
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "out of memory",
+            "oom",
+            "failed to allocate",
+            "allocation failed",
+            "resource exhausted",
+            "metal resource",
+            "command buffer",
+        )
+    )
 
 
 def _force_mlx_eval(*arrays: mx.array) -> None:
@@ -962,6 +986,7 @@ class MLXSwePrunerBackend:
 
         overlap_tokens = int(first_env(CHUNK_OVERLAP_ENV_NAMES, default="50"))
         max_batch_size = int(first_env(MAX_BATCH_SIZE_ENV_NAMES, default="1"))
+        max_batch_tokens = configured_max_batch_tokens()
         max_length_ratio = float(first_env(MAX_LENGTH_RATIO_ENV_NAMES, default="1.5"))
 
         chunks = split_text_into_token_chunks(
@@ -999,28 +1024,63 @@ class MLXSwePrunerBackend:
             ]
             for batch in chunk_batches
         ]
+        budgeted = split_batches_by_padded_token_budget(
+            prepared_batches,
+            max_padded_tokens=max_batch_tokens,
+            length_fn=lambda item: item.real_len,
+        )
+        prepared_batches = budgeted.batches
         tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
 
         scored_results: list[
             tuple[float, list[tuple[str, float]], list[tuple[int, int]], int]
         ] = []
         batch_stats: list[dict[str, object]] = []
-        for prepared in prepared_batches:
-            results, stats = self._score_prepared_batch(
+
+        def score_batch(prepared: list[_PreparedChunk]):
+            return self._score_prepared_batch(
                 prepared,
                 max_length=max_length,
                 use_viterbi=use_viterbi,
                 profile_forced_eval=profile_forced_eval,
             )
-            scored_results.extend(results)
-            batch_stats.append(stats)
+
+        batch_retry_summary: dict[str, object] = {"batch_retry_count": 0}
+        try:
+            scored_results, batch_stats, batch_retry_summary = score_batches_with_retry(
+                prepared_batches,
+                score_batch,
+                _is_mlx_resource_error,
+            )
+        except BatchRetryFailed as exc:
+            self.last_stats = {
+                **base_stats,
+                "passthrough_reason": "batch-resource-error",
+                "batch_error": str(exc.original)[:200],
+                "chunks": len(chunks),
+                "batches": len(prepared_batches),
+                "max_batch_size": max_batch_size,
+                "max_batch_tokens": max_batch_tokens,
+                "batch_guardrail_splits": budgeted.splits,
+                "batch_guardrail_singles_over_budget": budgeted.singles_over_budget,
+                "input_chars": len(text),
+                "output_chars": len(text),
+                "saved_chars": 0,
+                "total_ms": (time.perf_counter() - total_start) * 1000,
+                **exc.summary,
+            }
+            return text
 
         if not scored_results:
             self.last_stats = {
                 **base_stats,
                 "passthrough_reason": "no-scored-chunks",
                 "chunks": len(chunks),
-                "batches": len(chunk_batches),
+                "batches": len(prepared_batches),
+                "max_batch_size": max_batch_size,
+                "max_batch_tokens": max_batch_tokens,
+                "batch_guardrail_splits": budgeted.splits,
+                "batch_guardrail_singles_over_budget": budgeted.singles_over_budget,
                 "input_chars": len(text),
                 "output_chars": len(text),
                 "saved_chars": 0,
@@ -1101,7 +1161,11 @@ class MLXSwePrunerBackend:
             "batches": len(batch_stats),
             "batch_sizes": [len(batch) for batch in prepared_batches],
             "max_batch_size": max_batch_size,
+            "max_batch_tokens": max_batch_tokens,
             "max_length_ratio": max_length_ratio,
+            "batch_guardrail_splits": budgeted.splits,
+            "batch_guardrail_singles_over_budget": budgeted.singles_over_budget,
+            **batch_retry_summary,
             "chunk_overlap_tokens": overlap_tokens,
             "chunked": len(chunks) > 1,
             "batched": any(len(batch) > 1 for batch in prepared_batches),
