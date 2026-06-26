@@ -19,7 +19,7 @@ from pathlib import Path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))  # runnable bare, like its siblings
 
-from needle.runtime.manager import MANAGER_CONFIG_ENVS, _env, serve_manager  # noqa: E402
+from needle.runtime.manager import MANAGER_CONFIG_ENVS, Manager, _env, serve_manager  # noqa: E402
 from needle.runtime.protocol import decode, encode  # noqa: E402
 
 
@@ -34,6 +34,27 @@ class SpyBackend:
 
     def evict(self) -> None:
         self.evicted += 1
+
+
+class StatsBackend:
+    name = "stats"
+
+    def __init__(self) -> None:
+        self.last_stats: dict[str, object] = {}
+
+    def prune(self, *, text: str, query: str) -> str:
+        self.last_stats = {
+            "chunks": 3,
+            "batches": 2,
+            "batch_sizes": [2, 1],
+            "max_length": 1024,
+            "padding_waste_ratio": 0.125,
+            "truncated_code_tokens": 7,
+            "forward_eval_ms": 11.5,
+            "total_ms": 15.25,
+            "huge_internal": {"token_scores": [0.1, 0.2]},
+        }
+        return text[:4]
 
 
 def _call(sock_path: Path, req: dict) -> dict:
@@ -76,8 +97,37 @@ def test_manager_config_env_prefers_needle_names() -> None:
                 os.environ[name] = value
 
 
+def test_manager_surfaces_bounded_backend_stats() -> None:
+    seen: list[tuple[str, dict[str, object]]] = []
+    manager = Manager(
+        lambda: StatsBackend(),
+        emit=lambda event, **fields: seen.append((event, fields)),
+    )
+
+    resp = manager.handle({"op": "prune", "text": "abcdefghij", "query": "q"})
+    assert resp["ok"], resp
+    assert resp["stats"]["chunks"] == 3, resp
+    assert resp["stats"]["batches"] == 2, resp
+    assert resp["stats"]["batch_sizes"] == [2, 1], resp
+    assert resp["stats"]["padding_waste_ratio"] == 0.125, resp
+    assert "huge_internal" not in resp["stats"], resp
+
+    prune_events = [(name, fields) for name, fields in seen if name == "prune"]
+    assert len(prune_events) == 1, seen
+    event_fields = prune_events[0][1]
+    assert event_fields["backend"] == "stats", event_fields
+    assert event_fields["chunks"] == 3, event_fields
+    assert event_fields["batch_sizes"] == [2, 1], event_fields
+    assert event_fields["saved_chars"] == 6, event_fields
+
+    stats = manager.handle({"op": "stats"})
+    assert stats["last_prune"]["backend"] == "stats", stats
+    assert stats["last_prune"]["chunks"] == 3, stats
+
+
 def main() -> int:
     test_manager_config_env_prefers_needle_names()
+    test_manager_surfaces_bounded_backend_stats()
     tmp = Path(tempfile.mkdtemp()) / "manager.sock"
     builds: list[SpyBackend] = []
 

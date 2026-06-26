@@ -60,6 +60,101 @@ MIN_FREE_MB = float(_env(MANAGER_CONFIG_ENVS["min_free_mb"], "3072"))
 MAX_PRUNE_CHARS = int(_env(MANAGER_CONFIG_ENVS["max_prune_chars"], "1000000"))
 MEM_POLL = float(_env(MANAGER_CONFIG_ENVS["mem_poll"], "5"))
 
+_STATS_LIST_LIMIT = 16
+_BACKEND_STATS_KEYS = (
+    "passthrough_reason",
+    "input_chars",
+    "output_chars",
+    "saved_chars",
+    "original_tokens",
+    "original_code_tokens",
+    "scored_code_tokens",
+    "chunks",
+    "batches",
+    "batch_sizes",
+    "max_batch_size",
+    "max_length",
+    "max_length_profile",
+    "max_length_ratio",
+    "available_code_tokens",
+    "chunk_overlap_tokens",
+    "chunked",
+    "batched",
+    "real_tokens",
+    "padded_tokens",
+    "pad_tokens",
+    "padding_waste_ratio",
+    "truncated_code_tokens",
+    "max_chunk_score",
+    "tokenize_ms",
+    "graph_build_ms",
+    "forward_eval_ms",
+    "decode_graph_ms",
+    "host_sync_ms",
+    "batch_total_ms",
+    "line_aggregate_ms",
+    "render_ms",
+    "total_ms",
+    "retained_hidden_states",
+    "available_hidden_states",
+    "mlx_active_mb_end",
+    "mlx_cache_mb_end",
+    "mlx_peak_mb_max",
+    "profile_forced_eval",
+)
+_EVENT_STATS_KEYS = (
+    "passthrough_reason",
+    "chunks",
+    "batches",
+    "batch_sizes",
+    "max_batch_size",
+    "max_length",
+    "max_length_profile",
+    "padding_waste_ratio",
+    "truncated_code_tokens",
+    "forward_eval_ms",
+    "host_sync_ms",
+    "batch_total_ms",
+    "total_ms",
+    "chunked",
+    "batched",
+)
+
+
+def _bounded_stats_value(value: object) -> object:
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value if len(value) <= 200 else f"{value[:197]}..."
+    if isinstance(value, (list, tuple)):
+        out: list[object] = []
+        for item in value[:_STATS_LIST_LIMIT]:
+            if item is None or isinstance(item, (bool, int, float, str)):
+                out.append(_bounded_stats_value(item))
+        return out
+    return None
+
+
+def _bounded_backend_stats(backend: PrunerBackend) -> dict[str, object]:
+    try:
+        raw = getattr(backend, "last_stats", None)
+    except Exception:  # noqa: BLE001 - diagnostics must not break pruning.
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    stats: dict[str, object] = {}
+    for key in _BACKEND_STATS_KEYS:
+        if key not in raw:
+            continue
+        value = _bounded_stats_value(raw[key])
+        if value is not None:
+            stats[key] = value
+    return stats
+
+
+def _event_stats(stats: dict[str, object]) -> dict[str, object]:
+    return {key: stats[key] for key in _EVENT_STATS_KEYS if key in stats}
+
 
 class Manager:
     """Lease bookkeeping + lazy, memory-gated model lifecycle. Single-threaded:
@@ -98,6 +193,7 @@ class Manager:
         self._last_mem = -1e9                    # last memstat poll (monotonic)
         self._pressure = sysmem.PRESSURE_NORMAL
         self._avail = sysmem._UNKNOWN_AVAIL_MB
+        self._last_prune: dict[str, object] | None = None
 
     @property
     def resident(self) -> bool:
@@ -115,12 +211,20 @@ class Manager:
         """Return the text unchanged (Needle does nothing). saved==0, so the hook
         won't count it as a prune; the agent just gets the original."""
         self._emit("passthrough", reason=reason, chars=len(text))
+        stats: dict[str, object] = {
+            "passthrough_reason": reason,
+            "input_chars": len(text),
+            "output_chars": len(text),
+            "saved_chars": 0,
+        }
+        self._last_prune = {"backend": f"passthrough:{reason}", **stats}
         return {
             "ok": True,
             "text": text,
             "original_len": len(text),
             "pruned_len": len(text),
             "backend": f"passthrough:{reason}",
+            "stats": stats,
         }
 
     # -- request handling -------------------------------------------------
@@ -140,13 +244,30 @@ class Manager:
                     return self._passthrough(text, "low-memory")
             backend = self._ensure_backend()
             pruned = backend.prune(text=text, query=req.get("query", ""))
-            return {
+            backend_name = getattr(backend, "name", "unknown")
+            stats = _bounded_backend_stats(backend)
+            stats.setdefault("input_chars", len(text))
+            stats.setdefault("output_chars", len(pruned))
+            stats.setdefault("saved_chars", max(0, len(text) - len(pruned)))
+            self._last_prune = {"backend": backend_name, **stats}
+            self._emit(
+                "prune",
+                backend=backend_name,
+                original_len=len(text),
+                pruned_len=len(pruned),
+                saved_chars=max(0, len(text) - len(pruned)),
+                **_event_stats(stats),
+            )
+            resp = {
                 "ok": True,
                 "text": pruned,
                 "original_len": len(text),
                 "pruned_len": len(pruned),
-                "backend": getattr(backend, "name", "unknown"),
+                "backend": backend_name,
             }
+            if stats:
+                resp["stats"] = stats
+            return resp
         if op == "lease":
             ver = req.get("version", "")
             if ver and self.version and ver != self.version:
@@ -177,6 +298,7 @@ class Manager:
                 "version": self.version,
                 "pressure": self._pressure,
                 "available_mb": self._avail,
+                "last_prune": dict(self._last_prune) if self._last_prune else None,
             }
         if op == "stop":
             self._emit("stop")

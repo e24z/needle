@@ -36,6 +36,25 @@ def main() -> int:
     assert "ready" in ready and "code-pruner" in ready
     assert "warning" in ready and "1.5 GB" in ready  # pressure label + free GB
 
+    recent = _render_status(
+        _stats(
+            last_prune={
+                "backend": "code-pruner",
+                "saved_chars": 128,
+                "chunks": 4,
+                "batches": 2,
+                "batch_sizes": [2, 2],
+                "max_length": 1024,
+                "padding_waste_ratio": 0.25,
+                "total_ms": 42.0,
+            }
+        ),
+        [],
+    )
+    assert "last prune" in recent, recent
+    assert "chunks 4" in recent and "batches 2" in recent, recent
+    assert "batch_sizes [2,2]" in recent and "padding 25.0%" in recent, recent
+
     ev = _render_status(None, [{"ts": 0, "event": "model_load", "backend": "code-pruner"}])
     assert "recent events" in ev and "model_load" in ev and "backend=code-pruner" in ev
 

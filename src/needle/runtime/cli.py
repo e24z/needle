@@ -105,6 +105,9 @@ def _prune(args: argparse.Namespace) -> int:
         f"in={resp['original_len']} out={resp['pruned_len']} saved={saved}",
         file=sys.stderr,
     )
+    detail = _render_prune_summary(resp.get("stats"))
+    if detail:
+        print(f"[{naming.APP_NAME}] {detail}", file=sys.stderr)
     return 0
 
 
@@ -116,6 +119,69 @@ def _fmt_ts(ts: object) -> str:
         return datetime.datetime.fromtimestamp(float(ts)).strftime("%H:%M:%S")
     except (TypeError, ValueError, OSError):
         return "--:--:--"
+
+
+def _fmt_number(value: object) -> str | None:
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, int):
+        return f"{value:,}"
+    if isinstance(value, float):
+        return f"{value:.1f}"
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _fmt_ms(value: object) -> str | None:
+    if isinstance(value, (int, float)):
+        return f"{float(value):.1f}ms"
+    return None
+
+
+def _fmt_percent(value: object) -> str | None:
+    if isinstance(value, (int, float)):
+        return f"{float(value) * 100:.1f}%"
+    return None
+
+
+def _render_prune_summary(stats: object) -> str:
+    if not isinstance(stats, dict):
+        return ""
+    parts: list[str] = []
+    reason = _fmt_number(stats.get("passthrough_reason"))
+    if reason:
+        parts.append(f"passthrough {reason}")
+    saved = _fmt_number(stats.get("saved_chars"))
+    if saved is not None:
+        parts.append(f"saved {saved} chars")
+    chunks = _fmt_number(stats.get("chunks"))
+    if chunks is not None:
+        parts.append(f"chunks {chunks}")
+    batches = _fmt_number(stats.get("batches"))
+    if batches is not None:
+        parts.append(f"batches {batches}")
+    batch_sizes = stats.get("batch_sizes")
+    if isinstance(batch_sizes, list) and batch_sizes:
+        shown = ",".join(str(item) for item in batch_sizes[:8])
+        suffix = ",..." if len(batch_sizes) > 8 else ""
+        parts.append(f"batch_sizes [{shown}{suffix}]")
+    max_length = _fmt_number(stats.get("max_length"))
+    if max_length is not None:
+        parts.append(f"max_len {max_length}")
+    padding = _fmt_percent(stats.get("padding_waste_ratio"))
+    if padding:
+        parts.append(f"padding {padding}")
+    truncated = _fmt_number(stats.get("truncated_code_tokens"))
+    if truncated is not None:
+        parts.append(f"truncated {truncated} tokens")
+    forward = _fmt_ms(stats.get("forward_eval_ms"))
+    if forward:
+        parts.append(f"forward {forward}")
+    total = _fmt_ms(stats.get("total_ms"))
+    if total:
+        parts.append(f"total {total}")
+    return " · ".join(parts)
 
 
 def _render_status(stats: dict | None, recent: list[dict]) -> str:
@@ -141,6 +207,12 @@ def _render_status(stats: dict | None, recent: list[dict]) -> str:
             f"  ·  pressure {_PRESSURE.get(stats.get('pressure'), '?')}"
             f"  ·  free {free}"
         )
+        last_prune = stats.get("last_prune")
+        detail = _render_prune_summary(last_prune)
+        if detail:
+            backend = last_prune.get("backend") if isinstance(last_prune, dict) else None
+            prefix = f"{backend} · " if isinstance(backend, str) and backend else ""
+            lines.append(f"  last prune: {prefix}{detail}")
     if recent:
         lines.append("")
         lines.append("recent events:")
