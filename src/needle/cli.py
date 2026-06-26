@@ -171,7 +171,10 @@ def _package_use(args: argparse.Namespace) -> int:
     print(f"uses backend: {loaded.backend_id}")
     plan = runtime_launch_plan(package_id=loaded.package_id, host_binding=args.host_binding or None)
     print(f"runtime profile: {plan.runtime_profile or 'none'}")
-    print(f"runtime command: {' '.join(plan.command)}")
+    print(
+        "runtime command: "
+        f"{_runtime_command_for_display(plan.command, package_id=loaded.package_id, host_binding=args.host_binding or '')}"
+    )
     print("restart the resident runtime for running sessions: needle stop")
     return 0
 
@@ -196,6 +199,31 @@ def _backend_readiness_notes(loaded: object) -> list[str]:
     return notes
 
 
+def _package_field_audit() -> list[str]:
+    return [
+        "field audit:",
+        "  uses.backend: drives the runtime launcher and backend env",
+        "  host_binding: constrains host-scoped package selection",
+        "  runtime_profile.env: applied to the resident manager process",
+        "  focus_contract: adapter/tool contract; manager does not enforce goal hints",
+        "  compute/privacy/accounting/evidence: public contract metadata, not runtime switches",
+    ]
+
+
+def _runtime_command_for_display(
+    command: list[str],
+    *,
+    package_id: str = "",
+    host_binding: str = "",
+) -> str:
+    display = list(command)
+    if package_id and "--package" not in display:
+        display.extend(["--package", package_id])
+    if host_binding and "--host-binding" not in display:
+        display.extend(["--host-binding", host_binding])
+    return " ".join(display)
+
+
 def _package_doctor(args: argparse.Namespace) -> int:
     try:
         loaded = load_active_package(
@@ -215,7 +243,9 @@ def _package_doctor(args: argparse.Namespace) -> int:
         f"uses backend: {loaded.backend_id}",
         f"runtime launcher: {plan.kind}",
         f"runtime profile: {plan.runtime_profile or 'none'}",
-        f"runtime command: {' '.join(plan.command)}",
+        "runtime command: "
+        f"{_runtime_command_for_display(plan.command, package_id=loaded.package_id, host_binding=args.host_binding or '')}",
+        *_package_field_audit(),
         *_backend_readiness_notes(loaded),
         f"host binding: {loaded.binding_id}",
         f"claim card: {loaded.claim_card['id']}",
@@ -1219,6 +1249,16 @@ def runtime_session(
         "--session",
         help="Optional host session id to lease under.",
     ),
+    package_id: str | None = typer.Option(
+        None,
+        "--package",
+        help="Package id used to derive manager runtime environment.",
+    ),
+    host_binding: str | None = typer.Option(
+        None,
+        "--host-binding",
+        help="Host binding used for manager package selection.",
+    ),
 ) -> None:
     """Hold a session lease against the manager."""
     from .runtime import cli as runtime_cli
@@ -1226,6 +1266,10 @@ def runtime_session(
     argv = ["session"]
     if session:
         argv.extend(["--session", session])
+    if package_id:
+        argv.extend(["--package", package_id])
+    if host_binding:
+        argv.extend(["--host-binding", host_binding])
     _exit_with(runtime_cli.main(argv))
 
 

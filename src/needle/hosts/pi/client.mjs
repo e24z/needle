@@ -17,6 +17,38 @@ const PACKAGE_ALIASES = new Map([
 	["e24z/pi-local-mac-soft-lamr", "e24z/mlx-pi-soft-lamr"],
 	["e24z/mcp-bash-local", "e24z/mlx-mcp-bash-reference"],
 ]);
+const BOOLEAN_RUNTIME_ENV_KEYS = new Set([
+	"NEEDLE_REPAIR",
+	"NEEDLE_MLX_LIGHT",
+	"NEEDLE_PROFILE_MLX",
+	"NEEDLE_MLX_CLEAR_CACHE_AFTER_PRUNE",
+]);
+const BOOLEAN_RUNTIME_ENV_VALUES = new Set(["0", "1", "false", "true", "no", "yes", "off", "on"]);
+const POSITIVE_INT_RUNTIME_ENV_KEYS = new Set([
+	"NEEDLE_MLX_MAX_LENGTH",
+	"NEEDLE_MAX_LENGTH",
+	"NEEDLE_MLX_MAX_BATCH_SIZE",
+	"NEEDLE_MLX_MAX_BATCH_TOKENS",
+	"NEEDLE_MLX_CACHE_LIMIT_MB",
+	"NEEDLE_MLX_WIRED_LIMIT_MB",
+	"NEEDLE_MLX_ADAPTIVE_SINGLE_CHUNK_UNTIL_TOKENS",
+	"NEEDLE_MLX_ADAPTIVE_SMALL_MAX_LENGTH",
+	"NEEDLE_MLX_ADAPTIVE_LARGE_MAX_LENGTH",
+]);
+const NON_NEGATIVE_INT_RUNTIME_ENV_KEYS = new Set(["NEEDLE_CHUNK_OVERLAP_TOKENS"]);
+const FLOAT_0_TO_1_RUNTIME_ENV_KEYS = new Set(["NEEDLE_THRESHOLD"]);
+const MIN_FLOAT_RUNTIME_ENV_KEYS = new Map([["NEEDLE_MLX_MAX_LENGTH_RATIO", 1.0]]);
+const ENUM_RUNTIME_ENV_VALUES = new Map([
+	["NEEDLE_MLX_PROFILE", new Set(["local_adaptive", "local-mlx-adaptive", "local_mlx_adaptive"])],
+]);
+const KNOWN_RUNTIME_PROFILE_ENV_KEYS = new Set([
+	...BOOLEAN_RUNTIME_ENV_KEYS,
+	...POSITIVE_INT_RUNTIME_ENV_KEYS,
+	...NON_NEGATIVE_INT_RUNTIME_ENV_KEYS,
+	...FLOAT_0_TO_1_RUNTIME_ENV_KEYS,
+	...MIN_FLOAT_RUNTIME_ENV_KEYS.keys(),
+	...ENUM_RUNTIME_ENV_VALUES.keys(),
+]);
 
 export function canonicalPackageId(packageId) {
 	return PACKAGE_ALIASES.get(packageId) || packageId;
@@ -393,9 +425,76 @@ function normalizeRuntimeProfile(pkg, packageId = pkg?.id || "<package>") {
 		if (!key.startsWith("NEEDLE_") || typeof value !== "string") {
 			throw new Error(`package ${packageId} runtime_profile.env must map NEEDLE_* keys to strings`);
 		}
+		validateRuntimeProfileEnvValue(packageId, key, value);
 		out[key] = value;
 	}
 	return { id, env: out };
+}
+
+function validateRuntimeProfileEnvValue(packageId, key, value) {
+	if (!KNOWN_RUNTIME_PROFILE_ENV_KEYS.has(key)) {
+		throw new Error(`package ${packageId} runtime_profile.env key ${key} is unknown`);
+	}
+	if (BOOLEAN_RUNTIME_ENV_KEYS.has(key)) {
+		if (!BOOLEAN_RUNTIME_ENV_VALUES.has(value.trim().toLowerCase())) {
+			throw new Error(`package ${packageId} runtime_profile.env ${key} must be boolean-like`);
+		}
+		return;
+	}
+	if (POSITIVE_INT_RUNTIME_ENV_KEYS.has(key)) {
+		validateIntRuntimeEnv(packageId, key, value, 1);
+		return;
+	}
+	if (NON_NEGATIVE_INT_RUNTIME_ENV_KEYS.has(key)) {
+		validateIntRuntimeEnv(packageId, key, value, 0);
+		return;
+	}
+	if (FLOAT_0_TO_1_RUNTIME_ENV_KEYS.has(key)) {
+		const numeric = validateFloatRuntimeEnv(packageId, key, value);
+		if (numeric < 0 || numeric > 1) {
+			throw new Error(`package ${packageId} runtime_profile.env ${key} must be between 0 and 1`);
+		}
+		return;
+	}
+	if (MIN_FLOAT_RUNTIME_ENV_KEYS.has(key)) {
+		const numeric = validateFloatRuntimeEnv(packageId, key, value);
+		const minimum = MIN_FLOAT_RUNTIME_ENV_KEYS.get(key);
+		if (numeric < minimum) {
+			throw new Error(`package ${packageId} runtime_profile.env ${key} must be at least ${minimum}`);
+		}
+		return;
+	}
+	const allowed = ENUM_RUNTIME_ENV_VALUES.get(key);
+	if (allowed && !allowed.has(value)) {
+		throw new Error(
+			`package ${packageId} runtime_profile.env ${key} must be one of ${Array.from(allowed).sort().join(", ")}`
+		);
+	}
+}
+
+function validateIntRuntimeEnv(packageId, key, value, minimum) {
+	if (!/^-?\d+$/.test(value.trim())) {
+		throw new Error(`package ${packageId} runtime_profile.env ${key} must be an integer`);
+	}
+	const numeric = Number.parseInt(value, 10);
+	if (`${numeric}` !== value.trim()) {
+		throw new Error(`package ${packageId} runtime_profile.env ${key} must be an integer`);
+	}
+	if (numeric < minimum) {
+		throw new Error(
+			`package ${packageId} runtime_profile.env ${key} must be ${
+				minimum === 1 ? "a positive integer" : "a non-negative integer"
+			}`
+		);
+	}
+}
+
+function validateFloatRuntimeEnv(packageId, key, value) {
+	const numeric = Number(value);
+	if (!Number.isFinite(numeric)) {
+		throw new Error(`package ${packageId} runtime_profile.env ${key} must be a number`);
+	}
+	return numeric;
 }
 
 function launcherCommand(launcher) {

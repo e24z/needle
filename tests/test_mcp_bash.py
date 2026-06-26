@@ -9,13 +9,12 @@ import os
 import socket
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 os.environ["NEEDLE_NO_EVENTS"] = "1"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from needle.hosts.mcp.bash import needle_bash_observation  # noqa: E402
+from needle.hosts.mcp.bash import needle_bash_observation, run_bash_command  # noqa: E402
 
 
 def test_needle_bash_returns_raw_output_without_focus() -> None:
@@ -25,24 +24,12 @@ def test_needle_bash_returns_raw_output_without_focus() -> None:
 
 
 def test_needle_bash_uses_non_login_bash() -> None:
-    seen: dict[str, object] = {}
+    out = needle_bash_observation(
+        "if shopt -q login_shell; then printf login; else printf non-login; fi",
+        timeout_secs=5,
+    )
 
-    def fake_run(argv, **kwargs):
-        seen["argv"] = argv
-        seen["kwargs"] = kwargs
-
-        class Completed:
-            returncode = 0
-            stdout = "ok\n"
-            stderr = ""
-
-        return Completed()
-
-    with patch("subprocess.run", fake_run):
-        out = needle_bash_observation("printf ok", timeout_secs=5)
-
-    assert out == "exit_code: 0\nstdout:\nok\n"
-    assert seen["argv"] == ["bash", "-c", "printf ok"]
+    assert out == "exit_code: 0\nstdout:\nnon-login\n"
 
 
 def test_needle_bash_focus_is_optional_and_blank_passes_through() -> None:
@@ -170,10 +157,72 @@ def test_needle_bash_reports_success_with_response_stats() -> None:
     assert events[0][1]["batch_sizes"] == [2]
 
 
+def test_needle_bash_uses_configurable_prune_timeout() -> None:
+    seen: dict[str, object] = {}
+
+    def fake_prune(**kwargs) -> dict:
+        seen.update(kwargs)
+        return {"ok": True, "text": "exit_code: 0\nstdout:\nkept\n"}
+
+    from needle.hosts.mcp import bash as bash_mod
+
+    old_prune = bash_mod.client.prune
+    try:
+        bash_mod.client.prune = fake_prune
+        out = needle_bash_observation(
+            "printf 'alpha\\nbeta\\n'",
+            "Which line mentions beta?",
+            timeout_secs=5,
+            prune_timeout_secs=3.5,
+            min_chars=1,
+        )
+    finally:
+        bash_mod.client.prune = old_prune
+
+    assert out == "exit_code: 0\nstdout:\nkept\n"
+    assert seen["timeout"] == 3.5
+
+
 def test_needle_bash_reports_nonzero_exit_without_throwing() -> None:
     out = needle_bash_observation("printf 'bad\\n' >&2; exit 7", timeout_secs=5)
     assert "exit_code: 7" in out
     assert "stderr:\nbad" in out
+
+
+def test_needle_bash_caps_large_stdout_before_rendering() -> None:
+    obs = run_bash_command(
+        f"{sys.executable} -c \"import sys; sys.stdout.write('a' * 64)\"",
+        timeout_secs=5,
+        stdout_limit_bytes=10,
+    )
+    assert obs.stdout == "a" * 10
+    assert obs.stdout_truncated is True
+    assert "[needle: stdout truncated at 10 bytes]" in obs.text
+
+
+def test_needle_bash_caps_large_stderr_before_rendering() -> None:
+    obs = run_bash_command(
+        f"{sys.executable} -c \"import sys; sys.stderr.write('e' * 64)\"",
+        timeout_secs=5,
+        stderr_limit_bytes=7,
+    )
+    assert obs.stderr == "e" * 7
+    assert obs.stderr_truncated is True
+    assert "[needle: stderr truncated at 7 bytes]" in obs.text
+
+
+def test_needle_bash_timeout_preserves_bounded_partial_output() -> None:
+    obs = run_bash_command(
+        f"{sys.executable} -c \"import sys, time; sys.stdout.write('x' * 64); "
+        "sys.stdout.flush(); time.sleep(2)\"",
+        timeout_secs=0.2,
+        stdout_limit_bytes=8,
+    )
+    assert obs.timed_out is True
+    assert obs.exit_code is None
+    assert obs.stdout == "x" * 8
+    assert obs.stdout_truncated is True
+    assert "exit_code: timeout" in obs.text
 
 
 def main() -> int:
@@ -185,7 +234,11 @@ def main() -> int:
     test_needle_bash_reports_manager_timeout_without_changing_output()
     test_needle_bash_reports_no_savings_without_changing_output()
     test_needle_bash_reports_success_with_response_stats()
+    test_needle_bash_uses_configurable_prune_timeout()
     test_needle_bash_reports_nonzero_exit_without_throwing()
+    test_needle_bash_caps_large_stdout_before_rendering()
+    test_needle_bash_caps_large_stderr_before_rendering()
+    test_needle_bash_timeout_preserves_bounded_partial_output()
     print("test_mcp_bash OK")
     return 0
 

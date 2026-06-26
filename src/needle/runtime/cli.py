@@ -80,7 +80,11 @@ def _manage(args: argparse.Namespace) -> int:
 
 
 def _session(args: argparse.Namespace) -> int:
-    return run_session(session_id=args.session or None)
+    return run_session(
+        session_id=args.session or None,
+        package_id=args.package or None,
+        host_binding=args.host_binding or None,
+    )
 
 
 def _prune(args: argparse.Namespace) -> int:
@@ -275,6 +279,8 @@ def main(argv: list[str] | None = None) -> int:
         "--session", default="",
         help="host session id to lease under (an adapter passes its agent's id)",
     )
+    ssp.add_argument("--package", default="", help="package id used to derive manager runtime env")
+    ssp.add_argument("--host-binding", default="", help="host binding used for manager package selection")
     ssp.set_defaults(func=_session)
 
     pp = sub.add_parser("prune", help="send stdin to the manager, print the result")

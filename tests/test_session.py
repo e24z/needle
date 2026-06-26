@@ -96,9 +96,21 @@ def test_session_lease_loop(tmp_sock: Path) -> None:
     os.environ.pop("HAY_MANAGER_SOCKET", None)
 
 
+def test_session_manager_spawn_command_carries_package_context() -> None:
+    argv = session_mod._manager_argv(
+        package_id="e24z/mlx-mcp-bash-reference",
+        host_binding="mcp/bash",
+    )
+    assert argv[:3] == [sys.executable, "-m", "needle.runtime"]
+    assert "--package" in argv
+    assert "e24z/mlx-mcp-bash-reference" in argv
+    assert "--host-binding" in argv
+    assert "mcp/bash" in argv
+
+
 def test_session_failure_is_visible() -> None:
     old_ensure = session_mod._ensure_manager
-    session_mod._ensure_manager = lambda timeout=10.0: False
+    session_mod._ensure_manager = lambda timeout=10.0, **_kwargs: False
     err = StringIO()
     try:
         with redirect_stderr(err):
@@ -132,6 +144,7 @@ if __name__ == "__main__":
 
     test_manage_subprocess_serves(Path(tempfile.mkdtemp()) / "m1.sock")
     test_session_lease_loop(Path(tempfile.mkdtemp()) / "m2.sock")
+    test_session_manager_spawn_command_carries_package_context()
     test_session_failure_is_visible()
     test_prune_without_manager_has_recovery_text(Path(tempfile.mkdtemp()) / "m3.sock")
     print("test_session OK")

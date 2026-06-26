@@ -126,6 +126,8 @@ def test_package_cli_lists_and_selects_packages() -> None:
             assert "uses backend: e24z/code-pruner-mlx" in out
             assert "runtime launcher: needle-cli" in out
             assert "runtime command: needle runtime manage" in out
+            assert "field audit:" in out
+            assert "runtime_profile.env: applied to the resident manager process" in out
             assert "package graph: ok" in out
             assert "backend requirements: apple_silicon, mlx" in out
             assert "backend readiness:" in out

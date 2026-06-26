@@ -46,6 +46,44 @@ _SCHEMAS = {
 _KNOWN_ARTIFACT_KINDS = {"file_text", "process_output"}
 _KNOWN_EVIDENCE_PREFIXES = ("fixture_pack:",)
 _KNOWN_RUNTIMES = {"local_manager"}
+_BOOLEAN_RUNTIME_ENV_KEYS = {
+    "NEEDLE_REPAIR",
+    "NEEDLE_MLX_LIGHT",
+    "NEEDLE_PROFILE_MLX",
+    "NEEDLE_MLX_CLEAR_CACHE_AFTER_PRUNE",
+}
+_BOOLEAN_RUNTIME_ENV_VALUES = {"0", "1", "false", "true", "no", "yes", "off", "on"}
+_POSITIVE_INT_RUNTIME_ENV_KEYS = {
+    "NEEDLE_MLX_MAX_LENGTH",
+    "NEEDLE_MAX_LENGTH",
+    "NEEDLE_MLX_MAX_BATCH_SIZE",
+    "NEEDLE_MLX_MAX_BATCH_TOKENS",
+    "NEEDLE_MLX_CACHE_LIMIT_MB",
+    "NEEDLE_MLX_WIRED_LIMIT_MB",
+    "NEEDLE_MLX_ADAPTIVE_SINGLE_CHUNK_UNTIL_TOKENS",
+    "NEEDLE_MLX_ADAPTIVE_SMALL_MAX_LENGTH",
+    "NEEDLE_MLX_ADAPTIVE_LARGE_MAX_LENGTH",
+}
+_NON_NEGATIVE_INT_RUNTIME_ENV_KEYS = {
+    "NEEDLE_CHUNK_OVERLAP_TOKENS",
+}
+_FLOAT_0_TO_1_RUNTIME_ENV_KEYS = {
+    "NEEDLE_THRESHOLD",
+}
+_MIN_FLOAT_RUNTIME_ENV_KEYS = {
+    "NEEDLE_MLX_MAX_LENGTH_RATIO": 1.0,
+}
+_ENUM_RUNTIME_ENV_VALUES = {
+    "NEEDLE_MLX_PROFILE": {"local_adaptive", "local-mlx-adaptive", "local_mlx_adaptive"},
+}
+_KNOWN_RUNTIME_PROFILE_ENV_KEYS = (
+    _BOOLEAN_RUNTIME_ENV_KEYS
+    | _POSITIVE_INT_RUNTIME_ENV_KEYS
+    | _NON_NEGATIVE_INT_RUNTIME_ENV_KEYS
+    | _FLOAT_0_TO_1_RUNTIME_ENV_KEYS
+    | set(_MIN_FLOAT_RUNTIME_ENV_KEYS)
+    | set(_ENUM_RUNTIME_ENV_VALUES)
+)
 
 
 class PackageConfigError(ValueError):
@@ -628,16 +666,84 @@ def _validate_runtime_profile(package: dict[str, Any]) -> dict[str, Any]:
         raise PackageConfigError(f"package {package_id!r} runtime_profile must be a mapping")
     profile_id = _required_string(profile, "id")
     env = profile.get("env", {})
-    if not isinstance(env, dict) or not all(
-        isinstance(key, str)
-        and key.startswith("NEEDLE_")
-        and isinstance(value, str)
-        for key, value in env.items()
-    ):
+    if not isinstance(env, dict):
         raise PackageConfigError(
             f"package {package_id!r} runtime_profile.env must map NEEDLE_* keys to strings"
         )
-    return {"id": profile_id, "env": dict(env)}
+    clean_env: dict[str, str] = {}
+    for key, value in env.items():
+        if not isinstance(key, str) or not key.startswith("NEEDLE_") or not isinstance(value, str):
+            raise PackageConfigError(
+                f"package {package_id!r} runtime_profile.env must map NEEDLE_* keys to strings"
+            )
+        _validate_runtime_profile_env_value(package_id, key, value)
+        clean_env[key] = value
+    return {"id": profile_id, "env": clean_env}
+
+
+def _validate_runtime_profile_env_value(package_id: str, key: str, value: str) -> None:
+    if key not in _KNOWN_RUNTIME_PROFILE_ENV_KEYS:
+        raise PackageConfigError(f"package {package_id!r} runtime_profile.env key {key!r} is unknown")
+    if key in _BOOLEAN_RUNTIME_ENV_KEYS:
+        if value.strip().lower() not in _BOOLEAN_RUNTIME_ENV_VALUES:
+            raise PackageConfigError(
+                f"package {package_id!r} runtime_profile.env {key!r} must be a boolean "
+                "(0/1, true/false, yes/no, or on/off)"
+            )
+        return
+    if key in _POSITIVE_INT_RUNTIME_ENV_KEYS:
+        _validate_int_env(package_id, key, value, minimum=1)
+        return
+    if key in _NON_NEGATIVE_INT_RUNTIME_ENV_KEYS:
+        _validate_int_env(package_id, key, value, minimum=0)
+        return
+    if key in _FLOAT_0_TO_1_RUNTIME_ENV_KEYS:
+        numeric = _parse_float_env(package_id, key, value)
+        if numeric < 0.0 or numeric > 1.0:
+            raise PackageConfigError(
+                f"package {package_id!r} runtime_profile.env {key!r} must be between 0 and 1"
+            )
+        return
+    if key in _MIN_FLOAT_RUNTIME_ENV_KEYS:
+        numeric = _parse_float_env(package_id, key, value)
+        minimum = _MIN_FLOAT_RUNTIME_ENV_KEYS[key]
+        if numeric < minimum:
+            raise PackageConfigError(
+                f"package {package_id!r} runtime_profile.env {key!r} must be at least {minimum:g}"
+            )
+        return
+    allowed = _ENUM_RUNTIME_ENV_VALUES.get(key)
+    if allowed is not None and value not in allowed:
+        raise PackageConfigError(
+            f"package {package_id!r} runtime_profile.env {key!r} must be one of {sorted(allowed)!r}"
+        )
+
+
+def _validate_int_env(package_id: str, key: str, value: str, *, minimum: int) -> None:
+    try:
+        numeric = int(value, 10)
+    except ValueError as exc:
+        raise PackageConfigError(
+            f"package {package_id!r} runtime_profile.env {key!r} must be an integer"
+        ) from exc
+    if str(numeric) != value.strip():
+        raise PackageConfigError(
+            f"package {package_id!r} runtime_profile.env {key!r} must be an integer"
+        )
+    if numeric < minimum:
+        qualifier = "positive" if minimum == 1 else "non-negative"
+        raise PackageConfigError(
+            f"package {package_id!r} runtime_profile.env {key!r} must be a {qualifier} integer"
+        )
+
+
+def _parse_float_env(package_id: str, key: str, value: str) -> float:
+    try:
+        return float(value)
+    except ValueError as exc:
+        raise PackageConfigError(
+            f"package {package_id!r} runtime_profile.env {key!r} must be a number"
+        ) from exc
 
 
 def _validate_evidence_ref(package_id: str, ref: str) -> None:

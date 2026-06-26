@@ -37,6 +37,26 @@ needle status --events 20
 Recent events distinguish missing focus questions, manager-unavailable
 pass-throughs, manager timeouts, and no-savings pass-throughs.
 
+## Runtime Limits
+
+`needle_bash` is an observation tool, not a sandbox. It runs the command in a
+fresh non-login bash process, captures bounded stdout/stderr, and kills the
+command's process group if the command timeout expires. Normal child processes
+die with that group; intentionally detached processes may outlive the tool call.
+
+Useful environment knobs:
+
+```text
+NEEDLE_MCP_BASH_TIMEOUT_SECS=30
+NEEDLE_MCP_PRUNE_TIMEOUT_SECS=120
+NEEDLE_MCP_STDOUT_LIMIT_BYTES=200000
+NEEDLE_MCP_STDERR_LIMIT_BYTES=100000
+NEEDLE_MCP_MIN_CHARS=500
+```
+
+The stdout/stderr caps are applied while output is captured, before Needle asks
+the resident runtime to prune the observation.
+
 For Claude Code, start with:
 
 ```bash

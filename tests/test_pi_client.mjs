@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cp, mkdtemp, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -441,6 +441,67 @@ test("Pi package identity can load from an external registry root", async () => 
 			delete process.env.NEEDLE_PACKAGE;
 		} else {
 			process.env.NEEDLE_PACKAGE = oldNeedlePackage;
+		}
+	}
+});
+
+test("Pi package identity rejects invalid runtime profile env", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "hay-registry-invalid-profile-"));
+	for (const name of ["packages", "capabilities", "backends", "bindings", "claims", "package-cards", "protocols"]) {
+		await cp(join(process.cwd(), "src", "needle", "registry_data", name), join(dir, name), { recursive: true });
+	}
+	const packagePath = join(dir, "packages", "e24z", "mlx-pi-soft-lamr.yaml");
+	const pkg = JSON.parse(await readFile(packagePath, "utf8"));
+	pkg.runtime_profile.env = { NEEDLE_MLX_MAX_BATCH_SIZE: "0" };
+	await writeFile(packagePath, JSON.stringify(pkg, null, 2));
+
+	const oldRoot = process.env.NEEDLE_REGISTRY_ROOT;
+	const oldHayRoot = process.env.HAY_REGISTRY_ROOT;
+	const oldConfig = process.env.NEEDLE_CONFIG;
+	const oldHayConfig = process.env.HAY_CONFIG;
+	const oldPackage = process.env.NEEDLE_PACKAGE;
+	const oldHayPackage = process.env.HAY_PACKAGE;
+	try {
+		process.env.NEEDLE_REGISTRY_ROOT = dir;
+		process.env.NEEDLE_CONFIG = join(dir, "missing-config.json");
+		delete process.env.HAY_REGISTRY_ROOT;
+		delete process.env.HAY_CONFIG;
+		delete process.env.NEEDLE_PACKAGE;
+		delete process.env.HAY_PACKAGE;
+
+		const identity = await packageIdentity(process.cwd(), "e24z/mlx-pi-soft-lamr");
+		assert.equal(identity.available, false);
+		assert.match(identity.reason, /NEEDLE_MLX_MAX_BATCH_SIZE.*positive integer/);
+	} finally {
+		if (oldRoot === undefined) {
+			delete process.env.NEEDLE_REGISTRY_ROOT;
+		} else {
+			process.env.NEEDLE_REGISTRY_ROOT = oldRoot;
+		}
+		if (oldHayRoot === undefined) {
+			delete process.env.HAY_REGISTRY_ROOT;
+		} else {
+			process.env.HAY_REGISTRY_ROOT = oldHayRoot;
+		}
+		if (oldConfig === undefined) {
+			delete process.env.NEEDLE_CONFIG;
+		} else {
+			process.env.NEEDLE_CONFIG = oldConfig;
+		}
+		if (oldHayConfig === undefined) {
+			delete process.env.HAY_CONFIG;
+		} else {
+			process.env.HAY_CONFIG = oldHayConfig;
+		}
+		if (oldPackage === undefined) {
+			delete process.env.NEEDLE_PACKAGE;
+		} else {
+			process.env.NEEDLE_PACKAGE = oldPackage;
+		}
+		if (oldHayPackage === undefined) {
+			delete process.env.HAY_PACKAGE;
+		} else {
+			process.env.HAY_PACKAGE = oldHayPackage;
 		}
 	}
 });

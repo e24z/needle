@@ -479,6 +479,52 @@ def test_package_runtime_profile_env_is_public_needle_scoped() -> None:
     assert "runtime_profile.env must map NEEDLE_* keys to strings" in msg
 
 
+def test_package_runtime_profile_rejects_unknown_env_keys() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        _copy_registry(tmp)
+        package_path = tmp / "packages/e24z/mlx-pi-soft-lamr.yaml"
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+        package["runtime_profile"]["env"] = {"NEEDLE_SOMETHING_SQUISHY": "1"}
+        package_path.write_text(json.dumps(package, indent=2), encoding="utf-8")
+
+        try:
+            load_active_package(tmp)
+        except PackageConfigError as exc:
+            msg = str(exc)
+        else:
+            raise AssertionError("expected unknown runtime profile env to fail")
+
+    assert "runtime_profile.env key 'NEEDLE_SOMETHING_SQUISHY' is unknown" in msg
+
+
+def test_package_runtime_profile_rejects_invalid_env_values() -> None:
+    cases = [
+        ("NEEDLE_MLX_MAX_BATCH_SIZE", "0", "positive integer"),
+        ("NEEDLE_CHUNK_OVERLAP_TOKENS", "-1", "non-negative integer"),
+        ("NEEDLE_MLX_MAX_LENGTH_RATIO", "0.5", "at least 1"),
+        ("NEEDLE_REPAIR", "maybe", "must be a boolean"),
+        ("NEEDLE_MLX_PROFILE", "fast-ish", "must be one of"),
+    ]
+    for key, value, expected in cases:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            _copy_registry(tmp)
+            package_path = tmp / "packages/e24z/mlx-pi-soft-lamr.yaml"
+            package = json.loads(package_path.read_text(encoding="utf-8"))
+            package["runtime_profile"]["env"] = {key: value}
+            package_path.write_text(json.dumps(package, indent=2), encoding="utf-8")
+
+            try:
+                load_active_package(tmp)
+            except PackageConfigError as exc:
+                msg = str(exc)
+            else:
+                raise AssertionError(f"expected invalid runtime profile env {key}={value!r} to fail")
+
+        assert expected in msg
+
+
 def test_binding_tool_mapping_must_use_known_artifact_kind() -> None:
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
@@ -693,6 +739,8 @@ def main() -> int:
     test_host_scoped_load_rejects_wrong_binding()
     test_package_requires_focus_contract()
     test_package_runtime_profile_env_is_public_needle_scoped()
+    test_package_runtime_profile_rejects_unknown_env_keys()
+    test_package_runtime_profile_rejects_invalid_env_values()
     test_binding_tool_mapping_must_use_known_artifact_kind()
     test_package_rejects_unknown_evidence_reference()
     test_package_rejects_missing_evidence_reference()

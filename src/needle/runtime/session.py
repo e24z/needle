@@ -30,7 +30,21 @@ HEARTBEAT_INTERVAL = float(
 _REPO_ROOT = str(Path(__file__).resolve().parents[3])
 
 
-def _ensure_manager(timeout: float = 10.0) -> bool:
+def _manager_argv(package_id: str = "", host_binding: str = "") -> list[str]:
+    argv = [sys.executable, "-m", "needle.runtime", "manage"]
+    if package_id:
+        argv.extend(["--package", package_id])
+    if host_binding:
+        argv.extend(["--host-binding", host_binding])
+    return argv
+
+
+def _ensure_manager(
+    timeout: float = 10.0,
+    *,
+    package_id: str = "",
+    host_binding: str = "",
+) -> bool:
     """Make sure a manager is accepting connections, spawning a DETACHED one if
     not. start_new_session puts it in its own session/process group so it
     OUTLIVES this session -- the monitor kills our group when the session ends,
@@ -43,7 +57,7 @@ def _ensure_manager(timeout: float = 10.0) -> bool:
     log = open(home / "manager.log", "a")
     try:
         subprocess.Popen(
-            [sys.executable, "-m", "needle.runtime", "manage"],
+            _manager_argv(package_id=package_id, host_binding=host_binding),
             start_new_session=True,
             stdout=log,
             stderr=log,
@@ -59,7 +73,14 @@ def _ensure_manager(timeout: float = 10.0) -> bool:
     return False
 
 
-def _acquire(session_id: str, version: str, attempts: int = 4) -> bool:
+def _acquire(
+    session_id: str,
+    version: str,
+    attempts: int = 4,
+    *,
+    package_id: str = "",
+    host_binding: str = "",
+) -> bool:
     """Lease, handling a stale manager: if it reports our code is newer than what
     it started on, it steps aside -- we wait for the socket to free, start a
     fresh manager on the current code, and retry."""
@@ -67,7 +88,7 @@ def _acquire(session_id: str, version: str, attempts: int = 4) -> bool:
         try:
             resp = client.lease(session_id, version)
         except OSError:
-            if not _ensure_manager():
+            if not _ensure_manager(package_id=package_id, host_binding=host_binding):
                 return False
             continue
         if resp.get("ok"):
@@ -83,7 +104,7 @@ def _acquire(session_id: str, version: str, attempts: int = 4) -> bool:
             deadline = time.monotonic() + 10.0
             while time.monotonic() < deadline and naming.socket_is_live(sock):
                 time.sleep(0.1)
-            if not _ensure_manager():
+            if not _ensure_manager(package_id=package_id, host_binding=host_binding):
                 return False
             continue
         return False  # refused for some other reason
@@ -93,6 +114,8 @@ def _acquire(session_id: str, version: str, attempts: int = 4) -> bool:
 def run_session(
     stop_event: threading.Event | None = None,
     session_id: str | None = None,
+    package_id: str | None = None,
+    host_binding: str | None = None,
 ) -> int:
     # The engine is agent-agnostic: it never reads CLAUDE_* itself. A caller
     # (the CLI's --session, set by an adapter) may pass the host's session id so
@@ -105,14 +128,22 @@ def run_session(
         signal.signal(signal.SIGTERM, lambda *_: stop_event.set())
         signal.signal(signal.SIGINT, lambda *_: stop_event.set())
 
-    if not _ensure_manager():
+    manager_package_id = package_id or ""
+    manager_host_binding = host_binding or ""
+
+    if not _ensure_manager(package_id=manager_package_id, host_binding=manager_host_binding):
         print(
             f"{naming.APP_NAME}: manager did not start; pruning disabled for this session "
             f"(socket={naming.manager_socket_path()}, log={naming.app_home() / 'manager.log'})",
             file=sys.stderr,
         )
         return 1
-    if not _acquire(session_id, version):
+    if not _acquire(
+        session_id,
+        version,
+        package_id=manager_package_id,
+        host_binding=manager_host_binding,
+    ):
         print(
             f"{naming.APP_NAME}: could not acquire manager lease; pruning disabled for this session "
             f"(socket={naming.manager_socket_path()})",
@@ -130,7 +161,12 @@ def run_session(
                 try:
                     client.heartbeat(session_id)
                 except OSError:
-                    _acquire(session_id, version)  # manager died/replaced; re-lease
+                    _acquire(
+                        session_id,
+                        version,
+                        package_id=manager_package_id,
+                        host_binding=manager_host_binding,
+                    )  # manager died/replaced; re-lease
                 last_beat = now
             stop_event.wait(1.0)  # stay responsive to SIGTERM / orphaning
     finally:
