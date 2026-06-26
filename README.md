@@ -203,6 +203,7 @@ needle setup pi --dry-run
 needle setup claude-code --dry-run
 needle setup codex --dry-run
 needle statusline claude-code --plain
+python3 tests/smoke_installed_artifact.py
 ```
 
 The built-in registry lives in `src/needle/registry_data`. External registries
