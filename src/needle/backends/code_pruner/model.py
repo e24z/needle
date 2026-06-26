@@ -579,15 +579,13 @@ class MLXSwePrunerBackend:
         suffix_ids: list[int],
         max_length: int,
     ) -> _PreparedChunk:
-        code_enc = self.tokenizer(
-            chunk.text,
-            add_special_tokens=False,
-            truncation=False,
-            return_attention_mask=False,
-            return_offsets_mapping=True,
-        )
-        code_ids = code_enc["input_ids"]
-        code_offsets = code_enc["offset_mapping"]
+        if chunk.token_count and not chunk.token_ids:
+            raise ValueError("TokenChunk is missing preserved token ids")
+        if chunk.token_count and not chunk.token_offsets:
+            raise ValueError("TokenChunk is missing preserved token offsets")
+
+        code_ids = list(chunk.token_ids)
+        code_offsets = chunk.relative_token_offsets
         original_code_tokens = len(code_ids)
 
         available_len = max_length - len(prefix_ids) - len(suffix_ids) - len(query_ids)

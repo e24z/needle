@@ -26,6 +26,21 @@ class CharTokenizer:
         }
 
 
+class BoundarySensitiveTokenizer:
+    """Tokenizer fixture that changes behavior when substrings are re-tokenized."""
+
+    def __call__(self, text: str, **_kwargs):
+        if text == "abcdefgh":
+            return {
+                "input_ids": [101, 102, 103, 104],
+                "offset_mapping": [(0, 2), (2, 4), (4, 6), (6, 8)],
+            }
+        return {
+            "input_ids": [200 + idx for idx, _char in enumerate(text)],
+            "offset_mapping": [(idx, idx + 1) for idx in range(len(text))],
+        }
+
+
 def test_split_text_into_overlapping_token_chunks() -> None:
     chunks = split_text_into_token_chunks(
         "abcdefghij",
@@ -44,6 +59,55 @@ def test_split_text_into_overlapping_token_chunks() -> None:
         (3, 7),
         (6, 10),
     ]
+
+
+def test_split_preserves_original_token_ids_and_offsets() -> None:
+    tokenizer = BoundarySensitiveTokenizer()
+    chunks = split_text_into_token_chunks(
+        "abcdefgh",
+        tokenizer,
+        chunk_max_tokens=2,
+        overlap_tokens=0,
+    )
+
+    assert [(c.text, c.start_char, c.end_char) for c in chunks] == [
+        ("abcd", 0, 4),
+        ("efgh", 4, 8),
+    ]
+    assert [c.token_ids for c in chunks] == [(101, 102), (103, 104)]
+    assert [c.token_offsets for c in chunks] == [
+        ((0, 2), (2, 4)),
+        ((4, 6), (6, 8)),
+    ]
+    assert [c.relative_token_offsets for c in chunks] == [
+        [(0, 2), (2, 4)],
+        [(0, 2), (2, 4)],
+    ]
+    assert tokenizer(chunks[0].text)["input_ids"] != list(chunks[0].token_ids)
+
+
+def test_original_offsets_survive_split_score_stub_and_merge() -> None:
+    chunks = split_text_into_token_chunks(
+        "abcdefgh",
+        BoundarySensitiveTokenizer(),
+        chunk_max_tokens=2,
+        overlap_tokens=1,
+    )
+
+    scores, offsets = merge_token_scores_from_chunks(
+        "abcdefgh",
+        [
+            (
+                [("", 0.5) for _offset in chunk.relative_token_offsets],
+                chunk.relative_token_offsets,
+                chunk.start_char,
+            )
+            for chunk in chunks
+        ],
+    )
+
+    assert offsets == [(0, 2), (2, 4), (4, 6), (6, 8)]
+    assert scores == [("", 0.5), ("", 0.5), ("", 0.5), ("", 0.5)]
 
 
 def test_bucket_token_chunks_groups_similar_lengths() -> None:
@@ -74,10 +138,43 @@ def test_merge_token_scores_averages_overlapping_offsets() -> None:
     assert scores == [("a", 0.2), ("b", 0.6000000000000001), ("c", 1.0)]
 
 
+def test_merge_keeps_partial_nested_adjacent_and_whitespace_spans_distinct() -> None:
+    scores, offsets = merge_token_scores_from_chunks(
+        "a bc",
+        [
+            (
+                [
+                    ("a", 0.1),
+                    ("a b", 0.2),
+                    (" ", 0.3),
+                    (" b", 0.4),
+                    (" bc", 0.5),
+                    ("bc", 0.6),
+                ],
+                [(0, 1), (0, 3), (1, 2), (1, 3), (1, 4), (2, 4)],
+                0,
+            )
+        ],
+    )
+
+    assert offsets == [(0, 1), (0, 3), (1, 2), (1, 3), (1, 4), (2, 4)]
+    assert scores == [
+        ("a", 0.1),
+        ("a b", 0.2),
+        (" ", 0.3),
+        (" b", 0.4),
+        (" bc", 0.5),
+        ("bc", 0.6),
+    ]
+
+
 def main() -> int:
     test_split_text_into_overlapping_token_chunks()
+    test_split_preserves_original_token_ids_and_offsets()
+    test_original_offsets_survive_split_score_stub_and_merge()
     test_bucket_token_chunks_groups_similar_lengths()
     test_merge_token_scores_averages_overlapping_offsets()
+    test_merge_keeps_partial_nested_adjacent_and_whitespace_spans_distinct()
     print("test_code_pruner_chunking OK")
     return 0
 

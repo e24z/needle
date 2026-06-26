@@ -24,10 +24,24 @@ class TokenChunk:
     end_char: int
     start_token: int
     end_token: int
+    token_ids: tuple[int, ...] = ()
+    token_offsets: tuple[tuple[int, int], ...] = ()
 
     @property
     def token_count(self) -> int:
-        return self.end_token - self.start_token
+        return (
+            len(self.token_ids)
+            if self.token_ids
+            else self.end_token - self.start_token
+        )
+
+    @property
+    def relative_token_offsets(self) -> list[tuple[int, int]]:
+        """Original-token offsets shifted into this chunk's text coordinate space."""
+        return [
+            (start - self.start_char, end - self.start_char)
+            for start, end in self.token_offsets
+        ]
 
 
 def estimate_token_count(text: str, tokenizer: OffsetTokenizer) -> int:
@@ -55,8 +69,9 @@ def split_text_into_token_chunks(
         return_attention_mask=False,
         return_offsets_mapping=True,
     )
+    token_ids = enc["input_ids"]
     offsets = enc["offset_mapping"]
-    total_tokens = len(enc["input_ids"])
+    total_tokens = len(token_ids)
     if total_tokens == 0:
         return [
             TokenChunk(
@@ -65,6 +80,8 @@ def split_text_into_token_chunks(
                 end_char=len(text),
                 start_token=0,
                 end_token=0,
+                token_ids=(),
+                token_offsets=(),
             )
         ]
     if total_tokens <= chunk_max_tokens:
@@ -75,6 +92,10 @@ def split_text_into_token_chunks(
                 end_char=len(text),
                 start_token=0,
                 end_token=total_tokens,
+                token_ids=tuple(int(token_id) for token_id in token_ids),
+                token_offsets=tuple(
+                    (int(start), int(end)) for start, end in offsets
+                ),
             )
         ]
 
@@ -94,6 +115,13 @@ def split_text_into_token_chunks(
                     end_char=end_char,
                     start_token=start_token,
                     end_token=end_token,
+                    token_ids=tuple(
+                        int(token_id) for token_id in token_ids[start_token:end_token]
+                    ),
+                    token_offsets=tuple(
+                        (int(start), int(end))
+                        for start, end in offsets[start_token:end_token]
+                    ),
                 )
             )
         if end_token >= total_tokens:
