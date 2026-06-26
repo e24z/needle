@@ -270,6 +270,8 @@ def _fmt_ts(ts: object) -> str:
 
 
 def _render_status(stats: dict | None, recent: list[dict]) -> str:
+    from .runtime.cli import _render_prune_summary
+
     lines: list[str] = []
     if not stats or not stats.get("ok"):
         lines.append("Needle runtime: down (not running)")
@@ -290,6 +292,12 @@ def _render_status(stats: dict | None, recent: list[dict]) -> str:
             f"  ·  pressure {_PRESSURE.get(stats.get('pressure'), '?')}"
             f"  ·  free {free}"
         )
+        last_prune = stats.get("last_prune")
+        detail = _render_prune_summary(last_prune)
+        if detail:
+            backend = last_prune.get("backend") if isinstance(last_prune, dict) else None
+            prefix = f"{backend} · " if isinstance(backend, str) and backend else ""
+            lines.append(f"  last prune: {prefix}{detail}")
     if recent:
         lines.append("")
         lines.append("recent events:")
@@ -897,8 +905,11 @@ def _setup_claude_code(args: argparse.Namespace) -> int:
     print(f"host binding: {loaded.binding_id}")
     print(f"server: needle-bash")
     print(f"server command: needle mcp serve")
+    print("runtime command: needle runtime manage --host-binding mcp/bash")
     print(f"Claude scope: {scope}")
     print(f"Claude command: {_format_command(command)}")
+    print("diagnostics: needle status --events 20")
+    print("lifecycle: MCP installs the tool server; start the Needle runtime before expecting pruning.")
     print("")
     print("Project .mcp.json shape, if you choose --scope project:")
     print(json.dumps(_claude_code_mcp_json(), indent=2))
@@ -950,7 +961,10 @@ def _setup_codex(args: argparse.Namespace) -> int:
     print(f"host binding: {loaded.binding_id}")
     print(f"server: needle-bash")
     print(f"server command: needle mcp serve")
+    print("runtime command: needle runtime manage --host-binding mcp/bash")
     print(f"Codex command: {_format_command(command)}")
+    print("diagnostics: needle status --events 20")
+    print("lifecycle: MCP installs the tool server; start the Needle runtime before expecting pruning.")
     print("")
     print("Project .codex/config.toml shape, if you prefer project-scoped setup:")
     print(_codex_config_toml())

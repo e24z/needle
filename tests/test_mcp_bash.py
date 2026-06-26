@@ -5,9 +5,13 @@ Run: PYTHONPATH=src python3 tests/test_mcp_bash.py
 
 from __future__ import annotations
 
+import os
+import socket
 import sys
 from pathlib import Path
 from unittest.mock import patch
+
+os.environ["NEEDLE_NO_EVENTS"] = "1"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
@@ -43,6 +47,7 @@ def test_needle_bash_uses_non_login_bash() -> None:
 
 def test_needle_bash_focus_is_optional_and_blank_passes_through() -> None:
     calls: list[tuple[str, str]] = []
+    events: list[tuple[str, dict[str, object]]] = []
 
     def prune_fn(text: str, query: str) -> dict:
         calls.append((text, query))
@@ -54,9 +59,12 @@ def test_needle_bash_focus_is_optional_and_blank_passes_through() -> None:
         timeout_secs=5,
         min_chars=1,
         prune_fn=prune_fn,
+        emit_fn=lambda event, **fields: events.append((event, fields)),
     )
     assert "stdout:\nalpha" in out
     assert calls == []
+    assert events and events[0][0] == "mcp_bash_passthrough"
+    assert events[0][1]["reason"] == "missing_focus"
 
 
 def test_needle_bash_prunes_only_with_explicit_focus() -> None:
@@ -79,6 +87,8 @@ def test_needle_bash_prunes_only_with_explicit_focus() -> None:
 
 
 def test_needle_bash_fails_open_when_pruner_errors() -> None:
+    events: list[tuple[str, dict[str, object]]] = []
+
     def prune_fn(_text: str, _query: str) -> dict:
         raise OSError("manager unavailable")
 
@@ -88,8 +98,76 @@ def test_needle_bash_fails_open_when_pruner_errors() -> None:
         timeout_secs=5,
         min_chars=1,
         prune_fn=prune_fn,
+        emit_fn=lambda event, **fields: events.append((event, fields)),
     )
     assert "stdout:\nalpha" in out
+    assert events and events[0][1]["reason"] == "manager_unavailable"
+
+
+def test_needle_bash_reports_manager_timeout_without_changing_output() -> None:
+    events: list[tuple[str, dict[str, object]]] = []
+
+    def prune_fn(_text: str, _query: str) -> dict:
+        raise socket.timeout("slow manager")
+
+    out = needle_bash_observation(
+        "printf 'alpha\\n'",
+        "What matters?",
+        timeout_secs=5,
+        min_chars=1,
+        prune_fn=prune_fn,
+        emit_fn=lambda event, **fields: events.append((event, fields)),
+    )
+    assert "stdout:\nalpha" in out
+    assert events and events[0][1]["reason"] == "manager_timeout"
+
+
+def test_needle_bash_reports_no_savings_without_changing_output() -> None:
+    events: list[tuple[str, dict[str, object]]] = []
+
+    def prune_fn(text: str, query: str) -> dict:
+        return {"ok": True, "text": text}
+
+    out = needle_bash_observation(
+        "printf 'alpha\\n'",
+        "What matters?",
+        timeout_secs=5,
+        min_chars=1,
+        prune_fn=prune_fn,
+        emit_fn=lambda event, **fields: events.append((event, fields)),
+    )
+    assert "stdout:\nalpha" in out
+    assert events and events[0][1]["reason"] == "no_savings"
+
+
+def test_needle_bash_reports_success_with_response_stats() -> None:
+    events: list[tuple[str, dict[str, object]]] = []
+
+    def prune_fn(text: str, query: str) -> dict:
+        return {
+            "ok": True,
+            "text": "exit_code: 0\nstdout:\nkept\n",
+            "stats": {
+                "chunks": 2,
+                "batches": 1,
+                "batch_sizes": [2],
+                "max_length": 1024,
+                "padding_waste_ratio": 0.25,
+            },
+        }
+
+    out = needle_bash_observation(
+        "printf 'alpha\\nbeta\\n'",
+        "Which line mentions beta?",
+        timeout_secs=5,
+        min_chars=1,
+        prune_fn=prune_fn,
+        emit_fn=lambda event, **fields: events.append((event, fields)),
+    )
+    assert out == "exit_code: 0\nstdout:\nkept\n"
+    assert events and events[0][0] == "mcp_bash_prune"
+    assert events[0][1]["chunks"] == 2
+    assert events[0][1]["batch_sizes"] == [2]
 
 
 def test_needle_bash_reports_nonzero_exit_without_throwing() -> None:
@@ -104,6 +182,9 @@ def main() -> int:
     test_needle_bash_focus_is_optional_and_blank_passes_through()
     test_needle_bash_prunes_only_with_explicit_focus()
     test_needle_bash_fails_open_when_pruner_errors()
+    test_needle_bash_reports_manager_timeout_without_changing_output()
+    test_needle_bash_reports_no_savings_without_changing_output()
+    test_needle_bash_reports_success_with_response_stats()
     test_needle_bash_reports_nonzero_exit_without_throwing()
     print("test_mcp_bash OK")
     return 0
@@ -111,4 +192,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

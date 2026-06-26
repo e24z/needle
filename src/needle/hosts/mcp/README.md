@@ -20,6 +20,23 @@ The installed server entrypoint is:
 needle mcp serve
 ```
 
+The MCP server exposes the tool. The pruning model still lives in Needle's
+machine-wide runtime manager, so start it separately before expecting real
+pruning:
+
+```bash
+needle runtime manage --host-binding mcp/bash
+```
+
+If `needle_bash` returns raw output, check:
+
+```bash
+needle status --events 20
+```
+
+Recent events distinguish missing focus questions, manager-unavailable
+pass-throughs, manager timeouts, and no-savings pass-throughs.
+
 For Claude Code, start with:
 
 ```bash

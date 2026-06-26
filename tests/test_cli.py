@@ -331,6 +331,9 @@ def test_setup_claude_code_dry_run_prints_native_mcp_setup() -> None:
     assert "package: e24z/mlx-mcp-bash-reference" in out
     assert "host binding: mcp/bash" in out
     assert "server command: needle mcp serve" in out
+    assert "runtime command: needle runtime manage --host-binding mcp/bash" in out
+    assert "diagnostics: needle status --events 20" in out
+    assert "MCP installs the tool server; start the Needle runtime before expecting pruning." in out
     assert "Claude command: claude mcp add --transport stdio --scope local needle-bash -- needle mcp serve" in out
     assert '"needle-bash"' in out
     assert "dry run: no changes made" in out
@@ -348,6 +351,9 @@ def test_setup_codex_dry_run_prints_native_mcp_setup() -> None:
     assert "package: e24z/mlx-mcp-bash-reference" in out
     assert "host binding: mcp/bash" in out
     assert "server command: needle mcp serve" in out
+    assert "runtime command: needle runtime manage --host-binding mcp/bash" in out
+    assert "diagnostics: needle status --events 20" in out
+    assert "MCP installs the tool server; start the Needle runtime before expecting pruning." in out
     assert "Codex command: codex mcp add needle-bash -- needle mcp serve" in out
     assert "Project .codex/config.toml shape" in out
     assert "[mcp_servers.needle-bash]" in out
