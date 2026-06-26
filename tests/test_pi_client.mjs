@@ -451,9 +451,13 @@ test("Pi package identity rejects invalid runtime profile env", async () => {
 		await cp(join(process.cwd(), "src", "needle", "registry_data", name), join(dir, name), { recursive: true });
 	}
 	const packagePath = join(dir, "packages", "e24z", "mlx-pi-soft-lamr.yaml");
-	const pkg = JSON.parse(await readFile(packagePath, "utf8"));
-	pkg.runtime_profile.env = { NEEDLE_MLX_MAX_BATCH_SIZE: "0" };
-	await writeFile(packagePath, JSON.stringify(pkg, null, 2));
+	const originalPackage = JSON.parse(await readFile(packagePath, "utf8"));
+	const cases = [
+		[{ NEEDLE_MLX_MAX_BATCH_SIZE: "0" }, /NEEDLE_MLX_MAX_BATCH_SIZE.*positive integer/],
+		[{ NEEDLE_THRESHOLD: "   " }, /NEEDLE_THRESHOLD.*must be a number/],
+		[{ NEEDLE_THRESHOLD: "nan" }, /NEEDLE_THRESHOLD.*finite number/],
+		[{ NEEDLE_MLX_MAX_LENGTH_RATIO: "inf" }, /NEEDLE_MLX_MAX_LENGTH_RATIO.*finite number/],
+	];
 
 	const oldRoot = process.env.NEEDLE_REGISTRY_ROOT;
 	const oldHayRoot = process.env.HAY_REGISTRY_ROOT;
@@ -469,9 +473,15 @@ test("Pi package identity rejects invalid runtime profile env", async () => {
 		delete process.env.NEEDLE_PACKAGE;
 		delete process.env.HAY_PACKAGE;
 
-		const identity = await packageIdentity(process.cwd(), "e24z/mlx-pi-soft-lamr");
-		assert.equal(identity.available, false);
-		assert.match(identity.reason, /NEEDLE_MLX_MAX_BATCH_SIZE.*positive integer/);
+		for (const [env, expected] of cases) {
+			const pkg = structuredClone(originalPackage);
+			pkg.runtime_profile.env = env;
+			await writeFile(packagePath, JSON.stringify(pkg, null, 2));
+
+			const identity = await packageIdentity(process.cwd(), "e24z/mlx-pi-soft-lamr");
+			assert.equal(identity.available, false);
+			assert.match(identity.reason, expected);
+		}
 	} finally {
 		if (oldRoot === undefined) {
 			delete process.env.NEEDLE_REGISTRY_ROOT;

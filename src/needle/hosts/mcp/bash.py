@@ -82,6 +82,7 @@ def run_bash_command(
 
     proc = subprocess.Popen(
         ["bash", "-c", command],
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         start_new_session=True,

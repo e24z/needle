@@ -490,9 +490,13 @@ function validateIntRuntimeEnv(packageId, key, value, minimum) {
 }
 
 function validateFloatRuntimeEnv(packageId, key, value) {
-	const numeric = Number(value);
-	if (!Number.isFinite(numeric)) {
+	const trimmed = value.trim();
+	if (!trimmed) {
 		throw new Error(`package ${packageId} runtime_profile.env ${key} must be a number`);
+	}
+	const numeric = Number(trimmed);
+	if (!Number.isFinite(numeric)) {
+		throw new Error(`package ${packageId} runtime_profile.env ${key} must be a finite number`);
 	}
 	return numeric;
 }

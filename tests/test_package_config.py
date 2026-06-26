@@ -503,6 +503,12 @@ def test_package_runtime_profile_rejects_invalid_env_values() -> None:
         ("NEEDLE_MLX_MAX_BATCH_SIZE", "0", "positive integer"),
         ("NEEDLE_CHUNK_OVERLAP_TOKENS", "-1", "non-negative integer"),
         ("NEEDLE_MLX_MAX_LENGTH_RATIO", "0.5", "at least 1"),
+        ("NEEDLE_MLX_MAX_LENGTH_RATIO", "nan", "must be finite"),
+        ("NEEDLE_MLX_MAX_LENGTH_RATIO", "inf", "must be finite"),
+        ("NEEDLE_MLX_MAX_LENGTH_RATIO", "-inf", "must be finite"),
+        ("NEEDLE_THRESHOLD", "nan", "must be finite"),
+        ("NEEDLE_THRESHOLD", "inf", "must be finite"),
+        ("NEEDLE_THRESHOLD", "-inf", "must be finite"),
         ("NEEDLE_REPAIR", "maybe", "must be a boolean"),
         ("NEEDLE_MLX_PROFILE", "fast-ish", "must be one of"),
     ]

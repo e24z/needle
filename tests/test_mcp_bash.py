@@ -225,6 +225,49 @@ def test_needle_bash_timeout_preserves_bounded_partial_output() -> None:
     assert "exit_code: timeout" in obs.text
 
 
+def test_needle_bash_commands_read_from_devnull() -> None:
+    from needle.hosts.mcp import bash as bash_mod
+
+    seen: dict[str, object] = {}
+
+    class FakeProc:
+        pass
+
+    def fake_popen(argv, **kwargs):
+        seen["argv"] = argv
+        seen["kwargs"] = kwargs
+        return FakeProc()
+
+    def fake_communicate(_proc, **_kwargs):
+        return {
+            "exit_code": 0,
+            "stdout": b"",
+            "stderr": b"",
+            "timed_out": False,
+            "stdout_truncated": False,
+            "stderr_truncated": False,
+        }
+
+    old_popen = bash_mod.subprocess.Popen
+    old_communicate = bash_mod._communicate_bounded
+    try:
+        bash_mod.subprocess.Popen = fake_popen
+        bash_mod._communicate_bounded = fake_communicate
+        run_bash_command("cat", timeout_secs=1)
+    finally:
+        bash_mod.subprocess.Popen = old_popen
+        bash_mod._communicate_bounded = old_communicate
+
+    assert seen["argv"] == ["bash", "-c", "cat"]
+    assert seen["kwargs"]["stdin"] == bash_mod.subprocess.DEVNULL
+
+
+def test_needle_bash_stdin_reader_exits_on_eof() -> None:
+    obs = run_bash_command("cat", timeout_secs=1)
+    assert obs.timed_out is False
+    assert obs.exit_code == 0
+
+
 def main() -> int:
     test_needle_bash_returns_raw_output_without_focus()
     test_needle_bash_uses_non_login_bash()
@@ -239,6 +282,8 @@ def main() -> int:
     test_needle_bash_caps_large_stdout_before_rendering()
     test_needle_bash_caps_large_stderr_before_rendering()
     test_needle_bash_timeout_preserves_bounded_partial_output()
+    test_needle_bash_commands_read_from_devnull()
+    test_needle_bash_stdin_reader_exits_on_eof()
     print("test_mcp_bash OK")
     return 0
 

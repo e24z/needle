@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -739,11 +740,16 @@ def _validate_int_env(package_id: str, key: str, value: str, *, minimum: int) ->
 
 def _parse_float_env(package_id: str, key: str, value: str) -> float:
     try:
-        return float(value)
+        numeric = float(value)
     except ValueError as exc:
         raise PackageConfigError(
             f"package {package_id!r} runtime_profile.env {key!r} must be a number"
         ) from exc
+    if not math.isfinite(numeric):
+        raise PackageConfigError(
+            f"package {package_id!r} runtime_profile.env {key!r} must be finite"
+        )
+    return numeric
 
 
 def _validate_evidence_ref(package_id: str, ref: str) -> None:
