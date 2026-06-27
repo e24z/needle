@@ -39,7 +39,8 @@ def main() -> int:
         check_wheel_contents(wheel)
         check_sdist_contents(sdist)
 
-        run([sys.executable, "-m", "venv", str(venv)])
+        python_for_venv = uv_python(uv, ">=3.13")
+        run([str(python_for_venv), "-m", "venv", str(venv)])
         python = venv / "bin" / "python"
         needle = venv / "bin" / "needle"
         run([uv, "pip", "install", "--python", str(python), str(wheel)])
@@ -82,6 +83,26 @@ def run(command: list[str], *, env: dict[str, str] | None = None) -> None:
     if completed.stderr:
         print(completed.stderr, file=sys.stderr)
     raise subprocess.CalledProcessError(completed.returncode, command)
+
+
+def uv_python(uv: str, requirement: str) -> Path:
+    completed = subprocess.run(
+        [uv, "python", "find", requirement],
+        cwd=ROOT,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    if completed.returncode != 0:
+        if completed.stdout:
+            print(completed.stdout, file=sys.stdout)
+        if completed.stderr:
+            print(completed.stderr, file=sys.stderr)
+        raise subprocess.CalledProcessError(completed.returncode, completed.args)
+    path = completed.stdout.strip()
+    if not path:
+        raise AssertionError(f"uv did not return a Python for {requirement}")
+    return Path(path)
 
 
 def one(paths, label: str) -> Path:
