@@ -151,7 +151,9 @@ estimates unless you pair them with a benchmark run or provider billing data.
 The `local_mlx_adaptive` runtime profile is local Mac tuning, not a product
 claim. It keeps batch size at 1 on constrained machines, uses a 2048-token window
 for small and medium observations, and switches to 1024-token windows for larger
-observations. `NEEDLE_MLX_MAX_LENGTH` wins if you set it for an experiment.
+observations. Hardware-specific batch-size tuning is post-1.0 performance work,
+not a release blocker. `NEEDLE_MLX_MAX_LENGTH` wins if you set it for an
+experiment.
 
 ## Uninstall
 
