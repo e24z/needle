@@ -36,6 +36,20 @@ def main() -> int:
     assert "ready" in ready and "code-pruner" in ready
     assert "warning" in ready and "1.5 GB" in ready  # pressure label + free GB
 
+    identified = _render_status(
+        _stats(
+            package_id="e24z/mlx-pi-soft-lamr",
+            host_binding="pi/native-tools",
+            runtime_profile="local_mlx_adaptive",
+            backend_id="e24z/code-pruner-mlx",
+        ),
+        [],
+    )
+    assert "package e24z/mlx-pi-soft-lamr" in identified
+    assert "host pi/native-tools" in identified
+    assert "profile local_mlx_adaptive" in identified
+    assert "backend-id e24z/code-pruner-mlx" in identified
+
     recent = _render_status(
         _stats(
             last_prune={

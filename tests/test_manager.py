@@ -20,6 +20,7 @@ from pathlib import Path  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))  # runnable bare, like its siblings
 
 from needle.runtime.manager import MANAGER_CONFIG_ENVS, Manager, _env, serve_manager  # noqa: E402
+from needle.runtime import naming  # noqa: E402
 from needle.runtime.protocol import decode, encode  # noqa: E402
 
 
@@ -125,9 +126,55 @@ def test_manager_surfaces_bounded_backend_stats() -> None:
     assert stats["last_prune"]["chunks"] == 3, stats
 
 
+def test_manager_stats_expose_runtime_identity() -> None:
+    manager = Manager(
+        lambda: StatsBackend(),
+        runtime_identity={
+            "package_id": "e24z/mlx-pi-soft-lamr",
+            "host_binding": "pi/native-tools",
+            "runtime_profile": "local_mlx_adaptive",
+            "backend_id": "e24z/code-pruner-mlx",
+        },
+    )
+
+    stats = manager.handle({"op": "stats"})
+
+    assert stats["package_id"] == "e24z/mlx-pi-soft-lamr", stats
+    assert stats["host_binding"] == "pi/native-tools", stats
+    assert stats["runtime_profile"] == "local_mlx_adaptive", stats
+    assert stats["backend_id"] == "e24z/code-pruner-mlx", stats
+
+
+def test_code_version_changes_for_backend_affecting_files() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / "needle"
+        (root / "runtime").mkdir(parents=True)
+        (root / "backends").mkdir()
+        (root / "registry_data/backends/e24z").mkdir(parents=True)
+        (root / "registry_data/packages/e24z").mkdir(parents=True)
+        (root / "runtime/manager.py").write_text("runtime = 1\n", encoding="utf-8")
+        (root / "backends/fake.py").write_text("backend = 1\n", encoding="utf-8")
+        (root / "registry.py").write_text("registry = 1\n", encoding="utf-8")
+        package_path = root / "registry_data/packages/e24z/pkg.yaml"
+        backend_path = root / "registry_data/backends/e24z/backend.yaml"
+        package_path.write_text('{"id":"pkg"}\n', encoding="utf-8")
+        backend_path.write_text('{"id":"backend","launcher":{"command":["needle"]}}\n', encoding="utf-8")
+
+        before = naming.code_version(root)
+        backend_path.write_text('{"id":"backend","launcher":{"command":["needle","runtime"]}}\n', encoding="utf-8")
+        after_backend = naming.code_version(root)
+        (root / "backends/fake.py").write_text("backend = 2\n", encoding="utf-8")
+        after_source = naming.code_version(root)
+
+    assert before != after_backend
+    assert after_backend != after_source
+
+
 def main() -> int:
     test_manager_config_env_prefers_needle_names()
     test_manager_surfaces_bounded_backend_stats()
+    test_manager_stats_expose_runtime_identity()
+    test_code_version_changes_for_backend_affecting_files()
     tmp = Path(tempfile.mkdtemp()) / "manager.sock"
     builds: list[SpyBackend] = []
 

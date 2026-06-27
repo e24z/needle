@@ -78,16 +78,36 @@ def socket_is_live(path: Path) -> bool:
         probe.close()
 
 
-def code_version() -> str:
+def _iter_code_version_files(package_root: Path) -> list[Path]:
+    files: list[Path] = []
+    for rel in ("runtime", "backends"):
+        root = package_root / rel
+        if root.exists():
+            files.extend(path for path in root.rglob("*.py") if "__pycache__" not in path.parts)
+    registry = package_root / "registry.py"
+    if registry.exists():
+        files.append(registry)
+    for rel in ("registry_data/packages", "registry_data/backends"):
+        root = package_root / rel
+        if root.exists():
+            files.extend(
+                path for path in root.rglob("*")
+                if path.is_file() and path.suffix in {".yaml", ".json"}
+            )
+    return sorted(files, key=lambda path: path.relative_to(package_root).as_posix())
+
+
+def code_version(package_root: Path | None = None) -> str:
     """Short hash of the runtime package source. A detached manager records the
     version it started on; a session announces its version when it leases. A
     mismatch means the code was edited since the manager launched -- so the old
     manager steps aside and a fresh one starts on the new code. Without this, a
     long-lived manager would silently keep running stale code after an edit."""
-    pkg = Path(__file__).resolve().parent
+    pkg = package_root or Path(__file__).resolve().parent.parent
     h = hashlib.sha1()
-    for p in sorted(pkg.rglob("*.py")):
-        h.update(p.name.encode("utf-8"))
+    for p in _iter_code_version_files(pkg):
+        h.update(p.relative_to(pkg).as_posix().encode("utf-8"))
+        h.update(b"\0")
         try:
             h.update(p.read_bytes())
         except OSError:

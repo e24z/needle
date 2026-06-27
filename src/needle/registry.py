@@ -127,6 +127,7 @@ class LoadedPackage:
 class RuntimeLaunchPlan:
     package_id: str
     backend_id: str
+    host_binding: str
     kind: str
     command: list[str]
     env: dict[str, str]
@@ -175,6 +176,7 @@ def runtime_launch_plan(
     return RuntimeLaunchPlan(
         package_id=loaded.package_id,
         backend_id=loaded.backend_id,
+        host_binding=loaded.binding_id,
         kind=launcher["kind"],
         command=launcher["command"],
         env={**launcher["env"], **runtime_profile["env"]},

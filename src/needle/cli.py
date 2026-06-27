@@ -23,6 +23,7 @@ import typer
 
 from . import __version__
 from .registry import (
+    BUILTIN_REGISTRY_ROOT,
     PackageConfigError,
     active_package_selection,
     load_active_package,
@@ -99,6 +100,7 @@ _CAPABILITY_LABELS = {
 
 _BACKEND_LABELS = {
     "e24z/code-pruner-mlx": "local MLX backend",
+    "e24z/code-pruner-http": "HTTP contract (future/declarative)",
 }
 
 
@@ -202,11 +204,13 @@ def _backend_readiness_notes(loaded: object) -> list[str]:
 def _package_field_audit() -> list[str]:
     return [
         "field audit:",
+        f"  full audit: {BUILTIN_REGISTRY_ROOT / 'FIELD-AUDIT.md'}",
         "  uses.backend: drives the runtime launcher and backend env",
         "  host_binding: constrains host-scoped package selection",
         "  runtime_profile.env: applied to the resident manager process",
         "  focus_contract: adapter/tool contract; manager does not enforce goal hints",
         "  compute/privacy/accounting/evidence: public contract metadata, not runtime switches",
+        "  http_pruner: not advertised as a usable runtime alternative in built-in packages",
     ]
 
 
@@ -322,6 +326,15 @@ def _render_status(stats: dict | None, recent: list[dict]) -> str:
             f"  ·  pressure {_PRESSURE.get(stats.get('pressure'), '?')}"
             f"  ·  free {free}"
         )
+        package_bits = [
+            f"package {stats.get('package_id')}" if stats.get("package_id") else None,
+            f"host {stats.get('host_binding')}" if stats.get("host_binding") else None,
+            f"profile {stats.get('runtime_profile')}" if stats.get("runtime_profile") else None,
+            f"backend-id {stats.get('backend_id')}" if stats.get("backend_id") else None,
+        ]
+        package_line = "  " + "  ·  ".join(bit for bit in package_bits if bit)
+        if package_line.strip():
+            lines.append(package_line)
         last_prune = stats.get("last_prune")
         detail = _render_prune_summary(last_prune)
         if detail:
@@ -488,6 +501,7 @@ def _uninstall(args: argparse.Namespace) -> int:
         print("Host extension removal stays host-native:")
         print("  Pi:     needle setup pi --uninstall")
         print("  Claude: needle setup claude-code --uninstall")
+        print("  Codex experimental MCP dogfood: needle setup codex --uninstall")
         print("")
         print("Run `needle uninstall --yes` to stop the runtime and remove these files.")
         return 0
@@ -516,6 +530,7 @@ def _uninstall(args: argparse.Namespace) -> int:
     print("Remove host integrations with their native commands:")
     print("  Pi:     needle setup pi --uninstall")
     print("  Claude: needle setup claude-code --uninstall")
+    print("  Codex experimental MCP dogfood: needle setup codex --uninstall")
     print("Remove the CLI entrypoint with your package manager, for example:")
     print("  brew uninstall needle")
     print("  pipx uninstall needle")
@@ -560,7 +575,7 @@ _SETUP_HOSTS = {
         "uninstall": "needle setup claude-code --uninstall",
     },
     "codex": {
-        "label": "Codex MCP dogfood adapter",
+        "label": "experimental Codex MCP dogfood adapter",
         "binding": "mcp/bash",
         "package": "e24z/mlx-mcp-bash-reference",
         "setup": "needle setup codex",
@@ -643,7 +658,7 @@ def _print_setup_checklist(
         print(f"      verify:  {meta['verify']}")
         print("      model:   run `needle model dir`; use `needle model download` after installing backend deps")
     print("")
-    print("Needle will not change Pi, Claude Code, or Codex until you confirm an install.")
+    print("Needle will not change Pi, Claude Code, or experimental Codex MCP dogfood until you confirm an install.")
     if dry_run:
         print("dry run: no changes made")
     else:
@@ -964,7 +979,7 @@ def _setup_claude_code(args: argparse.Namespace) -> int:
 def _setup_codex(args: argparse.Namespace) -> int:
     if args.uninstall:
         command = _codex_remove_command()
-        print("Needle Codex MCP server: needle-bash")
+        print("Needle experimental Codex MCP dogfood server: needle-bash")
         print(f"Codex command: {_format_command(command)}")
         if args.dry_run:
             print("dry run: no changes made")
@@ -976,7 +991,7 @@ def _setup_codex(args: argparse.Namespace) -> int:
         code = _run_visible(command)
         if code:
             return code
-        print("Needle Codex MCP server removed through Codex's native MCP command.")
+        print("Needle experimental Codex MCP dogfood server removed through Codex's native MCP command.")
         return 0
 
     try:
@@ -986,7 +1001,7 @@ def _setup_codex(args: argparse.Namespace) -> int:
         return 1
 
     command = _codex_add_command()
-    print("Needle Codex MCP setup")
+    print("Needle experimental Codex MCP dogfood setup")
     print(f"package: {loaded.package_id}")
     print(f"host binding: {loaded.binding_id}")
     print(f"server: needle-bash")
@@ -999,7 +1014,7 @@ def _setup_codex(args: argparse.Namespace) -> int:
     print("Project .codex/config.toml shape, if you prefer project-scoped setup:")
     print(_codex_config_toml())
     print("")
-    print("Dogfood contract: ask Codex to use `needle_bash` for large read-only observations.")
+    print("Experimental Codex MCP dogfood contract: ask Codex to use `needle_bash` for large read-only observations.")
     print("Needle does not transparently rewrite Codex's built-in Bash output.")
 
     if args.dry_run:
@@ -1014,7 +1029,7 @@ def _setup_codex(args: argparse.Namespace) -> int:
     code = _run_visible(command)
     if code:
         return code
-    print("Needle Codex MCP server installed. Start a fresh Codex thread and run `/mcp`.")
+    print("Needle experimental Codex MCP dogfood server installed. Start a fresh Codex thread and run `/mcp`.")
     print("Agent contract: use `needle_bash` for observation; keep edits on native tools.")
     return 0
 
@@ -1456,12 +1471,12 @@ def setup_codex(
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="Print Codex MCP setup without changing Codex.",
+        help="Print experimental Codex MCP dogfood setup without changing Codex.",
     ),
     uninstall_adapter: bool = typer.Option(
         False,
         "--uninstall",
-        help="Remove Needle's MCP server through Codex's native MCP command.",
+        help="Remove Needle's experimental Codex MCP dogfood server through Codex's native MCP command.",
     ),
     package_id: str | None = typer.Option(
         None,

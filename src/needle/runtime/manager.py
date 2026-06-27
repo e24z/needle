@@ -187,6 +187,7 @@ class Manager:
         mem_poll: float = MEM_POLL,
         memstat: Callable[[], tuple[int, int]] = sysmem.memstat,
         emit: Callable[..., None] = events.emit,
+        runtime_identity: dict[str, str] | None = None,
     ) -> None:
         self._make = backend_factory
         self._emit = emit  # structured event log (injected so tests can capture)
@@ -206,6 +207,7 @@ class Manager:
         self._pressure = sysmem.PRESSURE_NORMAL
         self._avail = sysmem._UNKNOWN_AVAIL_MB
         self._last_prune: dict[str, object] | None = None
+        self._runtime_identity = dict(runtime_identity or {})
 
     @property
     def resident(self) -> bool:
@@ -311,6 +313,7 @@ class Manager:
                 "pressure": self._pressure,
                 "available_mb": self._avail,
                 "last_prune": dict(self._last_prune) if self._last_prune else None,
+                **self._runtime_identity,
             }
         if op == "stop":
             self._emit("stop")
@@ -382,6 +385,7 @@ def serve_manager(
     lease_ttl: float = LEASE_TTL,
     idle_timeout: float = IDLE_TIMEOUT,
     poll_interval: float = 0.5,
+    runtime_identity: dict[str, str] | None = None,
 ) -> None:
     """Bind the machine-wide socket and serve until stopped. First writer wins:
     if a manager is already live on the socket, defer to it and return."""
@@ -425,6 +429,7 @@ def serve_manager(
         heavy=heavy,
         lease_ttl=lease_ttl,
         idle_timeout=idle_timeout,
+        runtime_identity=runtime_identity,
     )
 
     if ready_cb:

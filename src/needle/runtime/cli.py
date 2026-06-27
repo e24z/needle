@@ -70,7 +70,15 @@ def _manage(args: argparse.Namespace) -> int:
         )
 
     try:
-        serve_manager(ready_cb=ready)
+        identity = None
+        if plan is not None:
+            identity = {
+                "package_id": plan.package_id,
+                "host_binding": plan.host_binding,
+                "runtime_profile": plan.runtime_profile,
+                "backend_id": plan.backend_id,
+            }
+        serve_manager(ready_cb=ready, runtime_identity=identity)
     except (OSError, RuntimeError) as exc:
         print(f"{naming.APP_NAME}: manager failed to start: {exc}", file=sys.stderr)
         return 1
@@ -220,6 +228,15 @@ def _render_status(stats: dict | None, recent: list[dict]) -> str:
             f"  ·  pressure {_PRESSURE.get(stats.get('pressure'), '?')}"
             f"  ·  free {free}"
         )
+        package_bits = [
+            f"package {stats.get('package_id')}" if stats.get("package_id") else None,
+            f"host {stats.get('host_binding')}" if stats.get("host_binding") else None,
+            f"profile {stats.get('runtime_profile')}" if stats.get("runtime_profile") else None,
+            f"backend-id {stats.get('backend_id')}" if stats.get("backend_id") else None,
+        ]
+        package_line = "  " + "  ·  ".join(bit for bit in package_bits if bit)
+        if package_line.strip():
+            lines.append(package_line)
         last_prune = stats.get("last_prune")
         detail = _render_prune_summary(last_prune)
         if detail:

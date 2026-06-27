@@ -102,6 +102,7 @@ def check_wheel_contents(wheel: Path) -> None:
         "needle/hosts/mcp/server.py",
         "needle/hosts/mcp/README.md",
         "needle/registry_data/packages/e24z/mlx-pi-soft-lamr.yaml",
+        "needle/registry_data/FIELD-AUDIT.md",
         "needle/registry_data/package-cards/e24z/mlx-pi-soft-lamr.md",
     }
     missing = sorted(required - names)
@@ -124,6 +125,7 @@ def check_sdist_contents(sdist: Path) -> None:
         "/src/needle/cli.py",
         "/src/needle/hosts/pi/extension.js",
         "/src/needle/registry_data/packages/e24z/mlx-pi-soft-lamr.yaml",
+        "/src/needle/registry_data/FIELD-AUDIT.md",
     }
     missing = [
         suffix for suffix in required_suffixes if not any(name.endswith(suffix) for name in names)
@@ -144,6 +146,7 @@ required = [
     root / "hosts/pi/package.json",
     root / "hosts/mcp/server.py",
     root / "registry_data/packages/e24z/mlx-pi-soft-lamr.yaml",
+    root / "registry_data/FIELD-AUDIT.md",
     root / "registry_data/evidence/fixture-packs/mlx-pi-soft-lamr/manifest.json",
 ]
 missing = [str(path) for path in required if not path.exists()]

@@ -127,7 +127,9 @@ def test_package_cli_lists_and_selects_packages() -> None:
             assert "runtime launcher: needle-cli" in out
             assert "runtime command: needle runtime manage" in out
             assert "field audit:" in out
+            assert "FIELD-AUDIT.md" in out
             assert "runtime_profile.env: applied to the resident manager process" in out
+            assert "http_pruner: not advertised as a usable runtime alternative" in out
             assert "package graph: ok" in out
             assert "backend requirements: apple_silicon, mlx" in out
             assert "backend readiness:" in out
@@ -234,6 +236,7 @@ def test_uninstall_dry_run_and_yes_use_needle_owned_paths() -> None:
             assert "removed Needle-owned local state" in out
             assert "needle setup pi --uninstall" in out
             assert "needle setup claude-code --uninstall" in out
+            assert "Codex experimental MCP dogfood" in out
             assert "brew uninstall needle" in out
             assert "pipx uninstall needle" in out
             assert "uv tool uninstall needle" in out
@@ -281,7 +284,7 @@ def test_setup_root_dry_run_lists_hosts_without_mutating() -> None:
     assert "Needle setup" in out
     assert "Pi native adapter" in out
     assert "Claude Code MCP adapter" in out
-    assert "Codex MCP dogfood adapter" in out
+    assert "experimental Codex MCP dogfood adapter" in out
     assert "package: e24z/mlx-pi-soft-lamr" in out
     assert "setup:   needle setup pi" in out
     assert "setup:   needle setup claude-code" in out
@@ -291,7 +294,7 @@ def test_setup_root_dry_run_lists_hosts_without_mutating() -> None:
     assert "native:  codex mcp add needle-bash -- needle mcp serve" in out
     assert "needle model dir" in out
     assert "needle model download" in out
-    assert "Needle will not change Pi, Claude Code, or Codex" in out
+    assert "Needle will not change Pi, Claude Code, or experimental Codex MCP dogfood" in out
     assert "dry run: no changes made" in out
 
 
@@ -349,7 +352,7 @@ def test_setup_claude_code_dry_run_prints_native_mcp_setup() -> None:
 def test_setup_codex_dry_run_prints_native_mcp_setup() -> None:
     code, out, err = _run(["setup", "codex", "--dry-run"])
     assert code == 0, err
-    assert "Needle Codex MCP setup" in out
+    assert "Needle experimental Codex MCP dogfood setup" in out
     assert "package: e24z/mlx-mcp-bash-reference" in out
     assert "host binding: mcp/bash" in out
     assert "server command: needle mcp serve" in out
@@ -359,6 +362,7 @@ def test_setup_codex_dry_run_prints_native_mcp_setup() -> None:
     assert "Codex command: codex mcp add needle-bash -- needle mcp serve" in out
     assert "Project .codex/config.toml shape" in out
     assert "[mcp_servers.needle-bash]" in out
+    assert "Experimental Codex MCP dogfood contract:" in out
     assert "Needle does not transparently rewrite Codex's built-in Bash output." in out
     assert "dry run: no changes made" in out
 

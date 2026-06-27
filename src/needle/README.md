@@ -15,3 +15,8 @@ The package is split by product surface:
   backends, host bindings, packages, package cards, claims, and fixture evidence.
 
 The root README is for users. This file is for people already reading the source.
+
+The installable product is `needle`. The legacy `pruner` package and entrypoints
+are not part of this branch's public install surface. `HAY_*` environment names
+are accepted only as early-install compatibility aliases; new manifests and docs
+should use `NEEDLE_*`.

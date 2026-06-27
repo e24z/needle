@@ -79,6 +79,7 @@ def test_default_package_resolves_runtime_launch_plan() -> None:
     plan = runtime_launch_plan(REGISTRY_ROOT)
     assert plan.package_id == "e24z/mlx-pi-soft-lamr"
     assert plan.backend_id == "e24z/code-pruner-mlx"
+    assert plan.host_binding == "pi/native-tools"
     assert plan.kind == "needle-cli"
     assert plan.command == [
         "needle",
@@ -90,6 +91,29 @@ def test_default_package_resolves_runtime_launch_plan() -> None:
     assert plan.runtime_profile == "local_mlx_adaptive"
     assert plan.env["NEEDLE_MLX_PROFILE"] == "local_adaptive"
     assert plan.env["NEEDLE_MLX_MAX_BATCH_SIZE"] == "1"
+
+
+def test_field_audit_document_exists_and_names_categories() -> None:
+    path = REGISTRY_ROOT / "FIELD-AUDIT.md"
+    text = path.read_text(encoding="utf-8")
+    for category in (
+        "runtime-driving",
+        "selection/validation-enforced",
+        "host-adapter-enforced",
+        "operator/display",
+        "claim/evidence",
+        "future/declarative",
+    ):
+        assert category in text
+    for field in (
+        "uses.backend",
+        "runtime_profile.env",
+        "launcher",
+        "transport",
+        "focus_param",
+        "implementation.behavior_recipe",
+    ):
+        assert field in text
 
 
 def test_runtime_manage_applies_package_runtime_profile_env() -> None:
@@ -121,6 +145,7 @@ def test_runtime_manage_applies_package_runtime_profile_env() -> None:
 
         assert plan is not None
         assert plan.package_id == "e24z/mlx-pi-soft-lamr"
+        assert plan.host_binding == "pi/native-tools"
         assert os.environ["NEEDLE_BACKEND"] == "e24z/code-pruner-mlx"
         assert os.environ["HAY_BACKEND"] == "code-pruner"
         assert os.environ["NEEDLE_MLX_PROFILE"] == "local_adaptive"
@@ -275,6 +300,56 @@ def test_missing_backend_reference_fails_clearly() -> None:
 
     assert "missing backend object" in msg
     assert "e24z/missing-backend" in msg
+
+
+def test_uses_backend_changes_runtime_launch_plan_or_fails_clearly() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        _copy_registry(tmp)
+
+        package_path = tmp / "packages/e24z/mlx-pi-soft-lamr.yaml"
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+        package["uses"]["backend"] = "e24z/code-pruner-http"
+        package_path.write_text(json.dumps(package, indent=2), encoding="utf-8")
+
+        plan = runtime_launch_plan(tmp, "e24z/mlx-pi-soft-lamr", host_binding="pi/native-tools")
+
+    assert plan.backend_id == "e24z/code-pruner-http"
+    assert plan.env["NEEDLE_BACKEND"] == "e24z/code-pruner-http"
+
+
+def test_backend_launcher_changes_runtime_launch_plan() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        _copy_registry(tmp)
+
+        backend_path = tmp / "backends/e24z/code-pruner-mlx.yaml"
+        backend = json.loads(backend_path.read_text(encoding="utf-8"))
+        backend["launcher"]["command"] = ["needle", "runtime", "manage", "--raw"]
+        backend["launcher"]["env"]["NEEDLE_EXTRA_TEST"] = "yes"
+        backend_path.write_text(json.dumps(backend, indent=2), encoding="utf-8")
+
+        plan = runtime_launch_plan(tmp, "e24z/mlx-pi-soft-lamr", host_binding="pi/native-tools")
+
+    assert plan.command == ["needle", "runtime", "manage", "--raw"]
+    assert plan.env["NEEDLE_EXTRA_TEST"] == "yes"
+
+
+def test_runtime_profile_env_changes_runtime_launch_plan_env() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        _copy_registry(tmp)
+
+        package_path = tmp / "packages/e24z/mlx-pi-soft-lamr.yaml"
+        package = json.loads(package_path.read_text(encoding="utf-8"))
+        package["runtime_profile"]["env"]["NEEDLE_MLX_MAX_BATCH_SIZE"] = "3"
+        package["runtime_profile"]["env"]["NEEDLE_THRESHOLD"] = "0.25"
+        package_path.write_text(json.dumps(package, indent=2), encoding="utf-8")
+
+        plan = runtime_launch_plan(tmp, "e24z/mlx-pi-soft-lamr", host_binding="pi/native-tools")
+
+    assert plan.env["NEEDLE_MLX_MAX_BATCH_SIZE"] == "3"
+    assert plan.env["NEEDLE_THRESHOLD"] == "0.25"
 
 
 def test_backend_must_support_package_capabilities() -> None:
@@ -727,6 +802,7 @@ def main() -> int:
     test_default_package_graph_loads_soft_lamr()
     test_reference_package_graph_loads()
     test_default_package_resolves_runtime_launch_plan()
+    test_field_audit_document_exists_and_names_categories()
     test_runtime_manage_applies_package_runtime_profile_env()
     test_runtime_manage_raw_mode_skips_package_runtime_profile_env()
     test_http_backend_contract_validates_without_server()
@@ -736,6 +812,9 @@ def main() -> int:
     test_mcp_bash_package_loads_as_reference_host_binding()
     test_mlx_package_family_has_explicit_surface_parity()
     test_missing_backend_reference_fails_clearly()
+    test_uses_backend_changes_runtime_launch_plan_or_fails_clearly()
+    test_backend_launcher_changes_runtime_launch_plan()
+    test_runtime_profile_env_changes_runtime_launch_plan_env()
     test_backend_must_support_package_capabilities()
     test_registry_root_and_package_can_come_from_environment()
     test_legacy_package_ids_resolve_to_canonical_names()

@@ -14,10 +14,7 @@
     "missing_focus_behavior": "passthrough_original"
   },
   "compute": {
-    "default": "local_mlx",
-    "alternatives": [
-      "http_pruner"
-    ]
+    "default": "local_mlx"
   },
   "runtime": "local_manager",
   "runtime_profile": {

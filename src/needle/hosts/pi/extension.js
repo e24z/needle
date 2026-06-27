@@ -492,6 +492,15 @@ export function renderOperatorStatus(snapshot, recent = [], counters = {}, optio
 				`  |  pressure ${PRESSURE.get(snapshot.pressure) || "?"}` +
 				`  |  free ${formatMb(snapshot.available_mb)}`,
 		);
+		const runtimeIdentity = [
+			snapshot.package_id ? `package ${snapshot.package_id}` : null,
+			snapshot.host_binding ? `host ${snapshot.host_binding}` : null,
+			snapshot.runtime_profile ? `profile ${snapshot.runtime_profile}` : null,
+			snapshot.backend_id ? `backend-id ${snapshot.backend_id}` : null,
+		].filter(Boolean);
+		if (runtimeIdentity.length) {
+			lines.push(`  ${runtimeIdentity.join("  |  ")}`);
+		}
 	}
 	lines.push(`  socket ${options.socketPath || managerSocketPath()}`);
 	lines.push(`  home ${options.appHome || appHome()}`);

@@ -222,6 +222,7 @@ class Needle < Formula
       dependencies. Full local MLX pruning still needs backend dependencies and
       model files; use the developer-preview backend extra until that path is
       packaged.
+      Codex support is experimental MCP dogfood.
       Feature branches are not published through this formula; use a source/dev
       install for branch validation until the branch is merged or released.
 
@@ -233,7 +234,8 @@ class Needle < Formula
         needle setup claude-code
         needle setup codex
 
-      Needle will not change Pi, Claude Code, or Codex until you confirm a host install.
+      Needle will not change Pi, Claude Code, or experimental Codex MCP dogfood
+      until you confirm a host install.
     EOS
   end
 

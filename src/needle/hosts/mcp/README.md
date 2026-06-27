@@ -11,8 +11,9 @@ Use it for shell-shaped observation. Keep mutation on the host's native edit,
 write, or apply-patch tools.
 
 This package does not intercept host-native tools. Claude Code's native Bash and
-Codex's built-in Bash are not pruned by Needle. The host transcript must show a
-`needle_bash` MCP call for the observation to have passed through Needle.
+Codex's built-in Bash are not pruned by Needle. Codex support is experimental
+MCP dogfood. The host transcript must show a `needle_bash` MCP call for the
+observation to have passed through Needle.
 
 The installed server entrypoint is:
 
@@ -63,7 +64,7 @@ For Claude Code, start with:
 needle setup claude-code --dry-run
 ```
 
-For Codex dogfooding, start with:
+For experimental Codex MCP dogfooding, start with:
 
 ```bash
 needle setup codex --dry-run

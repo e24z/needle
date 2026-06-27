@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -250,6 +250,10 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 			version: "abcdef123456789",
 			pressure: 2,
 			available_mb: 2048,
+			package_id: "e24z/mlx-pi-reference",
+			host_binding: "pi/native-tools",
+			runtime_profile: "local_mlx_adaptive",
+			backend_id: "e24z/code-pruner-mlx",
 		},
 		[{ ts: 1710000000, event: "passthrough", reason: "low-memory", chars: 1200 }],
 		{ calls: 3, savedChars: 4096, lastTool: "grep" },
@@ -287,6 +291,8 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 	assert.match(rendered, /DEGRADED \(fake \(code-pruner unavailable: no mlx\)\)/);
 	assert.match(rendered, /sessions 2  \|  version abcdef123456/);
 	assert.match(rendered, /pressure warning  \|  free 2.0 GB/);
+	assert.match(rendered, /package e24z\/mlx-pi-reference  \|  host pi\/native-tools/);
+	assert.match(rendered, /profile local_mlx_adaptive  \|  backend-id e24z\/code-pruner-mlx/);
 	assert.match(rendered, /this Pi session 4.1k chars trimmed  \|  3 prunes  \|  last tool grep/);
 	assert.match(rendered, /extension \/tmp\/hay\/src\/needle\/hosts\/pi\/extension\.js/);
 	assert.match(rendered, /model dir \/tmp\/hay\/models/);
@@ -370,6 +376,7 @@ test("Pi resolves backend launch plan from the active package graph", async () =
 	const plan = await runtimeLaunchPlan(process.cwd(), { hostBinding: "pi/native-tools" });
 	assert.equal(plan.packageId, "e24z/mlx-pi-soft-lamr");
 	assert.equal(plan.backendId, "e24z/code-pruner-mlx");
+	assert.equal(plan.hostBinding, "pi/native-tools");
 	assert.deepEqual(plan.command, ["needle", "runtime", "manage"]);
 	assert.equal(plan.env.NEEDLE_BACKEND, "e24z/code-pruner-mlx");
 	assert.equal(plan.env.HAY_BACKEND, "code-pruner");
@@ -394,7 +401,14 @@ test("Pi ensureManager spawns from backend launch metadata", async () => {
 	assert.equal(ok, false);
 	assert.equal(spawned.length, 1);
 	assert.equal(spawned[0].command, "needle");
-	assert.deepEqual(spawned[0].args, ["runtime", "manage"]);
+	assert.deepEqual(spawned[0].args, [
+		"runtime",
+		"manage",
+		"--package",
+		"e24z/mlx-pi-soft-lamr",
+		"--host-binding",
+		"pi/native-tools",
+	]);
 	assert.equal(spawned[0].options.env.NEEDLE_BACKEND, "e24z/code-pruner-mlx");
 	assert.equal(spawned[0].options.env.HAY_BACKEND, "code-pruner");
 	assert.equal(spawned[0].options.env.NEEDLE_MLX_PROFILE, "local_adaptive");
@@ -805,4 +819,28 @@ test("Pi codeVersion matches the Python engine hash", async () => {
 	});
 	assert.equal(py.status, 0, py.stderr);
 	assert.equal(jsVersion, py.stdout.trim());
+});
+
+test("Pi codeVersion changes for backend-affecting files", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "needle-code-version-"));
+	const root = join(dir, "src", "needle");
+	await mkdir(join(root, "runtime"), { recursive: true });
+	await mkdir(join(root, "backends"), { recursive: true });
+	await mkdir(join(root, "registry_data", "backends", "e24z"), { recursive: true });
+	await mkdir(join(root, "registry_data", "packages", "e24z"), { recursive: true });
+	await writeFile(join(root, "runtime", "manager.py"), "runtime = 1\n");
+	await writeFile(join(root, "backends", "fake.py"), "backend = 1\n");
+	await writeFile(join(root, "registry.py"), "registry = 1\n");
+	const backendPath = join(root, "registry_data", "backends", "e24z", "backend.yaml");
+	await writeFile(join(root, "registry_data", "packages", "e24z", "pkg.yaml"), '{"id":"pkg"}\n');
+	await writeFile(backendPath, '{"id":"backend","launcher":{"command":["needle"]}}\n');
+
+	const before = await codeVersion(dir);
+	await writeFile(backendPath, '{"id":"backend","launcher":{"command":["needle","runtime"]}}\n');
+	const afterBackend = await codeVersion(dir);
+	await writeFile(join(root, "backends", "fake.py"), "backend = 2\n");
+	const afterSource = await codeVersion(dir);
+
+	assert.notEqual(before, afterBackend);
+	assert.notEqual(afterBackend, afterSource);
 });

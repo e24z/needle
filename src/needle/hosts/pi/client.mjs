@@ -2,7 +2,7 @@ import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
-import { basename, dirname, join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { promisify } from "node:util";
@@ -292,6 +292,7 @@ export async function runtimeLaunchPlan(repoRoot, options = {}) {
 	return {
 		packageId: pkg.id,
 		backendId: pkg.backend,
+		hostBinding: pkg.hostBinding,
 		launcher,
 		command: launcherCommand(launcher),
 		env: { ...launcher.env, ...pkg.runtimeProfileEnv },
@@ -589,7 +590,10 @@ export async function ensureManager(options = {}) {
 	const repoRoot = options.repoRoot;
 	if (!repoRoot) throw new Error("repoRoot is required to spawn the manager");
 	const plan = options.launchPlan || await runtimeLaunchPlan(repoRoot, { hostBinding: PI_HOST_BINDING });
-	const command = plan.command;
+	const command = managerCommandWithContext(plan.command, {
+		packageId: plan.packageId,
+		hostBinding: plan.hostBinding || PI_HOST_BINDING,
+	});
 	const env = {
 		...process.env,
 		...plan.env,
@@ -612,18 +616,28 @@ export async function ensureManager(options = {}) {
 }
 
 export async function codeVersion(repoRoot) {
-	const runtimeRoot = existsSync(join(repoRoot, "src", "needle", "runtime"))
-		? join(repoRoot, "src", "needle", "runtime")
-		: join(repoRoot, "needle", "runtime");
-	const files = (await walkPython(runtimeRoot)).sort((a, b) =>
-		relative(runtimeRoot, a).localeCompare(relative(runtimeRoot, b)),
-	);
+	const packageRoot = existsSync(join(repoRoot, "src", "needle"))
+		? join(repoRoot, "src", "needle")
+		: join(repoRoot, "needle");
+	const files = (await codeVersionFiles(packageRoot)).sort((a, b) => {
+		const left = relative(packageRoot, a);
+		const right = relative(packageRoot, b);
+		return left < right ? -1 : left > right ? 1 : 0;
+	});
 	const hash = createHash("sha1");
 	for (const file of files) {
-		hash.update(basename(file));
+		hash.update(relative(packageRoot, file));
+		hash.update("\0");
 		hash.update(await readFile(file));
 	}
 	return hash.digest("hex").slice(0, 12);
+}
+
+function managerCommandWithContext(command, { packageId = "", hostBinding = "" } = {}) {
+	const out = [...command];
+	if (packageId && !out.includes("--package")) out.push("--package", packageId);
+	if (hostBinding && !out.includes("--host-binding")) out.push("--host-binding", hostBinding);
+	return out;
 }
 
 export async function acquireLease(sessionId, version, options = {}) {
@@ -674,6 +688,59 @@ async function walkPython(root) {
 				try {
 					const s = await stat(path);
 					if (s.isFile() && entry.name.endsWith(".py")) out.push(path);
+				} catch {
+					// ignore broken links
+				}
+			}
+		}
+	}
+	await visit(root);
+	return out;
+}
+
+async function codeVersionFiles(packageRoot) {
+	const files = [];
+	for (const rel of [
+		"runtime",
+		"backends",
+	]) {
+		files.push(...await walkPython(join(packageRoot, rel)));
+	}
+	for (const rel of [
+		"registry.py",
+		join("registry_data", "packages"),
+		join("registry_data", "backends"),
+	]) {
+		const path = join(packageRoot, rel);
+		if (rel.endsWith(".py")) {
+			if (existsSync(path)) files.push(path);
+		} else {
+			files.push(...await walkFiles(path, [".yaml", ".json"]));
+		}
+	}
+	return files;
+}
+
+async function walkFiles(root, suffixes) {
+	const out = [];
+	async function visit(dir) {
+		let entries;
+		try {
+			entries = await readdir(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			if (entry.name === "__pycache__") continue;
+			const path = join(dir, entry.name);
+			if (entry.isDirectory()) {
+				await visit(path);
+			} else if (entry.isFile() && suffixes.some((suffix) => entry.name.endsWith(suffix))) {
+				out.push(path);
+			} else if (entry.isSymbolicLink()) {
+				try {
+					const s = await stat(path);
+					if (s.isFile() && suffixes.some((suffix) => entry.name.endsWith(suffix))) out.push(path);
 				} catch {
 					// ignore broken links
 				}

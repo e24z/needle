@@ -9,8 +9,8 @@ tool output -> Needle -> original text or shorter text
 
 The default 1.0 path is [Pi](https://github.com/mariozechner/pi). Needle extends
 Pi's native `read` and `bash` tools, so the workflow still feels like Pi. The
-portable path is an MCP server for Claude Code, Codex, and other MCP hosts. That
-server exposes one observation tool:
+portable path is an MCP server for Claude Code and other MCP hosts. Codex support
+is experimental MCP dogfood. That server exposes one observation tool:
 
 ```text
 needle_bash(command, context_focus_question?)
@@ -33,8 +33,8 @@ This is still a head-only install. The stable formula comes after the first real
 release tag and tarball SHA.
 
 Homebrew starts `needle setup` during install when it can run interactively. It
-will not change Pi, Claude Code, or Codex until you confirm the host setup. If
-Homebrew defers setup, run it yourself:
+will not change Pi, Claude Code, or experimental Codex MCP dogfood until you
+confirm the host setup. If Homebrew defers setup, run it yourself:
 
 ```bash
 needle setup
@@ -105,9 +105,9 @@ or paid API calls:
 npm run demo:pi-canary
 ```
 
-For Claude Code or Codex, use the MCP tool explicitly. A run only passed through
-Needle if the transcript shows a `needle_bash` call. Native Bash output is not
-rewritten behind the host's back.
+For Claude Code or experimental Codex MCP dogfood, use the MCP tool explicitly. A
+run only passed through Needle if the transcript shows a `needle_bash` call.
+Native Bash output is not rewritten behind the host's back.
 
 ## Packages in plain English
 
@@ -143,8 +143,8 @@ product path: Pi native `read` and `bash`, the local MLX backend, SWE-Pruner
 scoring, and Python AST repair.
 
 Use `e24z/mlx-pi-reference` when you want the Pi comparison path without AST
-repair. Use `e24z/mlx-mcp-bash-reference` for Claude Code, Codex, or another MCP
-host that can call `needle_bash`.
+repair. Use `e24z/mlx-mcp-bash-reference` for Claude Code, experimental Codex
+MCP dogfood, or another MCP host that can call `needle_bash`.
 
 Needle reports exact characters removed locally. Token and dollar savings are
 estimates unless you pair them with a benchmark run or provider billing data.
@@ -162,6 +162,10 @@ needle setup pi --uninstall
 needle setup claude-code --uninstall
 needle setup codex --uninstall
 ```
+
+Codex uninstall is part of the experimental MCP dogfood path; remove it the same
+way you added it, through the host MCP command that `needle setup codex --dry-run`
+prints.
 
 Remove Needle-owned local state:
 
@@ -190,6 +194,13 @@ The public tree is meant to stay small:
 Local implementation notes live next to the surface they explain, for example
 `src/needle/README.md`, `src/needle/hosts/pi/README.md`,
 `src/needle/hosts/mcp/README.md`, and `packaging/homebrew/README.md`.
+Root-level `docs/`, `tools/`, and `reference/` are intentionally source-external
+and ignored here; use them for private notes or local spikes, not release
+documentation. Tracked probes belong under `tests/probes/`.
+
+The installable product is `needle`. Legacy `pruner` imports or entrypoints are
+not promised on this branch. `HAY_*` environment variables remain compatibility
+aliases for early installs, while public package manifests use `NEEDLE_*`.
 
 ## Developer commands
 
