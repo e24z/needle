@@ -8,14 +8,14 @@ from __future__ import annotations
 
 import os
 
-os.environ["HAY_NO_EVENTS"] = "1"  # compatibility alias; don't write the real local event log
+os.environ["HAY_NO_EVENTS"] = "1"  # legacy compatibility alias; don't write the real local event log
 
 import sys  # noqa: E402
 import tempfile  # noqa: E402
 import threading  # noqa: E402
 from pathlib import Path  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from needle.runtime import client  # noqa: E402
 from needle.runtime.backends import FakePruner  # noqa: E402

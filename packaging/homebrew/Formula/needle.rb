@@ -211,12 +211,20 @@ class Needle < Formula
 
   def caveats
     <<~EOS
-      Needle is currently distributed from this tap as a pre-release HEAD formula.
+      Needle is currently distributed from this tap as a pre-release HEAD formula
+      tracking main.
 
       Install with:
         brew install --HEAD e24z/tap/needle
 
       Needle setup starts during install when Homebrew can run it interactively.
+      This pre-release formula installs Needle's base CLI, setup, and MCP
+      dependencies. Full local MLX pruning still needs backend dependencies and
+      model files; use the developer-preview backend extra until that path is
+      packaged.
+      Codex support is experimental MCP dogfood.
+      Feature branches are not published through this formula; use a source/dev
+      install for branch validation until the branch is merged or released.
 
       If setup was deferred, resume with:
         needle setup
@@ -224,8 +232,10 @@ class Needle < Formula
       Expert host setup commands:
         needle setup pi
         needle setup claude-code
+        needle setup codex
 
-      Needle will not change Pi or Claude Code until you confirm a host install.
+      Needle will not change Pi, Claude Code, or experimental Codex MCP dogfood
+      until you confirm a host install.
     EOS
   end
 
@@ -234,6 +244,7 @@ class Needle < Formula
     assert_match "dry run: no changes made", shell_output("#{bin}/needle setup --dry-run")
     assert_match "Homebrew triggered setup", shell_output("NEEDLE_HOME=#{testpath}/needle-home #{bin}/needle setup --from-homebrew")
     assert_match "dry run: no changes made", shell_output("#{bin}/needle setup pi --dry-run")
+    assert_match "dry run: no changes made", shell_output("#{bin}/needle setup codex --dry-run")
     assert_match "- needle", shell_output("NEEDLE_MANAGER_SOCKET=#{testpath}/missing.sock #{bin}/needle statusline claude-code --plain")
   end
 end

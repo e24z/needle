@@ -5,7 +5,10 @@ This directory is the source-repo copy of the Homebrew packaging recipe.
 The actual public tap is the separate `e24z/homebrew-tap` repository. Copy
 `Formula/needle.rb` there whenever the formula changes.
 
-Current pre-release install:
+The formula's `head` intentionally tracks `main` in `e24z/needle`. Do not retarget
+it to feature branches.
+
+Current pre-release install from the public tap/main path:
 
 ```bash
 brew install --HEAD e24z/tap/needle
@@ -22,9 +25,26 @@ with:
 needle setup
 ```
 
-Before the first release tag, smoke the development branch by copying the
-formula into a throwaway local tap. Homebrew 6 rejects formula files that are not
-inside a tap.
+The current formula packages the base CLI, setup flow, MCP dependencies, and
+canaries. It does not yet package the full local MLX backend dependency stack or
+download model files. Keep that limitation visible in caveats until the backend
+extra has a clean release path.
+
+Feature branches, including `perf/mlx-batched-pruning`, should use a source/dev
+install until their changes are merged to `main` or cut into a release:
+
+```bash
+uv tool install --editable .
+needle setup
+```
+
+For real local MLX pruning from a branch, use the developer-preview backend extra
+and model files from the source checkout; the Homebrew formula only covers the
+base CLI/setup/MCP path today.
+
+After branch changes are merged to `main` and the tap formula is updated, smoke
+the Homebrew path by copying the formula into a throwaway local tap. Homebrew 6
+rejects formula files that are not inside a tap.
 
 ```bash
 brew tap-new --no-git e24z/needle-local

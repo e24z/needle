@@ -1,12 +1,10 @@
 """Needle CLI package management.
 
-Run: PYTHONPATH=. python3 tests/test_cli.py
+Run: PYTHONPATH=src python3 tests/test_cli.py
 """
 
 from __future__ import annotations
 
-from contextlib import redirect_stderr, redirect_stdout
-from io import StringIO
 import json
 import os
 import subprocess
@@ -15,13 +13,10 @@ import tempfile
 import tomllib
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from pruner.cli import main as pruner_main  # noqa: E402
-
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 ROOT = Path(__file__).resolve().parent.parent
-REGISTRY_ROOT = ROOT / "needle" / "registry_data"
+REGISTRY_ROOT = ROOT / "src" / "needle" / "registry_data"
 
 
 def _run(args: list[str]) -> tuple[int, str, str]:
@@ -131,6 +126,10 @@ def test_package_cli_lists_and_selects_packages() -> None:
             assert "uses backend: e24z/code-pruner-mlx" in out
             assert "runtime launcher: needle-cli" in out
             assert "runtime command: needle runtime manage" in out
+            assert "field audit:" in out
+            assert "FIELD-AUDIT.md" in out
+            assert "runtime_profile.env: applied to the resident manager process" in out
+            assert "http_pruner: not advertised as a usable runtime alternative" in out
             assert "package graph: ok" in out
             assert "backend requirements: apple_silicon, mlx" in out
             assert "backend readiness:" in out
@@ -237,6 +236,7 @@ def test_uninstall_dry_run_and_yes_use_needle_owned_paths() -> None:
             assert "removed Needle-owned local state" in out
             assert "needle setup pi --uninstall" in out
             assert "needle setup claude-code --uninstall" in out
+            assert "Codex experimental MCP dogfood" in out
             assert "brew uninstall needle" in out
             assert "pipx uninstall needle" in out
             assert "uv tool uninstall needle" in out
@@ -284,14 +284,17 @@ def test_setup_root_dry_run_lists_hosts_without_mutating() -> None:
     assert "Needle setup" in out
     assert "Pi native adapter" in out
     assert "Claude Code MCP adapter" in out
+    assert "experimental Codex MCP dogfood adapter" in out
     assert "package: e24z/mlx-pi-soft-lamr" in out
     assert "setup:   needle setup pi" in out
     assert "setup:   needle setup claude-code" in out
+    assert "setup:   needle setup codex" in out
     assert "native:  pi install" in out
     assert "native:  claude mcp add --transport stdio --scope local needle-bash -- needle mcp serve" in out
+    assert "native:  codex mcp add needle-bash -- needle mcp serve" in out
     assert "needle model dir" in out
     assert "needle model download" in out
-    assert "Needle will not change Pi or Claude Code" in out
+    assert "Needle will not change Pi, Claude Code, or experimental Codex MCP dogfood" in out
     assert "dry run: no changes made" in out
 
 
@@ -311,6 +314,7 @@ def test_setup_homebrew_entrypoint_defers_in_noninteractive_shell() -> None:
             assert data["resume"] == "needle setup"
             assert data["hosts"]["pi"]["setup"] == "needle setup pi"
             assert data["hosts"]["claude-code"]["setup"] == "needle setup claude-code"
+            assert data["hosts"]["codex"]["setup"] == "needle setup codex"
         finally:
             if old_home is None:
                 os.environ.pop("NEEDLE_HOME", None)
@@ -332,6 +336,9 @@ def test_setup_claude_code_dry_run_prints_native_mcp_setup() -> None:
     assert "package: e24z/mlx-mcp-bash-reference" in out
     assert "host binding: mcp/bash" in out
     assert "server command: needle mcp serve" in out
+    assert "runtime command: needle runtime manage --host-binding mcp/bash" in out
+    assert "diagnostics: needle status --events 20" in out
+    assert "MCP installs the tool server; start the Needle runtime before expecting pruning." in out
     assert "Claude command: claude mcp add --transport stdio --scope local needle-bash -- needle mcp serve" in out
     assert '"needle-bash"' in out
     assert "dry run: no changes made" in out
@@ -340,6 +347,24 @@ def test_setup_claude_code_dry_run_prints_native_mcp_setup() -> None:
     assert code == 0, err
     assert "Claude scope: project" in out
     assert "Project .mcp.json shape" in out
+
+
+def test_setup_codex_dry_run_prints_native_mcp_setup() -> None:
+    code, out, err = _run(["setup", "codex", "--dry-run"])
+    assert code == 0, err
+    assert "Needle experimental Codex MCP dogfood setup" in out
+    assert "package: e24z/mlx-mcp-bash-reference" in out
+    assert "host binding: mcp/bash" in out
+    assert "server command: needle mcp serve" in out
+    assert "runtime command: needle runtime manage --host-binding mcp/bash" in out
+    assert "diagnostics: needle status --events 20" in out
+    assert "MCP installs the tool server; start the Needle runtime before expecting pruning." in out
+    assert "Codex command: codex mcp add needle-bash -- needle mcp serve" in out
+    assert "Project .codex/config.toml shape" in out
+    assert "[mcp_servers.needle-bash]" in out
+    assert "Experimental Codex MCP dogfood contract:" in out
+    assert "Needle does not transparently rewrite Codex's built-in Bash output." in out
+    assert "dry run: no changes made" in out
 
 
 def test_setup_claude_code_rejects_unknown_scope() -> None:
@@ -370,6 +395,64 @@ def test_runtime_status_wrapper_is_available() -> None:
     assert "manager:" in out
 
 
+def test_runtime_manage_help_exposes_package_context_options() -> None:
+    code, out, err = _run(["runtime", "manage", "--help"])
+    assert code == 0, err
+    assert "--package" in out
+    assert "--host-binding" in out
+    assert "--raw" in out
+
+
+def test_runtime_manage_wrapper_forwards_package_context_without_starting_manager() -> None:
+    script = """
+import json
+
+from typer.testing import CliRunner
+
+import needle.cli as cli
+import needle.runtime.cli as runtime_cli
+
+seen = []
+
+def fake_main(argv):
+    seen.append(argv)
+    return 0
+
+runtime_cli.main = fake_main
+result = CliRunner().invoke(
+    cli.app,
+    [
+        "runtime",
+        "manage",
+        "--package",
+        "e24z/mlx-pi-soft-lamr",
+        "--host-binding",
+        "pi/native-tools",
+        "--raw",
+    ],
+)
+if result.exit_code != 0:
+    raise SystemExit(result.output)
+print(json.dumps(seen))
+"""
+    proc = subprocess.run(
+        ["uv", "run", "python", "-c", script],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+    assert json.loads(proc.stdout) == [[
+        "manage",
+        "--package",
+        "e24z/mlx-pi-soft-lamr",
+        "--host-binding",
+        "pi/native-tools",
+        "--raw",
+    ]]
+
+
 def test_stop_is_idempotent_when_runtime_is_down() -> None:
     with tempfile.TemporaryDirectory() as td:
         old_socket = os.environ.get("NEEDLE_MANAGER_SOCKET")
@@ -391,19 +474,6 @@ def test_stop_is_idempotent_when_runtime_is_down() -> None:
                 os.environ["NEEDLE_MANAGER_SOCKET"] = old_socket
 
 
-def test_pruner_cli_does_not_own_packages() -> None:
-    out = StringIO()
-    err = StringIO()
-    try:
-        with redirect_stdout(out), redirect_stderr(err):
-            pruner_main(["package", "list"])
-    except SystemExit as exc:
-        assert exc.code == 2
-    else:
-        raise AssertionError("pruner package list should not exist")
-    assert "invalid choice" in err.getvalue()
-
-
 def main() -> int:
     test_typer_help_groups_public_commands()
     test_cli_version_and_usage_errors_are_human_readable()
@@ -419,11 +489,13 @@ def main() -> int:
     test_setup_root_rejects_unknown_host()
     test_setup_pi_dry_run_uses_packaged_adapter()
     test_setup_claude_code_dry_run_prints_native_mcp_setup()
+    test_setup_codex_dry_run_prints_native_mcp_setup()
     test_setup_claude_code_rejects_unknown_scope()
     test_claude_code_statusline_plain_reports_runtime_health()
     test_runtime_status_wrapper_is_available()
+    test_runtime_manage_help_exposes_package_context_options()
+    test_runtime_manage_wrapper_forwards_package_context_without_starting_manager()
     test_stop_is_idempotent_when_runtime_is_down()
-    test_pruner_cli_does_not_own_packages()
     print("test_cli OK")
     return 0
 

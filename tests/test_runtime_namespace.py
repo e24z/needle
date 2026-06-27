@@ -1,6 +1,6 @@
-"""Needle runtime namespace migration surface.
+"""Needle runtime namespace surface.
 
-Run: PYTHONPATH=. python3 tests/test_runtime_namespace.py
+Run: PYTHONPATH=src python3 tests/test_runtime_namespace.py
 """
 
 from __future__ import annotations
@@ -10,18 +10,17 @@ from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from needle.runtime import naming  # noqa: E402
 from needle.runtime.backends import FakePruner  # noqa: E402
 from needle.runtime.manager import Manager  # noqa: E402
 from needle.runtime.protocol import decode, encode  # noqa: E402
 from needle.runtime.__main__ import main as runtime_main  # noqa: E402
-from pruner import naming as legacy_naming  # noqa: E402
 
 
 def main() -> int:
-    assert naming.code_version() == legacy_naming.code_version()
+    assert naming.code_version()
     assert decode(encode({"op": "stats"})) == {"op": "stats"}
 
     manager = Manager(lambda: FakePruner(), heavy=False)

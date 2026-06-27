@@ -1,14 +1,14 @@
 """Manager: lazy model lifecycle, leases, idle eviction, first-writer-wins bind.
 
 Fake spy backends + tiny timeouts -- no real model, no Claude.
-Run: PYTHONPATH=. python3 tests/test_manager.py
+Run: PYTHONPATH=src python3 tests/test_manager.py
 """
 
 from __future__ import annotations
 
 import os
 
-os.environ["HAY_NO_EVENTS"] = "1"  # compatibility alias; don't write the real local event log
+os.environ["HAY_NO_EVENTS"] = "1"  # legacy compatibility alias; don't write the real local event log
 
 import socket  # noqa: E402
 import sys  # noqa: E402
@@ -17,9 +17,10 @@ import threading  # noqa: E402
 import time  # noqa: E402
 from pathlib import Path  # noqa: E402
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # runnable bare, like its siblings
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))  # runnable bare, like its siblings
 
-from needle.runtime.manager import serve_manager  # noqa: E402
+from needle.runtime.manager import MANAGER_CONFIG_ENVS, Manager, _env, serve_manager  # noqa: E402
+from needle.runtime import naming  # noqa: E402
 from needle.runtime.protocol import decode, encode  # noqa: E402
 
 
@@ -34,6 +35,27 @@ class SpyBackend:
 
     def evict(self) -> None:
         self.evicted += 1
+
+
+class StatsBackend:
+    name = "stats"
+
+    def __init__(self) -> None:
+        self.last_stats: dict[str, object] = {}
+
+    def prune(self, *, text: str, query: str) -> str:
+        self.last_stats = {
+            "chunks": 3,
+            "batches": 2,
+            "batch_sizes": [2, 1],
+            "max_length": 1024,
+            "padding_waste_ratio": 0.125,
+            "truncated_code_tokens": 7,
+            "forward_eval_ms": 11.5,
+            "total_ms": 15.25,
+            "huge_internal": {"token_scores": [0.1, 0.2]},
+        }
+        return text[:4]
 
 
 def _call(sock_path: Path, req: dict) -> dict:
@@ -57,7 +79,102 @@ def _wait_until(pred, timeout: float = 2.0, interval: float = 0.02) -> bool:
     return False
 
 
+def test_manager_config_env_prefers_needle_names() -> None:
+    env_names = [name for names in MANAGER_CONFIG_ENVS.values() for name in names]
+    old = {name: os.environ.get(name) for name in env_names}
+    try:
+        for idx, names in enumerate(MANAGER_CONFIG_ENVS.values(), start=1):
+            needle, legacy = names
+            os.environ[legacy] = f"legacy-{idx}"
+            os.environ[needle] = f"needle-{idx}"
+            assert _env(names, "default") == f"needle-{idx}"
+            os.environ.pop(needle)
+            assert _env(names, "default") == f"legacy-{idx}"
+    finally:
+        for name, value in old.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def test_manager_surfaces_bounded_backend_stats() -> None:
+    seen: list[tuple[str, dict[str, object]]] = []
+    manager = Manager(
+        lambda: StatsBackend(),
+        emit=lambda event, **fields: seen.append((event, fields)),
+    )
+
+    resp = manager.handle({"op": "prune", "text": "abcdefghij", "query": "q"})
+    assert resp["ok"], resp
+    assert resp["stats"]["chunks"] == 3, resp
+    assert resp["stats"]["batches"] == 2, resp
+    assert resp["stats"]["batch_sizes"] == [2, 1], resp
+    assert resp["stats"]["padding_waste_ratio"] == 0.125, resp
+    assert "huge_internal" not in resp["stats"], resp
+
+    prune_events = [(name, fields) for name, fields in seen if name == "prune"]
+    assert len(prune_events) == 1, seen
+    event_fields = prune_events[0][1]
+    assert event_fields["backend"] == "stats", event_fields
+    assert event_fields["chunks"] == 3, event_fields
+    assert event_fields["batch_sizes"] == [2, 1], event_fields
+    assert event_fields["saved_chars"] == 6, event_fields
+
+    stats = manager.handle({"op": "stats"})
+    assert stats["last_prune"]["backend"] == "stats", stats
+    assert stats["last_prune"]["chunks"] == 3, stats
+
+
+def test_manager_stats_expose_runtime_identity() -> None:
+    manager = Manager(
+        lambda: StatsBackend(),
+        runtime_identity={
+            "package_id": "e24z/mlx-pi-soft-lamr",
+            "host_binding": "pi/native-tools",
+            "runtime_profile": "local_mlx_adaptive",
+            "backend_id": "e24z/code-pruner-mlx",
+        },
+    )
+
+    stats = manager.handle({"op": "stats"})
+
+    assert stats["package_id"] == "e24z/mlx-pi-soft-lamr", stats
+    assert stats["host_binding"] == "pi/native-tools", stats
+    assert stats["runtime_profile"] == "local_mlx_adaptive", stats
+    assert stats["backend_id"] == "e24z/code-pruner-mlx", stats
+
+
+def test_code_version_changes_for_backend_affecting_files() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / "needle"
+        (root / "runtime").mkdir(parents=True)
+        (root / "backends").mkdir()
+        (root / "registry_data/backends/e24z").mkdir(parents=True)
+        (root / "registry_data/packages/e24z").mkdir(parents=True)
+        (root / "runtime/manager.py").write_text("runtime = 1\n", encoding="utf-8")
+        (root / "backends/fake.py").write_text("backend = 1\n", encoding="utf-8")
+        (root / "registry.py").write_text("registry = 1\n", encoding="utf-8")
+        package_path = root / "registry_data/packages/e24z/pkg.yaml"
+        backend_path = root / "registry_data/backends/e24z/backend.yaml"
+        package_path.write_text('{"id":"pkg"}\n', encoding="utf-8")
+        backend_path.write_text('{"id":"backend","launcher":{"command":["needle"]}}\n', encoding="utf-8")
+
+        before = naming.code_version(root)
+        backend_path.write_text('{"id":"backend","launcher":{"command":["needle","runtime"]}}\n', encoding="utf-8")
+        after_backend = naming.code_version(root)
+        (root / "backends/fake.py").write_text("backend = 2\n", encoding="utf-8")
+        after_source = naming.code_version(root)
+
+    assert before != after_backend
+    assert after_backend != after_source
+
+
 def main() -> int:
+    test_manager_config_env_prefers_needle_names()
+    test_manager_surfaces_bounded_backend_stats()
+    test_manager_stats_expose_runtime_identity()
+    test_code_version_changes_for_backend_affecting_files()
     tmp = Path(tempfile.mkdtemp()) / "manager.sock"
     builds: list[SpyBackend] = []
 

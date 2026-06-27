@@ -2,7 +2,7 @@
 the machine can't take it, evicts under critical pressure, and caps huge inputs.
 
 Drives Manager.handle/maintain directly with an injected memstat -- no sockets,
-no real model. Run: PYTHONPATH=. python3 tests/test_memory.py
+no real model. Run: PYTHONPATH=src python3 tests/test_memory.py
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from needle.runtime import sysmem  # noqa: E402
 from needle.runtime.manager import Manager  # noqa: E402

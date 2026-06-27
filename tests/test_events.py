@@ -2,7 +2,7 @@
 events the status surface relies on. The manager test injects a capturing emit,
 so it never touches disk.
 
-Run: PYTHONPATH=. python3 tests/test_events.py
+Run: PYTHONPATH=src python3 tests/test_events.py
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from needle.runtime import events  # noqa: E402
 from needle.runtime.manager import Manager  # noqa: E402
@@ -47,7 +47,7 @@ def test_legacy_event_env_aliases_still_work() -> None:
         os.environ["HAY_HOME"] = d
         os.environ["HAY_NO_EVENTS"] = "1"
         events.emit("should_not_write")
-        assert events.tail(10) == [], "HAY_NO_EVENTS=1 must remain a compatibility alias"
+        assert events.tail(10) == [], "HAY_NO_EVENTS=1 must remain a legacy compatibility alias"
     os.environ.pop("HAY_NO_EVENTS", None)
     os.environ.pop("HAY_HOME", None)
 

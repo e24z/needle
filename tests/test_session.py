@@ -5,7 +5,7 @@ Fake backend, temp socket -- no real model, no Claude. The detached-spawn path i
 exercised via a directly-managed subprocess (so we can tear it down); the lease
 loop is exercised against an in-thread manager. Run:
 
-    PYTHONPATH=. python3 tests/test_session.py
+    PYTHONPATH=src python3 tests/test_session.py
 """
 
 from __future__ import annotations
@@ -19,9 +19,9 @@ import threading
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-os.environ["HAY_NO_EVENTS"] = "1"  # compatibility alias; don't write the real local event log
+os.environ["HAY_NO_EVENTS"] = "1"  # legacy compatibility alias; don't write the real local event log
 
 from needle.runtime import client, naming  # noqa: E402
 from needle.runtime import session as session_mod  # noqa: E402
@@ -29,7 +29,7 @@ from needle.runtime.backends import FakePruner  # noqa: E402
 from needle.runtime.manager import serve_manager  # noqa: E402
 from needle.runtime.session import run_session  # noqa: E402
 
-_ROOT = str(Path(__file__).resolve().parent.parent)
+_ROOT = str(Path(__file__).resolve().parent.parent / "src")
 
 
 def _wait(pred, timeout: float = 8.0, interval: float = 0.05) -> bool:
@@ -46,11 +46,11 @@ def test_manage_subprocess_serves(tmp_sock: Path) -> None:
         os.environ,
         HAY_MANAGER_SOCKET=str(tmp_sock),
         HAY_BACKEND="fake",
-        HAY_NO_EVENTS="1",  # don't write the real local event log from tests
+        HAY_NO_EVENTS="1",  # legacy compatibility alias; don't write the real local event log
         PYTHONPATH=_ROOT,
     )
     proc = subprocess.Popen(
-        [sys.executable, "-m", "needle.runtime", "manage"],
+        [sys.executable, "-m", "needle.runtime", "manage", "--raw"],
         cwd=_ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     try:
@@ -96,9 +96,21 @@ def test_session_lease_loop(tmp_sock: Path) -> None:
     os.environ.pop("HAY_MANAGER_SOCKET", None)
 
 
+def test_session_manager_spawn_command_carries_package_context() -> None:
+    argv = session_mod._manager_argv(
+        package_id="e24z/mlx-mcp-bash-reference",
+        host_binding="mcp/bash",
+    )
+    assert argv[:3] == [sys.executable, "-m", "needle.runtime"]
+    assert "--package" in argv
+    assert "e24z/mlx-mcp-bash-reference" in argv
+    assert "--host-binding" in argv
+    assert "mcp/bash" in argv
+
+
 def test_session_failure_is_visible() -> None:
     old_ensure = session_mod._ensure_manager
-    session_mod._ensure_manager = lambda timeout=10.0: False
+    session_mod._ensure_manager = lambda timeout=10.0, **_kwargs: False
     err = StringIO()
     try:
         with redirect_stderr(err):
@@ -132,6 +144,7 @@ if __name__ == "__main__":
 
     test_manage_subprocess_serves(Path(tempfile.mkdtemp()) / "m1.sock")
     test_session_lease_loop(Path(tempfile.mkdtemp()) / "m2.sock")
+    test_session_manager_spawn_command_carries_package_context()
     test_session_failure_is_visible()
     test_prune_without_manager_has_recovery_text(Path(tempfile.mkdtemp()) / "m3.sock")
     print("test_session OK")

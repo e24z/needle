@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cp, mkdtemp, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -18,7 +18,7 @@ import {
 	socketIsLive,
 	sourceIdentity,
 	tailEvents,
-} from "../needle/hosts/pi/client.mjs";
+} from "../src/needle/hosts/pi/client.mjs";
 import {
 	buildBashResultPatch,
 	buildPackageStatus,
@@ -31,7 +31,7 @@ import {
 	installNeedlePiExtension,
 	renderPackageStatus,
 	renderOperatorStatus,
-} from "../needle/hosts/pi/extension.js";
+} from "../src/needle/hosts/pi/extension.js";
 
 test("Pi client speaks Needle newline JSON protocol", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "hay-pi-"));
@@ -250,12 +250,16 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 			version: "abcdef123456789",
 			pressure: 2,
 			available_mb: 2048,
+			package_id: "e24z/mlx-pi-reference",
+			host_binding: "pi/native-tools",
+			runtime_profile: "local_mlx_adaptive",
+			backend_id: "e24z/code-pruner-mlx",
 		},
 		[{ ts: 1710000000, event: "passthrough", reason: "low-memory", chars: 1200 }],
 		{ calls: 3, savedChars: 4096, lastTool: "grep" },
 		{
 			appHome: "/tmp/hay",
-			extensionPath: "/tmp/hay/needle/hosts/pi/extension.js",
+			extensionPath: "/tmp/hay/src/needle/hosts/pi/extension.js",
 			socketPath: "/tmp/hay/manager.sock",
 			source: {
 				repoRoot: "/tmp/hay",
@@ -272,6 +276,7 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 						kind: "needle-cli",
 						command: ["needle", "runtime", "manage"],
 					},
+					runtimeProfile: "local_mlx_adaptive",
 					hostBinding: "pi/native-tools",
 					packageCard: "package-cards/e24z/mlx-pi-reference",
 					claimCard: "claims/mlx-pi-reference",
@@ -286,13 +291,16 @@ test("Pi operator status renders loading, degraded, memory, and local events", a
 	assert.match(rendered, /DEGRADED \(fake \(code-pruner unavailable: no mlx\)\)/);
 	assert.match(rendered, /sessions 2  \|  version abcdef123456/);
 	assert.match(rendered, /pressure warning  \|  free 2.0 GB/);
+	assert.match(rendered, /package e24z\/mlx-pi-reference  \|  host pi\/native-tools/);
+	assert.match(rendered, /profile local_mlx_adaptive  \|  backend-id e24z\/code-pruner-mlx/);
 	assert.match(rendered, /this Pi session 4.1k chars trimmed  \|  3 prunes  \|  last tool grep/);
-	assert.match(rendered, /extension \/tmp\/hay\/needle\/hosts\/pi\/extension\.js/);
+	assert.match(rendered, /extension \/tmp\/hay\/src\/needle\/hosts\/pi\/extension\.js/);
 	assert.match(rendered, /model dir \/tmp\/hay\/models/);
 	assert.match(rendered, /active package e24z\/mlx-pi-reference/);
 	assert.match(rendered, /capability swe-pruner\/reference/);
 	assert.match(rendered, /backend e24z\/code-pruner-mlx/);
 	assert.match(rendered, /backend launch needle runtime manage/);
+	assert.match(rendered, /runtime profile local_mlx_adaptive/);
 	assert.match(rendered, /host binding pi\/native-tools/);
 	assert.match(rendered, /compute local_mlx \| privacy local_only/);
 	assert.match(rendered, /prompt bundle pi\/context-focus-question@0\.1/);
@@ -327,6 +335,9 @@ test("Pi source identity reads package, pyproject, git state, and active Needle 
 		assert.equal(identity.activePackage.backendRuntime, "local_manager");
 		assert.equal(identity.activePackage.backendLauncher.kind, "needle-cli");
 		assert.deepEqual(identity.activePackage.backendLauncher.command, ["needle", "runtime", "manage"]);
+		assert.equal(identity.activePackage.runtimeProfile, "local_mlx_adaptive");
+		assert.equal(identity.activePackage.runtimeProfileEnv.NEEDLE_MLX_PROFILE, "local_adaptive");
+		assert.equal(identity.activePackage.runtimeProfileEnv.NEEDLE_MLX_MAX_BATCH_SIZE, "1");
 		assert.equal(identity.activePackage.hostBinding, "pi/native-tools");
 		assert.equal(identity.activePackage.claimCard, "claims/mlx-pi-soft-lamr");
 		assert.equal(typeof identity.git.available, "boolean");
@@ -365,9 +376,13 @@ test("Pi resolves backend launch plan from the active package graph", async () =
 	const plan = await runtimeLaunchPlan(process.cwd(), { hostBinding: "pi/native-tools" });
 	assert.equal(plan.packageId, "e24z/mlx-pi-soft-lamr");
 	assert.equal(plan.backendId, "e24z/code-pruner-mlx");
+	assert.equal(plan.hostBinding, "pi/native-tools");
 	assert.deepEqual(plan.command, ["needle", "runtime", "manage"]);
 	assert.equal(plan.env.NEEDLE_BACKEND, "e24z/code-pruner-mlx");
 	assert.equal(plan.env.HAY_BACKEND, "code-pruner");
+	assert.equal(plan.runtimeProfile, "local_mlx_adaptive");
+	assert.equal(plan.env.NEEDLE_MLX_PROFILE, "local_adaptive");
+	assert.equal(plan.env.NEEDLE_MLX_MAX_BATCH_SIZE, "1");
 });
 
 test("Pi ensureManager spawns from backend launch metadata", async () => {
@@ -386,15 +401,24 @@ test("Pi ensureManager spawns from backend launch metadata", async () => {
 	assert.equal(ok, false);
 	assert.equal(spawned.length, 1);
 	assert.equal(spawned[0].command, "needle");
-	assert.deepEqual(spawned[0].args, ["runtime", "manage"]);
+	assert.deepEqual(spawned[0].args, [
+		"runtime",
+		"manage",
+		"--package",
+		"e24z/mlx-pi-soft-lamr",
+		"--host-binding",
+		"pi/native-tools",
+	]);
 	assert.equal(spawned[0].options.env.NEEDLE_BACKEND, "e24z/code-pruner-mlx");
 	assert.equal(spawned[0].options.env.HAY_BACKEND, "code-pruner");
+	assert.equal(spawned[0].options.env.NEEDLE_MLX_PROFILE, "local_adaptive");
+	assert.equal(spawned[0].options.env.NEEDLE_MLX_MAX_BATCH_SIZE, "1");
 });
 
 test("Pi package identity can load from an external registry root", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "hay-registry-"));
 	for (const name of ["packages", "capabilities", "backends", "bindings", "claims", "package-cards", "protocols"]) {
-		await cp(join(process.cwd(), "needle", "registry_data", name), join(dir, name), { recursive: true });
+		await cp(join(process.cwd(), "src", "needle", "registry_data", name), join(dir, name), { recursive: true });
 	}
 
 	const oldRoot = process.env.HAY_REGISTRY_ROOT;
@@ -410,6 +434,7 @@ test("Pi package identity can load from an external registry root", async () => 
 		assert.equal(identity.available, true);
 		assert.equal(identity.id, "e24z/mlx-pi-soft-lamr");
 		assert.equal(identity.backend, "e24z/code-pruner-mlx");
+		assert.equal(identity.runtimeProfile, "local_mlx_adaptive");
 	} finally {
 		if (oldRoot === undefined) {
 			delete process.env.HAY_REGISTRY_ROOT;
@@ -430,6 +455,77 @@ test("Pi package identity can load from an external registry root", async () => 
 			delete process.env.NEEDLE_PACKAGE;
 		} else {
 			process.env.NEEDLE_PACKAGE = oldNeedlePackage;
+		}
+	}
+});
+
+test("Pi package identity rejects invalid runtime profile env", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "hay-registry-invalid-profile-"));
+	for (const name of ["packages", "capabilities", "backends", "bindings", "claims", "package-cards", "protocols"]) {
+		await cp(join(process.cwd(), "src", "needle", "registry_data", name), join(dir, name), { recursive: true });
+	}
+	const packagePath = join(dir, "packages", "e24z", "mlx-pi-soft-lamr.yaml");
+	const originalPackage = JSON.parse(await readFile(packagePath, "utf8"));
+	const cases = [
+		[{ NEEDLE_MLX_MAX_BATCH_SIZE: "0" }, /NEEDLE_MLX_MAX_BATCH_SIZE.*positive integer/],
+		[{ NEEDLE_THRESHOLD: "   " }, /NEEDLE_THRESHOLD.*must be a number/],
+		[{ NEEDLE_THRESHOLD: "nan" }, /NEEDLE_THRESHOLD.*finite number/],
+		[{ NEEDLE_MLX_MAX_LENGTH_RATIO: "inf" }, /NEEDLE_MLX_MAX_LENGTH_RATIO.*finite number/],
+	];
+
+	const oldRoot = process.env.NEEDLE_REGISTRY_ROOT;
+	const oldHayRoot = process.env.HAY_REGISTRY_ROOT;
+	const oldConfig = process.env.NEEDLE_CONFIG;
+	const oldHayConfig = process.env.HAY_CONFIG;
+	const oldPackage = process.env.NEEDLE_PACKAGE;
+	const oldHayPackage = process.env.HAY_PACKAGE;
+	try {
+		process.env.NEEDLE_REGISTRY_ROOT = dir;
+		process.env.NEEDLE_CONFIG = join(dir, "missing-config.json");
+		delete process.env.HAY_REGISTRY_ROOT;
+		delete process.env.HAY_CONFIG;
+		delete process.env.NEEDLE_PACKAGE;
+		delete process.env.HAY_PACKAGE;
+
+		for (const [env, expected] of cases) {
+			const pkg = structuredClone(originalPackage);
+			pkg.runtime_profile.env = env;
+			await writeFile(packagePath, JSON.stringify(pkg, null, 2));
+
+			const identity = await packageIdentity(process.cwd(), "e24z/mlx-pi-soft-lamr");
+			assert.equal(identity.available, false);
+			assert.match(identity.reason, expected);
+		}
+	} finally {
+		if (oldRoot === undefined) {
+			delete process.env.NEEDLE_REGISTRY_ROOT;
+		} else {
+			process.env.NEEDLE_REGISTRY_ROOT = oldRoot;
+		}
+		if (oldHayRoot === undefined) {
+			delete process.env.HAY_REGISTRY_ROOT;
+		} else {
+			process.env.HAY_REGISTRY_ROOT = oldHayRoot;
+		}
+		if (oldConfig === undefined) {
+			delete process.env.NEEDLE_CONFIG;
+		} else {
+			process.env.NEEDLE_CONFIG = oldConfig;
+		}
+		if (oldHayConfig === undefined) {
+			delete process.env.HAY_CONFIG;
+		} else {
+			process.env.HAY_CONFIG = oldHayConfig;
+		}
+		if (oldPackage === undefined) {
+			delete process.env.NEEDLE_PACKAGE;
+		} else {
+			process.env.NEEDLE_PACKAGE = oldPackage;
+		}
+		if (oldHayPackage === undefined) {
+			delete process.env.HAY_PACKAGE;
+		} else {
+			process.env.HAY_PACKAGE = oldHayPackage;
 		}
 	}
 });
@@ -499,6 +595,10 @@ test("Pi package inventory lists reference and Soft-LaMR packages", async () => 
 			packages.find((pkg) => pkg.id === "e24z/mlx-pi-soft-lamr").capabilities,
 			["e24z/soft-lamr"],
 		);
+		assert.equal(
+			packages.find((pkg) => pkg.id === "e24z/mlx-pi-soft-lamr").runtimeProfile,
+			"local_mlx_adaptive",
+		);
 	} finally {
 		if (oldPackage === undefined) {
 			delete process.env.HAY_PACKAGE;
@@ -529,6 +629,7 @@ test("Pi package status explains package selection", async () => {
 			id: "e24z/mlx-pi-reference",
 			capabilities: ["swe-pruner/reference"],
 			backend: "e24z/code-pruner-mlx",
+			runtimeProfile: "local_mlx_adaptive",
 		},
 		{
 			available: true,
@@ -536,12 +637,14 @@ test("Pi package status explains package selection", async () => {
 			id: "e24z/mlx-pi-soft-lamr",
 			capabilities: ["e24z/soft-lamr"],
 			backend: "e24z/code-pruner-mlx",
+			runtimeProfile: "local_mlx_adaptive",
 		},
 	]);
 	assert.match(rendered, /\[active\] e24z\/mlx-pi-reference/);
 	assert.match(rendered, /\[ \] e24z\/mlx-pi-soft-lamr/);
 	assert.match(rendered, /no AST repair/);
 	assert.match(rendered, /python AST repair/);
+	assert.match(rendered, /runtime profile local_mlx_adaptive/);
 	assert.match(rendered, /needle packages:/);
 	assert.match(rendered, /needle package use <package-id>/);
 	assert.match(rendered, /NEEDLE_PACKAGE=<package-id> pi/);
@@ -553,7 +656,7 @@ test("Pi package status explains package selection", async () => {
 });
 
 test("Pi demo canary prints proof report", () => {
-	const result = spawnSync(process.execPath, ["needle/hosts/pi/demo-canary.mjs"], {
+	const result = spawnSync(process.execPath, ["src/needle/hosts/pi/demo-canary.mjs"], {
 		cwd: process.cwd(),
 		encoding: "utf8",
 	});
@@ -711,9 +814,33 @@ test("Pi codeVersion matches the Python engine hash", async () => {
 	const jsVersion = await codeVersion(process.cwd());
 	const py = spawnSync("python3", ["-c", "from needle.runtime.naming import code_version; print(code_version())"], {
 		cwd: process.cwd(),
-		env: { ...process.env, PYTHONPATH: "." },
+		env: { ...process.env, PYTHONPATH: "src" },
 		encoding: "utf8",
 	});
 	assert.equal(py.status, 0, py.stderr);
 	assert.equal(jsVersion, py.stdout.trim());
+});
+
+test("Pi codeVersion changes for backend-affecting files", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "needle-code-version-"));
+	const root = join(dir, "src", "needle");
+	await mkdir(join(root, "runtime"), { recursive: true });
+	await mkdir(join(root, "backends"), { recursive: true });
+	await mkdir(join(root, "registry_data", "backends", "e24z"), { recursive: true });
+	await mkdir(join(root, "registry_data", "packages", "e24z"), { recursive: true });
+	await writeFile(join(root, "runtime", "manager.py"), "runtime = 1\n");
+	await writeFile(join(root, "backends", "fake.py"), "backend = 1\n");
+	await writeFile(join(root, "registry.py"), "registry = 1\n");
+	const backendPath = join(root, "registry_data", "backends", "e24z", "backend.yaml");
+	await writeFile(join(root, "registry_data", "packages", "e24z", "pkg.yaml"), '{"id":"pkg"}\n');
+	await writeFile(backendPath, '{"id":"backend","launcher":{"command":["needle"]}}\n');
+
+	const before = await codeVersion(dir);
+	await writeFile(backendPath, '{"id":"backend","launcher":{"command":["needle","runtime"]}}\n');
+	const afterBackend = await codeVersion(dir);
+	await writeFile(join(root, "backends", "fake.py"), "backend = 2\n");
+	const afterSource = await codeVersion(dir);
+
+	assert.notEqual(before, afterBackend);
+	assert.notEqual(afterBackend, afterSource);
 });
