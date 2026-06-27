@@ -30,8 +30,8 @@ canaries. It does not yet package the full local MLX backend dependency stack or
 download model files. Keep that limitation visible in caveats until the backend
 extra has a clean release path.
 
-Feature branches, including `perf/mlx-batched-pruning`, should use a source/dev
-install until their changes are merged to `main` or cut into a release:
+Feature branches should use a source/dev install until their changes are merged
+to `main` or cut into a release:
 
 ```bash
 uv tool install --editable .
