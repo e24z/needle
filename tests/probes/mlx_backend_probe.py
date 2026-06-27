@@ -129,6 +129,12 @@ def _run_probe(args: argparse.Namespace) -> dict[str, object]:
 
     text = Path(args.file).read_text(encoding="utf-8") if args.file else _fixture(args.functions)
     backend = CodePrunerBackend(model_dir=args.model_dir or None)
+    serial: dict[str, object] | None = None
+    run_order = ["batched"]
+    if args.compare_serial and args.serial_first:
+        serial = _run_once(backend, text=text, query=args.query, batch_size=1)
+        run_order = ["serial", "batched"]
+
     batched = _run_once(
         backend,
         text=text,
@@ -142,9 +148,12 @@ def _run_probe(args: argparse.Namespace) -> dict[str, object]:
         "batched": batched,
     }
     if args.compare_serial:
-        serial = _run_once(backend, text=text, query=args.query, batch_size=1)
+        if serial is None:
+            serial = _run_once(backend, text=text, query=args.query, batch_size=1)
+            run_order = ["batched", "serial"]
         result["serial"] = serial
         result["comparison"] = {
+            "run_order": run_order,
             "same_output": serial["output_sha256"] == batched["output_sha256"],
             "serial_output_sha256": serial["output_sha256"],
             "batched_output_sha256": batched["output_sha256"],
@@ -164,6 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--batch-size", type=int, default=2, help="Batched run max batch size.")
     parser.add_argument("--max-batch-tokens", type=int, default=0, help="Set padded-token budget.")
     parser.add_argument("--compare-serial", action="store_true", help="Also run batch_size=1.")
+    parser.add_argument("--serial-first", action="store_true", help="When comparing, run serial before batched.")
     parser.add_argument("--no-profile-mlx", dest="profile_mlx", action="store_false")
     parser.add_argument("--repair", dest="no_repair", action="store_false", help="Allow AST repair.")
     parser.add_argument("--strict", action="store_true", help="Return non-zero on unavailable MLX/model.")
