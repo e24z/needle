@@ -395,6 +395,64 @@ def test_runtime_status_wrapper_is_available() -> None:
     assert "manager:" in out
 
 
+def test_runtime_manage_help_exposes_package_context_options() -> None:
+    code, out, err = _run(["runtime", "manage", "--help"])
+    assert code == 0, err
+    assert "--package" in out
+    assert "--host-binding" in out
+    assert "--raw" in out
+
+
+def test_runtime_manage_wrapper_forwards_package_context_without_starting_manager() -> None:
+    script = """
+import json
+
+from typer.testing import CliRunner
+
+import needle.cli as cli
+import needle.runtime.cli as runtime_cli
+
+seen = []
+
+def fake_main(argv):
+    seen.append(argv)
+    return 0
+
+runtime_cli.main = fake_main
+result = CliRunner().invoke(
+    cli.app,
+    [
+        "runtime",
+        "manage",
+        "--package",
+        "e24z/mlx-pi-soft-lamr",
+        "--host-binding",
+        "pi/native-tools",
+        "--raw",
+    ],
+)
+if result.exit_code != 0:
+    raise SystemExit(result.output)
+print(json.dumps(seen))
+"""
+    proc = subprocess.run(
+        ["uv", "run", "python", "-c", script],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+    assert json.loads(proc.stdout) == [[
+        "manage",
+        "--package",
+        "e24z/mlx-pi-soft-lamr",
+        "--host-binding",
+        "pi/native-tools",
+        "--raw",
+    ]]
+
+
 def test_stop_is_idempotent_when_runtime_is_down() -> None:
     with tempfile.TemporaryDirectory() as td:
         old_socket = os.environ.get("NEEDLE_MANAGER_SOCKET")
@@ -435,6 +493,8 @@ def main() -> int:
     test_setup_claude_code_rejects_unknown_scope()
     test_claude_code_statusline_plain_reports_runtime_health()
     test_runtime_status_wrapper_is_available()
+    test_runtime_manage_help_exposes_package_context_options()
+    test_runtime_manage_wrapper_forwards_package_context_without_starting_manager()
     test_stop_is_idempotent_when_runtime_is_down()
     print("test_cli OK")
     return 0
