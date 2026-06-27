@@ -8,7 +8,7 @@ import mlx.nn as nn
 import numpy as np
 from mlx_lm import load
 
-from ... import naming
+from ...runtime import naming
 from .batching import (
     BatchRetryFailed,
     score_batches_with_retry,

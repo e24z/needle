@@ -50,6 +50,8 @@ STAT_KEYS = (
     "batch_total_ms",
     "total_ms",
     "saved_chars",
+    "chunked",
+    "batched",
 )
 
 
