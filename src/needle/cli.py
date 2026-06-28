@@ -43,13 +43,13 @@ app = typer.Typer(
 package_app = typer.Typer(help="Inspect and select Needle packages.", no_args_is_help=True)
 evidence_app = typer.Typer(help="Inspect package evidence fixtures.", no_args_is_help=True)
 model_app = typer.Typer(help="Inspect, download, or remove local model files.", no_args_is_help=True)
-runtime_app = typer.Typer(help="Low-level runtime commands used by host adapters.", no_args_is_help=True)
-mcp_app = typer.Typer(help="Run Needle MCP servers used by host adapters.", no_args_is_help=True)
+runtime_app = typer.Typer(help="Low-level runtime commands used by agent connections.", no_args_is_help=True)
+mcp_app = typer.Typer(help="Run Needle MCP servers used by Claude Code, Codex, and other MCP clients.", no_args_is_help=True)
 setup_app = typer.Typer(
-    help="Set up Needle inside supported host agents.",
+    help="Connect Needle to supported coding agents.",
     invoke_without_command=True,
 )
-statusline_app = typer.Typer(help="Render host statusline integrations.", no_args_is_help=True)
+statusline_app = typer.Typer(help="Render compact Needle statusline output.", no_args_is_help=True)
 
 app.add_typer(package_app, name="package")
 app.add_typer(evidence_app, name="evidence")
@@ -498,10 +498,10 @@ def _uninstall(args: argparse.Namespace) -> int:
         else:
             print("  nothing found")
         print("")
-        print("Host extension removal stays host-native:")
+        print("Agent cleanup uses each agent's own setup command:")
         print("  Pi:     needle setup pi --uninstall")
         print("  Claude: needle setup claude-code --uninstall")
-        print("  Codex experimental MCP dogfood: needle setup codex --uninstall")
+        print("  Codex:  needle setup codex --uninstall")
         print("")
         print("Run `needle uninstall --yes` to stop the runtime and remove these files.")
         return 0
@@ -527,10 +527,10 @@ def _uninstall(args: argparse.Namespace) -> int:
     else:
         print("no Needle-owned local state found")
     print("")
-    print("Remove host integrations with their native commands:")
+    print("Remove agent connections with their setup commands:")
     print("  Pi:     needle setup pi --uninstall")
     print("  Claude: needle setup claude-code --uninstall")
-    print("  Codex experimental MCP dogfood: needle setup codex --uninstall")
+    print("  Codex:  needle setup codex --uninstall")
     print("Remove the CLI entrypoint with your package manager, for example:")
     print("  brew uninstall needle")
     print("  pipx uninstall needle")
@@ -559,7 +559,8 @@ def _run_visible(command: list[str]) -> int:
 
 _SETUP_HOSTS = {
     "pi": {
-        "label": "Pi native adapter",
+        "label": "Pi",
+        "summary": "native read/bash tools, visible through /needle doctor",
         "binding": "pi/native-tools",
         "package": naming.DEFAULT_PACKAGE_ID,
         "setup": "needle setup pi",
@@ -567,7 +568,8 @@ _SETUP_HOSTS = {
         "uninstall": "needle setup pi --uninstall",
     },
     "claude-code": {
-        "label": "Claude Code MCP adapter",
+        "label": "Claude Code",
+        "summary": "MCP tool named needle_bash",
         "binding": "mcp/bash",
         "package": "e24z/mlx-mcp-bash-reference",
         "setup": "needle setup claude-code",
@@ -575,7 +577,8 @@ _SETUP_HOSTS = {
         "uninstall": "needle setup claude-code --uninstall",
     },
     "codex": {
-        "label": "experimental Codex MCP dogfood adapter",
+        "label": "Codex CLI",
+        "summary": "experimental MCP tool named needle_bash",
         "binding": "mcp/bash",
         "package": "e24z/mlx-mcp-bash-reference",
         "setup": "needle setup codex",
@@ -644,26 +647,26 @@ def _print_setup_checklist(
     if dry_run:
         print("Dry run: Needle is showing the setup checklist.")
     elif from_homebrew:
-        print("Homebrew triggered setup, but this shell is not interactive.")
+        print("Homebrew installed Needle, but this shell cannot ask setup questions.")
     else:
         print("This shell is not interactive, so Needle is showing the setup checklist.")
     print("")
-    print("Available hosts:")
+    print("Available agents:")
     for key, meta in _SETUP_HOSTS.items():
         marker = "*" if key == (host or "pi") else "-"
-        print(f"  {marker} {key}: {meta['label']}")
+        print(f"  {marker} {key}: {meta['label']} ({meta['summary']})")
         print(f"      package: {package_id if key == host and package_id else meta['package']}")
         print(f"      setup:   {meta['setup']}")
-        print(f"      native:  {_format_command(_setup_native_command(key, 'local'))}")
+        print(f"      command: {_format_command(_setup_native_command(key, 'local'))}")
         print(f"      verify:  {meta['verify']}")
         print("      model:   run `needle model dir`; use `needle model download` after installing backend deps")
     print("")
-    print("Needle will not change Pi, Claude Code, or experimental Codex MCP dogfood until you confirm an install.")
+    print("Needle will not change Pi, Claude Code, or Codex until you confirm setup.")
     if dry_run:
         print("dry run: no changes made")
     else:
         print(f"pending setup marker: {_setup_pending_path()}")
-    print("next: run `needle setup` in an interactive terminal, or run a host command above.")
+    print("next: run `needle setup` in an interactive terminal, or run one of the setup commands above.")
 
 
 def _select_setup_package(host: str, package_id: str | None, *, dry_run: bool) -> int:
@@ -676,8 +679,7 @@ def _select_setup_package(host: str, package_id: str | None, *, dry_run: bool) -
         _print_error(exc)
         return 1
 
-    print(f"package: {loaded.package_id}")
-    print(f"host binding: {loaded.binding_id}")
+    print(f"Using Needle package: {loaded.package_id}")
     if dry_run:
         return 0
 
@@ -686,7 +688,7 @@ def _select_setup_package(host: str, package_id: str | None, *, dry_run: bool) -
     except PackageConfigError as exc:
         _print_error(exc)
         return 1
-    print(f"selected package: {configured.package_id}")
+    print(f"Selected Needle package: {configured.package_id}")
     return 0
 
 
@@ -723,14 +725,85 @@ def _setup_native_command(host: str, scope: str) -> list[str]:
     return _claude_code_add_command(scope)
 
 
-def _prompt_setup_host(default: str = "pi") -> str:
-    raw = typer.prompt("Host agent (pi, claude-code, or codex)", default=default)
+def _parse_setup_hosts(value: str) -> list[str]:
+    raw_parts = value.replace(";", ",").split(",")
+    choices = list(_SETUP_HOSTS)
+    selected: list[str] = []
+    for raw in raw_parts:
+        part = raw.strip().lower()
+        if not part:
+            continue
+        if part in {"all", "*"}:
+            for choice in choices:
+                if choice not in selected:
+                    selected.append(choice)
+            continue
+        if part.isdigit():
+            idx = int(part)
+            if idx < 1 or idx > len(choices):
+                raise ValueError(f"agent number must be between 1 and {len(choices)}")
+            host = choices[idx - 1]
+        else:
+            parsed = _setup_host(part)
+            if parsed is None:
+                continue
+            host = parsed
+        if host not in selected:
+            selected.append(host)
+    if not selected:
+        raise ValueError("select at least one agent")
+    return selected
+
+
+def _prompt_setup_hosts(default: str = "1") -> list[str]:
+    print("Choose agents to connect:")
+    for idx, (host, meta) in enumerate(_SETUP_HOSTS.items(), start=1):
+        print(f"  {idx}. {meta['label']} - {meta['summary']}")
+    print("")
+    raw = typer.prompt("Agents", default=default)
     try:
-        host = _setup_host(raw)
+        hosts = _parse_setup_hosts(raw)
     except ValueError as exc:
         _print_error(exc)
         raise typer.Exit(code=1) from exc
-    return host or default
+    return hosts
+
+
+def _print_setup_plan(hosts: list[str], package_id: str | None, scope: str) -> None:
+    print("Needle will connect:")
+    for host in hosts:
+        meta = _SETUP_HOSTS[host]
+        selected_package = package_id or str(meta["package"])
+        print(f"  - {meta['label']}: {meta['summary']}")
+        print(f"    package: {selected_package}")
+        print(f"    verify:  {meta['verify']}")
+        if host != "pi":
+            print("    note:    use needle_bash for large read-only observations")
+    print("")
+
+
+def _run_setup_hosts(
+    *,
+    hosts: list[str],
+    package_id: str | None,
+    dry_run: bool,
+    skip_canary: bool,
+    scope: str,
+) -> int:
+    for index, host in enumerate(hosts, start=1):
+        if len(hosts) > 1:
+            print("")
+            print(f"[{index}/{len(hosts)}] {_SETUP_HOSTS[host]['label']}")
+        code = _run_setup_host(
+            host=host,
+            package_id=package_id,
+            dry_run=dry_run,
+            skip_canary=skip_canary,
+            scope=scope,
+        )
+        if code:
+            return code
+    return 0
 
 
 def _setup_wizard(args: argparse.Namespace) -> int:
@@ -770,28 +843,23 @@ def _setup_wizard(args: argparse.Namespace) -> int:
 
     print("Needle setup")
     if args.from_homebrew:
-        print("Homebrew installed Needle. Let's connect it to an agent.")
+        print("Homebrew installed Needle. Let's connect it to your coding agent.")
     else:
-        print("Connect Needle to a supported coding agent.")
+        print("Connect Needle to your coding agent.")
     print("")
-    chosen_host = host or _prompt_setup_host()
-    meta = _SETUP_HOSTS[chosen_host]
-    package_id = args.package_id or str(meta["package"])
-    print("")
-    print(f"Host: {chosen_host} ({meta['label']})")
-    print(f"Package: {package_id}")
-    print(f"Native command: {_format_command(_setup_native_command(chosen_host, args.scope))}")
-    print("Real pruning readiness: check `needle model dir`; download the model after installing backend deps.")
-    print(f"Verify after install: {meta['verify']}")
-    print("")
-    if not typer.confirm("Install this host integration now?", default=True):
+    chosen_hosts = [host] if host else _prompt_setup_hosts()
+    _print_setup_plan(chosen_hosts, args.package_id, args.scope)
+    if not typer.confirm("Connect selected agent(s) now?", default=True):
         _record_setup_pending("user-deferred")
         print("No changes made.")
-        print(f"resume: {meta['setup']}")
+        if len(chosen_hosts) == 1:
+            print(f"resume: {_SETUP_HOSTS[chosen_hosts[0]]['setup']}")
+        else:
+            print("resume: needle setup")
         return 0
-    return _run_setup_host(
-        host=chosen_host,
-        package_id=package_id,
+    return _run_setup_hosts(
+        hosts=chosen_hosts,
+        package_id=args.package_id,
         dry_run=False,
         skip_canary=args.skip_canary,
         scope=args.scope,
@@ -807,7 +875,7 @@ def _setup_pi(args: argparse.Namespace) -> int:
         return 1
 
     pi_command = ["pi", "uninstall" if args.uninstall else "install", str(package_dir)]
-    print(f"Needle Pi package: {package_dir}")
+    print(f"Pi package: {package_dir}")
     print(f"Pi command: {_format_command(pi_command)}")
 
     if args.dry_run:
@@ -837,9 +905,15 @@ def _setup_pi(args: argparse.Namespace) -> int:
         if shutil.which("node") is None:
             _print_error("Node.js was not found on PATH; Pi adapter installed, but the canary could not run.")
             return 1
-        code = _run_visible(["node", str(canary)])
-        if code:
-            return code
+        proc = subprocess.run(["node", str(canary)], text=True, capture_output=True, check=False)
+        if proc.returncode:
+            if proc.stdout:
+                print(proc.stdout, end="")
+            if proc.stderr:
+                print(proc.stderr, end="", file=sys.stderr)
+            _print_error(f"Pi canary failed ({proc.returncode})")
+            return int(proc.returncode)
+        print("Pi canary passed.")
 
     print("Needle Pi adapter installed. Open Pi and run `/needle doctor`.")
     return 0
@@ -945,16 +1019,15 @@ def _setup_claude_code(args: argparse.Namespace) -> int:
         _print_error(exc)
         return 1
 
-    print("Needle Claude Code MCP setup")
-    print(f"package: {loaded.package_id}")
-    print(f"host binding: {loaded.binding_id}")
-    print(f"server: needle-bash")
-    print(f"server command: needle mcp serve")
-    print("runtime command: needle runtime manage --host-binding mcp/bash")
+    print("Needle for Claude Code")
+    print("Tool name: needle_bash")
+    print("Tool command: needle mcp serve")
+    print("Runtime command: needle runtime manage --host-binding mcp/bash")
     print(f"Claude scope: {scope}")
     print(f"Claude command: {_format_command(command)}")
-    print("diagnostics: needle status --events 20")
-    print("lifecycle: MCP installs the tool server; start the Needle runtime before expecting pruning.")
+    print("Statusline: needle statusline claude-code")
+    print("Status: needle status --events 20")
+    print("Note: start the Needle runtime before expecting pruning.")
     print("")
     print("Project .mcp.json shape, if you choose --scope project:")
     print(json.dumps(_claude_code_mcp_json(), indent=2))
@@ -979,7 +1052,7 @@ def _setup_claude_code(args: argparse.Namespace) -> int:
 def _setup_codex(args: argparse.Namespace) -> int:
     if args.uninstall:
         command = _codex_remove_command()
-        print("Needle experimental Codex MCP dogfood server: needle-bash")
+        print("Needle Codex CLI MCP server: needle-bash")
         print(f"Codex command: {_format_command(command)}")
         if args.dry_run:
             print("dry run: no changes made")
@@ -991,7 +1064,7 @@ def _setup_codex(args: argparse.Namespace) -> int:
         code = _run_visible(command)
         if code:
             return code
-        print("Needle experimental Codex MCP dogfood server removed through Codex's native MCP command.")
+        print("Needle Codex CLI MCP server removed through Codex's native MCP command.")
         return 0
 
     try:
@@ -1001,20 +1074,19 @@ def _setup_codex(args: argparse.Namespace) -> int:
         return 1
 
     command = _codex_add_command()
-    print("Needle experimental Codex MCP dogfood setup")
-    print(f"package: {loaded.package_id}")
-    print(f"host binding: {loaded.binding_id}")
-    print(f"server: needle-bash")
-    print(f"server command: needle mcp serve")
-    print("runtime command: needle runtime manage --host-binding mcp/bash")
+    print("Needle for Codex CLI")
+    print("Tool name: needle_bash")
+    print("Tool command: needle mcp serve")
+    print("Runtime command: needle runtime manage --host-binding mcp/bash")
     print(f"Codex command: {_format_command(command)}")
-    print("diagnostics: needle status --events 20")
-    print("lifecycle: MCP installs the tool server; start the Needle runtime before expecting pruning.")
+    print("Statusline: needle statusline codex")
+    print("Status: needle status --events 20")
+    print("Note: Codex support is experimental; start the Needle runtime before expecting pruning.")
     print("")
     print("Project .codex/config.toml shape, if you prefer project-scoped setup:")
     print(_codex_config_toml())
     print("")
-    print("Experimental Codex MCP dogfood contract: ask Codex to use `needle_bash` for large read-only observations.")
+    print("Codex note: ask Codex to use `needle_bash` for large read-only observations.")
     print("Needle does not transparently rewrite Codex's built-in Bash output.")
 
     if args.dry_run:
@@ -1029,7 +1101,7 @@ def _setup_codex(args: argparse.Namespace) -> int:
     code = _run_visible(command)
     if code:
         return code
-    print("Needle experimental Codex MCP dogfood server installed. Start a fresh Codex thread and run `/mcp`.")
+    print("Needle Codex CLI MCP server installed. Start a fresh Codex thread and run `/mcp`.")
     print("Agent contract: use `needle_bash` for observation; keep edits on native tools.")
     return 0
 
@@ -1341,22 +1413,22 @@ def setup(
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="Show the guided setup plan without changing host agents.",
+        help="Show the guided setup plan without changing Pi, Claude Code, or Codex.",
     ),
     yes: bool = typer.Option(
         False,
         "--yes",
-        help="Use the safest default answers and run the selected host setup.",
+        help="Use the safest default answers and run setup for the selected agent.",
     ),
     host: str | None = typer.Option(
         None,
         "--host",
-        help="Host agent to set up: pi, claude-code, or codex.",
+        help="Agent to connect: pi, claude-code, or codex.",
     ),
     package_id: str | None = typer.Option(
         None,
         "--package",
-        help="Package id to select before installing the host integration.",
+        help="Needle package id to use for the selected agent.",
     ),
     from_homebrew: bool = typer.Option(
         False,
@@ -1471,12 +1543,12 @@ def setup_codex(
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="Print experimental Codex MCP dogfood setup without changing Codex.",
+        help="Print experimental Codex MCP setup without changing Codex.",
     ),
     uninstall_adapter: bool = typer.Option(
         False,
         "--uninstall",
-        help="Remove Needle's experimental Codex MCP dogfood server through Codex's native MCP command.",
+        help="Remove Needle's experimental Codex MCP server through Codex's native MCP command.",
     ),
     package_id: str | None = typer.Option(
         None,
@@ -1484,7 +1556,7 @@ def setup_codex(
         help="Package id to select before installing the Codex MCP server.",
     ),
 ) -> None:
-    """Install or remove Needle's Codex MCP dogfood server."""
+    """Install or remove Needle's experimental Codex MCP server."""
     if uninstall_adapter:
         _exit_with(_setup_codex(_ns(dry_run=dry_run, uninstall=True)))
     _exit_with(
@@ -1507,6 +1579,18 @@ def statusline_claude_code(
     ),
 ) -> None:
     """Render a compact Claude Code statusline from Needle runtime health."""
+    _exit_with(_statusline_claude_code(_ns(plain=plain)))
+
+
+@statusline_app.command("codex")
+def statusline_codex(
+    plain: bool = typer.Option(
+        False,
+        "--plain",
+        help="Disable ANSI color and animation glyphs for tests or plain terminals.",
+    ),
+) -> None:
+    """Render a compact Codex CLI statusline from Needle runtime health."""
     _exit_with(_statusline_claude_code(_ns(plain=plain)))
 
 

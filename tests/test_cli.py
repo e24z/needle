@@ -236,7 +236,7 @@ def test_uninstall_dry_run_and_yes_use_needle_owned_paths() -> None:
             assert "removed Needle-owned local state" in out
             assert "needle setup pi --uninstall" in out
             assert "needle setup claude-code --uninstall" in out
-            assert "Codex experimental MCP dogfood" in out
+            assert "Codex:  needle setup codex --uninstall" in out
             assert "brew uninstall needle" in out
             assert "pipx uninstall needle" in out
             assert "uv tool uninstall needle" in out
@@ -270,7 +270,7 @@ def test_model_dir_command_reports_needle_model_path() -> None:
 def test_setup_pi_dry_run_uses_packaged_adapter() -> None:
     code, out, err = _run(["setup", "pi", "--dry-run"])
     assert code == 0, err
-    assert "Needle Pi package:" in out
+    assert "Pi package:" in out
     assert "needle/hosts/pi" in out
     assert "Pi command: pi install" in out
     assert "Canary command: node" in out
@@ -282,19 +282,19 @@ def test_setup_root_dry_run_lists_hosts_without_mutating() -> None:
     code, out, err = _run(["setup", "--dry-run"])
     assert code == 0, err
     assert "Needle setup" in out
-    assert "Pi native adapter" in out
-    assert "Claude Code MCP adapter" in out
-    assert "experimental Codex MCP dogfood adapter" in out
+    assert "Pi (native read/bash tools" in out
+    assert "Claude Code (MCP tool named needle_bash)" in out
+    assert "Codex CLI (experimental MCP tool named needle_bash)" in out
     assert "package: e24z/mlx-pi-soft-lamr" in out
     assert "setup:   needle setup pi" in out
     assert "setup:   needle setup claude-code" in out
     assert "setup:   needle setup codex" in out
-    assert "native:  pi install" in out
-    assert "native:  claude mcp add --transport stdio --scope local needle-bash -- needle mcp serve" in out
-    assert "native:  codex mcp add needle-bash -- needle mcp serve" in out
+    assert "command: pi install" in out
+    assert "command: claude mcp add --transport stdio --scope local needle-bash -- needle mcp serve" in out
+    assert "command: codex mcp add needle-bash -- needle mcp serve" in out
     assert "needle model dir" in out
     assert "needle model download" in out
-    assert "Needle will not change Pi, Claude Code, or experimental Codex MCP dogfood" in out
+    assert "Needle will not change Pi, Claude Code, or Codex until you confirm setup." in out
     assert "dry run: no changes made" in out
 
 
@@ -305,7 +305,7 @@ def test_setup_homebrew_entrypoint_defers_in_noninteractive_shell() -> None:
         try:
             code, out, err = _run(["setup", "--from-homebrew"])
             assert code == 0, err
-            assert "Homebrew triggered setup" in out
+            assert "Homebrew installed Needle" in out
             assert "pending setup marker:" in out
             marker = Path(os.environ["NEEDLE_HOME"]) / "setup-pending.json"
             assert marker.exists()
@@ -332,13 +332,13 @@ def test_setup_root_rejects_unknown_host() -> None:
 def test_setup_claude_code_dry_run_prints_native_mcp_setup() -> None:
     code, out, err = _run(["setup", "claude-code", "--dry-run"])
     assert code == 0, err
-    assert "Needle Claude Code MCP setup" in out
-    assert "package: e24z/mlx-mcp-bash-reference" in out
-    assert "host binding: mcp/bash" in out
-    assert "server command: needle mcp serve" in out
-    assert "runtime command: needle runtime manage --host-binding mcp/bash" in out
-    assert "diagnostics: needle status --events 20" in out
-    assert "MCP installs the tool server; start the Needle runtime before expecting pruning." in out
+    assert "Needle for Claude Code" in out
+    assert "Using Needle package: e24z/mlx-mcp-bash-reference" in out
+    assert "Tool command: needle mcp serve" in out
+    assert "Runtime command: needle runtime manage --host-binding mcp/bash" in out
+    assert "Statusline: needle statusline claude-code" in out
+    assert "Status: needle status --events 20" in out
+    assert "start the Needle runtime before expecting pruning." in out
     assert "Claude command: claude mcp add --transport stdio --scope local needle-bash -- needle mcp serve" in out
     assert '"needle-bash"' in out
     assert "dry run: no changes made" in out
@@ -352,17 +352,17 @@ def test_setup_claude_code_dry_run_prints_native_mcp_setup() -> None:
 def test_setup_codex_dry_run_prints_native_mcp_setup() -> None:
     code, out, err = _run(["setup", "codex", "--dry-run"])
     assert code == 0, err
-    assert "Needle experimental Codex MCP dogfood setup" in out
-    assert "package: e24z/mlx-mcp-bash-reference" in out
-    assert "host binding: mcp/bash" in out
-    assert "server command: needle mcp serve" in out
-    assert "runtime command: needle runtime manage --host-binding mcp/bash" in out
-    assert "diagnostics: needle status --events 20" in out
-    assert "MCP installs the tool server; start the Needle runtime before expecting pruning." in out
+    assert "Needle for Codex CLI" in out
+    assert "Using Needle package: e24z/mlx-mcp-bash-reference" in out
+    assert "Tool command: needle mcp serve" in out
+    assert "Runtime command: needle runtime manage --host-binding mcp/bash" in out
+    assert "Statusline: needle statusline codex" in out
+    assert "Status: needle status --events 20" in out
+    assert "Codex support is experimental" in out
     assert "Codex command: codex mcp add needle-bash -- needle mcp serve" in out
     assert "Project .codex/config.toml shape" in out
     assert "[mcp_servers.needle-bash]" in out
-    assert "Experimental Codex MCP dogfood contract:" in out
+    assert "Codex note:" in out
     assert "Needle does not transparently rewrite Codex's built-in Bash output." in out
     assert "dry run: no changes made" in out
 
@@ -380,6 +380,10 @@ def test_claude_code_statusline_plain_reports_runtime_health() -> None:
         os.environ["NEEDLE_MANAGER_SOCKET"] = str(Path(td) / "missing.sock")
         try:
             code, out, err = _run(["statusline", "claude-code", "--plain"])
+            assert code == 0, err
+            assert out.strip() == "- needle · down"
+
+            code, out, err = _run(["statusline", "codex", "--plain"])
             assert code == 0, err
             assert out.strip() == "- needle · down"
         finally:

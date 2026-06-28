@@ -17,9 +17,9 @@ brew install --HEAD e24z/tap/needle
 When cutting a stable release, add the release tarball URL and SHA256 to the tap
 formula so users can install without `--HEAD`.
 
-The formula calls `needle setup --from-homebrew` in `post_install`. If Homebrew
-cannot run the interactive wizard, the formula caveats tell the user to resume
-with:
+The formula calls `needle setup --from-homebrew` in `post_install`, but Homebrew
+does not reliably allow interactive prompts during install or upgrade. Treat the
+hook as a setup reminder and pending-state writer. The user-facing path is:
 
 ```bash
 needle setup
