@@ -217,32 +217,26 @@ class Needle < Formula
       Install with:
         brew install --HEAD e24z/tap/needle
 
-      Needle setup starts during install when Homebrew can run it interactively.
-      This pre-release formula installs Needle's base CLI, setup, and MCP
-      dependencies. Full local MLX pruning still needs backend dependencies and
-      model files; use the developer-preview backend extra until that path is
-      packaged.
-      Codex support is experimental MCP dogfood.
-      Feature branches are not published through this formula; use a source/dev
-      install for branch validation until the branch is merged or released.
-
-      If setup was deferred, resume with:
+      Next, connect Needle to your coding agent:
         needle setup
 
-      Expert host setup commands:
+      Direct setup commands:
         needle setup pi
         needle setup claude-code
         needle setup codex
 
-      Needle will not change Pi, Claude Code, or experimental Codex MCP dogfood
-      until you confirm a host install.
+      Needle will not change Pi, Claude Code, or Codex until you confirm setup.
+      Codex support is experimental.
+
+      Full local MLX pruning still needs backend dependencies and model files;
+      use the developer-preview backend extra until that path is packaged.
     EOS
   end
 
   test do
     assert_match "Needle package and runtime control plane", shell_output("#{bin}/needle --help")
     assert_match "dry run: no changes made", shell_output("#{bin}/needle setup --dry-run")
-    assert_match "Homebrew triggered setup", shell_output("NEEDLE_HOME=#{testpath}/needle-home #{bin}/needle setup --from-homebrew")
+    assert_match "Homebrew installed Needle", shell_output("NEEDLE_HOME=#{testpath}/needle-home #{bin}/needle setup --from-homebrew")
     assert_match "dry run: no changes made", shell_output("#{bin}/needle setup pi --dry-run")
     assert_match "dry run: no changes made", shell_output("#{bin}/needle setup codex --dry-run")
     assert_match "- needle", shell_output("NEEDLE_MANAGER_SOCKET=#{testpath}/missing.sock #{bin}/needle statusline claude-code --plain")
