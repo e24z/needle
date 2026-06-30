@@ -2,9 +2,9 @@ import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createConnection } from "node:net";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join, normalize, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { promisify } from "node:util";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -54,6 +54,10 @@ export function canonicalPackageId(packageId) {
 	return PACKAGE_ALIASES.get(packageId) || packageId;
 }
 
+function samePath(left, right) {
+	return normalize(String(left)) === normalize(String(right));
+}
+
 export function appName() {
 	return process.env.NEEDLE_APP_NAME || process.env.HAY_APP_NAME || "needle";
 }
@@ -72,6 +76,46 @@ export function modelRoot() {
 
 export function managerSocketPath() {
 	return process.env.NEEDLE_MANAGER_SOCKET || process.env.HAY_MANAGER_SOCKET || join(appHome(), "manager.sock");
+}
+
+export function managerTokenPath(socketPath = undefined) {
+	const override = process.env.NEEDLE_MANAGER_TOKEN_FILE || process.env.HAY_MANAGER_TOKEN_FILE;
+	if (override) return override;
+	const sock = socketPath || managerSocketPath();
+	const defaultSocket = join(appHome(), "manager.sock");
+	if (samePath(sock, defaultSocket)) return join(appHome(), "manager.token");
+	return join(dirname(sock), `${basename(sock)}.token`);
+}
+
+export async function readManagerToken(socketPath = undefined) {
+	const tokenPath = managerTokenPath(socketPath);
+	let text;
+	try {
+		text = await readFile(tokenPath, "utf8");
+	} catch (cause) {
+		const err = new Error(
+			`manager token is missing at ${tokenPath}; the live manager is unusable until Needle is restarted`,
+		);
+		err.code = "NEEDLE_MANAGER_TOKEN_MISSING";
+		err.tokenPath = tokenPath;
+		throw err;
+	}
+	try {
+		await chmod(tokenPath, 0o600);
+	} catch {
+		// Best-effort parity with Python's token reader; inability to chmod should
+		// not hide the clearer read/empty-token diagnostics above and below.
+	}
+	const token = text.trim();
+	if (!token) {
+		const err = new Error(
+			`manager token is empty at ${tokenPath}; the live manager is unusable until Needle is restarted`,
+		);
+		err.code = "NEEDLE_MANAGER_TOKEN_EMPTY";
+		err.tokenPath = tokenPath;
+		throw err;
+	}
+	return token;
 }
 
 export function eventsPath() {
@@ -95,6 +139,8 @@ export async function request(req, options = {}) {
 	const socketPath = options.socketPath || managerSocketPath();
 	const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 	const signal = options.signal;
+	if (signal?.aborted) throw new Error("aborted");
+	const wireReq = { ...req, token: await readManagerToken(socketPath) };
 	return new Promise((resolve, reject) => {
 		let settled = false;
 		let buf = "";
@@ -111,7 +157,7 @@ export async function request(req, options = {}) {
 		const timer = setTimeout(() => finish(new Error("timeout")), timeoutMs);
 		signal?.addEventListener("abort", onAbort, { once: true });
 		socket.setEncoding("utf8");
-		socket.on("connect", () => socket.write(`${JSON.stringify(req)}\n`));
+		socket.on("connect", () => socket.write(`${JSON.stringify(wireReq)}\n`));
 		socket.on("data", (chunk) => {
 			buf += chunk;
 			const idx = buf.indexOf("\n");
@@ -134,7 +180,15 @@ export async function prune(text, query = "", options = {}) {
 }
 
 export async function lease(session, version = "", options = {}) {
-	return request({ op: "lease", session, version }, { timeoutMs: 5_000, ...options });
+	return request(
+		{
+			op: "lease",
+			session,
+			version,
+			...leaseIdentity(options),
+		},
+		{ timeoutMs: 5_000, ...options },
+	);
 }
 
 export async function heartbeat(session, options = {}) {
@@ -298,6 +352,37 @@ export async function runtimeLaunchPlan(repoRoot, options = {}) {
 		env: { ...launcher.env, ...pkg.runtimeProfileEnv },
 		runtimeProfile: pkg.runtimeProfile || "",
 	};
+}
+
+function leaseIdentity(options = {}) {
+	const explicit = options.runtimeIdentity;
+	if (explicit && typeof explicit === "object") {
+		return normalizeLeaseIdentity(explicit);
+	}
+	return runtimeIdentityFromLaunchPlan(options.launchPlan);
+}
+
+function runtimeIdentityFromLaunchPlan(plan) {
+	if (!plan || typeof plan !== "object") return {};
+	return normalizeLeaseIdentity({
+		package_id: plan.packageId,
+		host_binding: plan.hostBinding,
+		backend_id: plan.backendId,
+		runtime_profile: plan.runtimeProfile,
+	});
+}
+
+function normalizeLeaseIdentity(identity) {
+	const out = {};
+	for (const [target, source] of [
+		["package_id", identity.package_id ?? identity.packageId],
+		["host_binding", identity.host_binding ?? identity.hostBinding],
+		["backend_id", identity.backend_id ?? identity.backendId],
+		["runtime_profile", identity.runtime_profile ?? identity.runtimeProfile],
+	]) {
+		if (source !== undefined && source !== null) out[target] = String(source);
+	}
+	return out;
 }
 
 export async function packageInventory(repoRoot, options = {}) {
@@ -576,20 +661,21 @@ async function runGit(repoRoot, args, timeoutMs) {
 }
 
 export async function socketIsLive(socketPath = managerSocketPath()) {
-	try {
-		await request({ op: "stats" }, { socketPath, timeoutMs: 500 });
-		return true;
-	} catch {
-		return false;
-	}
+	return socketAcceptsConnection(socketPath, 500);
 }
 
 export async function ensureManager(options = {}) {
 	const socketPath = options.socketPath || managerSocketPath();
-	if (await socketIsLive(socketPath)) return true;
 	const repoRoot = options.repoRoot;
+	const plan = options.launchPlan || (repoRoot
+		? await runtimeLaunchPlan(repoRoot, { hostBinding: PI_HOST_BINDING })
+		: null);
+	if (await socketIsLive(socketPath)) {
+		const usability = await managerUsability(socketPath, { launchPlan: plan });
+		return usability.usable;
+	}
 	if (!repoRoot) throw new Error("repoRoot is required to spawn the manager");
-	const plan = options.launchPlan || await runtimeLaunchPlan(repoRoot, { hostBinding: PI_HOST_BINDING });
+	if (!plan) throw new Error("launchPlan is required to spawn the manager");
 	const command = managerCommandWithContext(plan.command, {
 		packageId: plan.packageId,
 		hostBinding: plan.hostBinding || PI_HOST_BINDING,
@@ -609,7 +695,11 @@ export async function ensureManager(options = {}) {
 	const timeoutMs = options.timeoutMs ?? 10_000;
 	const deadline = Date.now() + timeoutMs;
 	while (Date.now() < deadline) {
-		if (await socketIsLive(socketPath)) return true;
+		if (await socketIsLive(socketPath)) {
+			const usability = await managerUsability(socketPath, { launchPlan: plan });
+			if (usability.usable) return true;
+			if (usability.reason !== "connect" && usability.reason !== "timeout") return false;
+		}
 		await sleep(100);
 	}
 	return false;
@@ -642,21 +732,75 @@ function managerCommandWithContext(command, { packageId = "", hostBinding = "" }
 
 export async function acquireLease(sessionId, version, options = {}) {
 	const attempts = options.attempts ?? 4;
+	const plan = options.launchPlan || (options.repoRoot
+		? await runtimeLaunchPlan(options.repoRoot, { hostBinding: PI_HOST_BINDING })
+		: null);
+	const leaseOptions = plan ? { ...options, launchPlan: plan } : options;
 	for (let i = 0; i < attempts; i++) {
 		try {
-			const resp = await lease(sessionId, version, options);
+			const resp = await lease(sessionId, version, leaseOptions);
 			if (resp.ok) return true;
 			if (resp.stale) {
-				await waitForSocketDown(options.socketPath || managerSocketPath(), 10_000);
-				await ensureManager(options);
+				const down = await waitForSocketDown(options.socketPath || managerSocketPath(), 10_000);
+				if (!down) continue;
+				if (!(await ensureManager(leaseOptions))) return false;
 				continue;
 			}
 			return false;
 		} catch {
-			if (!(await ensureManager(options))) return false;
+			if (!(await ensureManager(leaseOptions))) return false;
 		}
 	}
 	return false;
+}
+
+async function socketAcceptsConnection(socketPath, timeoutMs) {
+	return new Promise((resolve) => {
+		let settled = false;
+		const socket = createConnection(socketPath);
+		const finish = (value) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			socket.destroy();
+			resolve(value);
+		};
+		const timer = setTimeout(() => finish(false), timeoutMs);
+		socket.on("connect", () => finish(true));
+		socket.on("error", () => finish(false));
+	});
+}
+
+async function managerUsability(socketPath, options = {}) {
+	let resp;
+	try {
+		resp = await stats({ socketPath, timeoutMs: options.timeoutMs ?? 500 });
+	} catch (err) {
+		return { usable: false, reason: err?.code || err?.message || "request failed" };
+	}
+	if (!resp?.ok) {
+		return { usable: false, reason: resp?.error || "stats refused", response: resp };
+	}
+	const mismatches = runtimeIdentityMismatches(resp, options.launchPlan);
+	if (Object.keys(mismatches).length) {
+		return { usable: false, reason: "identity mismatch", mismatches, response: resp };
+	}
+	return { usable: true, response: resp };
+}
+
+function runtimeIdentityMismatches(statsResp, plan) {
+	const requested = runtimeIdentityFromLaunchPlan(plan);
+	const mismatches = {};
+	for (const [field, requestedValue] of Object.entries(requested)) {
+		if (!requestedValue) continue;
+		const actualValue = statsResp?.[field] === undefined || statsResp?.[field] === null
+			? ""
+			: String(statsResp[field]);
+		if (String(requestedValue) !== actualValue) {
+			mismatches[field] = { requested: String(requestedValue), actual: actualValue };
+		}
+	}
+	return mismatches;
 }
 
 async function waitForSocketDown(socketPath, timeoutMs) {

@@ -7,7 +7,6 @@ import {
 	acquireLease,
 	appHome,
 	codeVersion,
-	ensureManager,
 	heartbeat,
 	managerSocketPath,
 	packageInventory,
@@ -15,6 +14,7 @@ import {
 	prune,
 	release,
 	repoRootFromModuleUrl,
+	runtimeLaunchPlan,
 	sourceIdentity,
 	stats,
 	tailEvents,
@@ -71,8 +71,8 @@ export function installNeedlePiExtension(pi, options = {}) {
 		sessionId = ctx.sessionManager?.getSessionId?.() || `pi-${Date.now()}`;
 		Object.assign(counters, restoreCounters(ctx.sessionManager?.getEntries?.() || []));
 		const version = await codeVersion(repoRoot);
-		const ready = await ensureManager({ repoRoot });
-		if (ready) await acquireLease(sessionId, version, { repoRoot });
+		const launchPlan = await runtimeLaunchPlan(repoRoot, { hostBinding: "pi/native-tools" });
+		await acquireLease(sessionId, version, { repoRoot, launchPlan });
 		await updateStatus(ctx, counters, statusCache, { force: true });
 		heartbeatTimer = setInterval(() => {
 			if (sessionId) heartbeat(sessionId).catch(() => undefined);
