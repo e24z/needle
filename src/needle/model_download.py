@@ -1,0 +1,143 @@
+"""Shared Hugging Face model download and provenance helpers."""
+
+from __future__ import annotations
+
+import datetime
+import json
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable
+
+from .runtime import naming
+
+_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,64}$")
+
+
+@dataclass(frozen=True)
+class ModelDownloadResult:
+    path: str
+    repo: str
+    requested_revision: str
+    resolved_revision: str
+    downloaded: bool
+    provenance: dict[str, Any] | None = None
+
+
+def provenance_path(local_dir: Path) -> Path:
+    return local_dir / "needle-model.json"
+
+
+def read_model_provenance(local_dir: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads(provenance_path(local_dir).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_model_provenance(
+    local_dir: Path,
+    *,
+    repo: str,
+    requested_revision: str,
+    resolved_revision: str,
+    caller: str,
+    downloaded_at: str | None = None,
+) -> dict[str, Any]:
+    data = {
+        "repo": repo,
+        "requested_revision": requested_revision,
+        "resolved_revision": resolved_revision,
+        "downloaded_at": downloaded_at
+        or datetime.datetime.now(datetime.UTC).isoformat(),
+        "caller": caller,
+    }
+    local_dir.mkdir(parents=True, exist_ok=True)
+    provenance_path(local_dir).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return data
+
+
+def _looks_like_commit_sha(revision: str | None) -> bool:
+    return bool(revision and _SHA_RE.match(revision))
+
+
+def _existing_matches_request(existing: dict[str, Any], requested_revision: str) -> bool:
+    if requested_revision == "default":
+        return True
+    existing_requested = str(existing.get("requested_revision") or "")
+    existing_resolved = str(existing.get("resolved_revision") or "")
+    return requested_revision in {existing_requested, existing_resolved}
+
+
+def resolve_model_revision(
+    repo: str,
+    revision: str | None,
+    *,
+    hf_api: Any | None = None,
+) -> str:
+    if _looks_like_commit_sha(revision):
+        return str(revision)
+    if hf_api is None:
+        from huggingface_hub import HfApi
+
+        hf_api = HfApi()
+    info = hf_api.model_info(repo, revision=revision or None)
+    resolved = str(getattr(info, "sha", "") or "")
+    if not resolved:
+        requested = revision or "default"
+        raise RuntimeError(f"could not resolve model revision {requested!r} for {repo!r}")
+    return resolved
+
+
+def download_model_snapshot(
+    *,
+    repo: str,
+    revision: str | None = None,
+    caller: str,
+    force: bool = True,
+    hf_api: Any | None = None,
+    snapshot_download_fn: Callable[..., str] | None = None,
+) -> ModelDownloadResult:
+    requested_revision = revision or "default"
+    root = naming.model_root()
+    local_dir = naming.model_dir_for_repo(repo)
+    existing = read_model_provenance(local_dir)
+    if existing and not force and _existing_matches_request(existing, requested_revision):
+        return ModelDownloadResult(
+            path=str(local_dir),
+            repo=repo,
+            requested_revision=str(existing.get("requested_revision") or requested_revision),
+            resolved_revision=str(existing.get("resolved_revision") or ""),
+            downloaded=False,
+            provenance=existing,
+        )
+
+    if snapshot_download_fn is None:
+        from huggingface_hub import snapshot_download
+
+        snapshot_download_fn = snapshot_download
+
+    resolved_revision = resolve_model_revision(repo, revision, hf_api=hf_api)
+    root.mkdir(parents=True, exist_ok=True)
+    path = snapshot_download_fn(
+        repo,
+        revision=resolved_revision,
+        local_dir=str(local_dir),
+        cache_dir=str(root / ".hf-cache"),
+    )
+    provenance = write_model_provenance(
+        local_dir,
+        repo=repo,
+        requested_revision=requested_revision,
+        resolved_revision=resolved_revision,
+        caller=caller,
+    )
+    return ModelDownloadResult(
+        path=str(path),
+        repo=repo,
+        requested_revision=requested_revision,
+        resolved_revision=resolved_revision,
+        downloaded=True,
+        provenance=provenance,
+    )

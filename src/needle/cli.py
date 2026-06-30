@@ -1143,10 +1143,8 @@ def _model_dir(args: argparse.Namespace) -> int:
 def _model_download(args: argparse.Namespace) -> int:
     repo = args.repo or _default_model_repo()
     revision = args.revision or os.environ.get("NEEDLE_MODEL_REVISION") or os.environ.get("HAY_MODEL_REVISION")
-    root = naming.model_root()
-    local_dir = naming.model_dir_for_repo(repo)
     try:
-        from huggingface_hub import HfApi, snapshot_download
+        from .model_download import download_model_snapshot
     except ImportError:
         print(
             "error: this Needle install can set up host adapters, but it does not include "
@@ -1159,28 +1157,31 @@ def _model_download(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    resolved_revision = ""
     try:
-        info = HfApi().model_info(repo, revision=revision or None)
-        resolved_revision = str(getattr(info, "sha", "") or "")
-    except Exception as exc:  # noqa: BLE001 - download may still produce a useful local error.
-        print(f"warning: could not resolve model revision before download: {exc}", file=sys.stderr)
-    root.mkdir(parents=True, exist_ok=True)
-    path = snapshot_download(
-        repo,
-        revision=revision or None,
-        local_dir=str(local_dir),
-        cache_dir=str(root / ".hf-cache"),
-    )
-    print(path)
-    if resolved_revision:
-        _write_model_provenance(
-            local_dir,
+        result = download_model_snapshot(
             repo=repo,
-            requested_revision=revision or "default",
-            resolved_revision=resolved_revision,
+            revision=revision,
+            caller="cli",
+            force=True,
         )
-        print(f"revision: {resolved_revision}")
+    except ImportError:
+        print(
+            "error: this Needle install can set up host adapters, but it does not include "
+            "the MLX backend/model download dependencies needed for real pruning.",
+            file=sys.stderr,
+        )
+        print(
+            "developer preview path: `uv tool install --editable '.[backend-code-pruner-mlx]'`, "
+            "then run `needle model download`",
+            file=sys.stderr,
+        )
+        return 1
+    except Exception as exc:  # noqa: BLE001 - surface model resolution/download errors without a traceback.
+        print(f"error: could not download model: {exc}", file=sys.stderr)
+        return 1
+    print(result.path)
+    if result.resolved_revision:
+        print(f"revision: {result.resolved_revision}")
     return 0
 
 
@@ -1190,13 +1191,17 @@ def _write_model_provenance(
     repo: str,
     requested_revision: str,
     resolved_revision: str,
+    caller: str = "cli",
 ) -> None:
-    data = {
-        "repo": repo,
-        "requested_revision": requested_revision,
-        "resolved_revision": resolved_revision,
-    }
-    (local_dir / "needle-model.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    from .model_download import write_model_provenance
+
+    write_model_provenance(
+        local_dir,
+        repo=repo,
+        requested_revision=requested_revision,
+        resolved_revision=resolved_revision,
+        caller=caller,
+    )
 
 
 def _model_clean(args: argparse.Namespace) -> int:

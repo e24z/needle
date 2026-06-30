@@ -1302,19 +1302,17 @@ def _resolve_model_dir() -> str:
     explicit = os.environ.get("NEEDLE_MODEL_DIR") or os.environ.get("HAY_MODEL_DIR")
     if explicit:
         return explicit
-    from huggingface_hub import snapshot_download
+    from needle.model_download import download_model_snapshot
 
     repo = os.environ.get("NEEDLE_MODEL") or os.environ.get("HAY_MODEL", "ayanami-kitasan/code-pruner")
     revision = os.environ.get("NEEDLE_MODEL_REVISION") or os.environ.get("HAY_MODEL_REVISION")
-    root = naming.model_root()
-    local_dir = naming.model_dir_for_repo(repo)
-    root.mkdir(parents=True, exist_ok=True)
-    return snapshot_download(
-        repo,
-        revision=revision or None,
-        local_dir=str(local_dir),
-        cache_dir=str(root / ".hf-cache"),
+    result = download_model_snapshot(
+        repo=repo,
+        revision=revision,
+        caller="runtime",
+        force=False,
     )
+    return result.path
 
 
 class CodePrunerBackend:

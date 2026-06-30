@@ -7,6 +7,7 @@ are canonical; HAY_* remains as a legacy compatibility alias for early installs.
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import secrets
 import socket
@@ -92,6 +93,7 @@ def _is_owned_by_current_user(path: Path) -> bool:
 
 def ensure_private_dir(path: Path) -> None:
     """Create/chmod a Needle-owned runtime directory to user-only access."""
+    # Centralized runtime mkdir; callers must route runtime state through this helper.
     path.mkdir(parents=True, exist_ok=True)
     if hasattr(os, "getuid") and path.exists() and path.stat().st_uid != os.getuid():
         raise PermissionError(f"runtime directory is not owned by the current user: {path}")
@@ -107,6 +109,7 @@ def ensure_runtime_parent(path: Path) -> None:
         ensure_private_dir(path)
         return
     existed = path.exists()
+    # Centralized runtime mkdir; callers must route runtime state through this helper.
     path.mkdir(parents=True, exist_ok=True)
     if not existed:
         try:
@@ -117,10 +120,55 @@ def ensure_runtime_parent(path: Path) -> None:
         raise PermissionError(f"runtime directory is not owned by the current user: {path}")
 
 
+def _validate_owned_file(path: Path) -> None:
+    if hasattr(os, "getuid") and path.exists() and path.stat().st_uid != os.getuid():
+        raise PermissionError(f"runtime file is not owned by the current user: {path}")
+
+
+def ensure_private_file(path: Path, mode: int = 0o600) -> None:
+    """Create or repair a current-user runtime file to user-only access."""
+    ensure_runtime_parent(path.parent)
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+    except FileExistsError:
+        _validate_owned_file(path)
+        try:
+            os.chmod(path, mode)
+        except OSError:
+            pass
+        return
+    with os.fdopen(fd, "w", encoding="utf-8"):
+        pass
+
+
+def open_private_append(path: Path) -> io.TextIOWrapper:
+    """Open a current-user runtime file for append with mode 0600."""
+    ensure_runtime_parent(path.parent)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        if hasattr(os, "getuid") and os.fstat(fd).st_uid != os.getuid():
+            raise PermissionError(f"runtime file is not owned by the current user: {path}")
+        try:
+            os.fchmod(fd, 0o600)
+        except OSError:
+            pass
+        return os.fdopen(fd, "a", encoding="utf-8")
+    except Exception:
+        os.close(fd)
+        raise
+
+
 def read_manager_token(socket_path: str | Path | None = None) -> str:
     path = manager_token_path(socket_path)
+    if not path.exists():
+        raise FileNotFoundError(path)
     if not _is_owned_by_current_user(path):
         raise PermissionError(f"manager token is not owned by the current user: {path}")
+    _validate_owned_file(path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
     token = path.read_text(encoding="utf-8").strip()
     if not token:
         raise PermissionError(f"manager token is empty: {path}")

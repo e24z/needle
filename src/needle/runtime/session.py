@@ -39,6 +39,25 @@ def _manager_argv(package_id: str = "", host_binding: str = "") -> list[str]:
     return argv
 
 
+def _requested_runtime_identity(
+    *,
+    package_id: str = "",
+    host_binding: str = "",
+) -> dict[str, str]:
+    from needle.registry import runtime_launch_plan
+
+    plan = runtime_launch_plan(
+        package_id=package_id or None,
+        host_binding=host_binding or None,
+    )
+    return {
+        "package_id": plan.package_id,
+        "host_binding": plan.host_binding,
+        "backend_id": plan.backend_id,
+        "runtime_profile": plan.runtime_profile,
+    }
+
+
 def _ensure_manager(
     timeout: float = 10.0,
     *,
@@ -53,8 +72,7 @@ def _ensure_manager(
     if naming.socket_is_live(sock):
         return True
     home = naming.app_home()
-    home.mkdir(parents=True, exist_ok=True)
-    log = open(home / "manager.log", "a")
+    log = naming.open_private_append(home / "manager.log")
     try:
         subprocess.Popen(
             _manager_argv(package_id=package_id, host_binding=host_binding),
@@ -84,10 +102,14 @@ def _acquire(
     """Lease, handling a stale manager: if it reports our code is newer than what
     it started on, it steps aside -- we wait for the socket to free, start a
     fresh manager on the current code, and retry."""
+    identity = _requested_runtime_identity(
+        package_id=package_id,
+        host_binding=host_binding,
+    )
     for _ in range(attempts):
         try:
-            resp = client.lease(session_id, version)
-        except OSError:
+            resp = client.lease(session_id, version, runtime_identity=identity)
+        except (OSError, RuntimeError):
             if not _ensure_manager(package_id=package_id, host_binding=host_binding):
                 return False
             continue
@@ -130,6 +152,14 @@ def run_session(
 
     manager_package_id = package_id or ""
     manager_host_binding = host_binding or ""
+    try:
+        _requested_runtime_identity(
+            package_id=manager_package_id,
+            host_binding=manager_host_binding,
+        )
+    except ValueError as exc:
+        print(f"{naming.APP_NAME}: could not resolve runtime package: {exc}", file=sys.stderr)
+        return 1
 
     if not _ensure_manager(package_id=manager_package_id, host_binding=manager_host_binding):
         print(

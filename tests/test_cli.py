@@ -282,11 +282,11 @@ def test_model_provenance_records_resolved_revision() -> None:
             resolved_revision="abc123",
         )
         data = json.loads((target / "needle-model.json").read_text(encoding="utf-8"))
-        assert data == {
-            "repo": "org/model",
-            "requested_revision": "main",
-            "resolved_revision": "abc123",
-        }
+        assert data["repo"] == "org/model"
+        assert data["requested_revision"] == "main"
+        assert data["resolved_revision"] == "abc123"
+        assert data["caller"] == "cli"
+        assert "downloaded_at" in data
 
 
 def test_setup_pi_dry_run_uses_packaged_adapter() -> None:

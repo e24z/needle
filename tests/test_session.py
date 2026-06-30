@@ -15,6 +15,7 @@ from io import StringIO
 import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -72,6 +73,7 @@ def test_session_lease_loop(tmp_sock: Path) -> None:
         kwargs=dict(
             backend_factory=FakePruner, socket_path=str(tmp_sock),
             ready_cb=lambda _p: ready.set(), stop_event=mgr_stop, poll_interval=0.03,
+            runtime_identity=session_mod._requested_runtime_identity(),
         ),
         daemon=True,
     )
@@ -106,6 +108,99 @@ def test_session_manager_spawn_command_carries_package_context() -> None:
     assert "e24z/mlx-mcp-bash-reference" in argv
     assert "--host-binding" in argv
     assert "mcp/bash" in argv
+
+
+def test_session_manager_spawn_log_is_private() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        home = Path(td) / "home"
+        sock = Path(td) / "manager.sock"
+        old_env = {
+            "NEEDLE_HOME": os.environ.get("NEEDLE_HOME"),
+            "HAY_MANAGER_SOCKET": os.environ.get("HAY_MANAGER_SOCKET"),
+        }
+        old_socket_is_live = session_mod.naming.socket_is_live
+        old_popen = session_mod.subprocess.Popen
+        spawned = {"value": False}
+
+        class FakePopen:
+            def __init__(self, *_args, **_kwargs) -> None:
+                spawned["value"] = True
+
+        def fake_socket_is_live(_path: Path) -> bool:
+            return spawned["value"]
+
+        os.environ["NEEDLE_HOME"] = str(home)
+        os.environ["HAY_MANAGER_SOCKET"] = str(sock)
+        session_mod.naming.socket_is_live = fake_socket_is_live
+        session_mod.subprocess.Popen = FakePopen
+        try:
+            assert session_mod._ensure_manager(timeout=0.5)
+            log = home / "manager.log"
+            assert home.stat().st_mode & 0o777 == 0o700
+            assert log.stat().st_mode & 0o777 == 0o600
+        finally:
+            session_mod.naming.socket_is_live = old_socket_is_live
+            session_mod.subprocess.Popen = old_popen
+            for name, value in old_env.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+
+
+def test_manage_refuses_live_manager_with_different_identity(tmp_sock: Path) -> None:
+    ready = threading.Event()
+    stop = threading.Event()
+    mgr = threading.Thread(
+        target=serve_manager,
+        kwargs=dict(
+            backend_factory=FakePruner,
+            socket_path=str(tmp_sock),
+            ready_cb=lambda _p: ready.set(),
+            stop_event=stop,
+            poll_interval=0.03,
+            runtime_identity={
+                "package_id": "e24z/mlx-pi-reference",
+                "host_binding": "pi/native-tools",
+                "backend_id": "e24z/code-pruner-mlx",
+                "runtime_profile": "local_mlx_adaptive",
+            },
+        ),
+        daemon=True,
+    )
+    mgr.start()
+    assert ready.wait(5), "manager not ready"
+    env = dict(
+        os.environ,
+        HAY_MANAGER_SOCKET=str(tmp_sock),
+        HAY_NO_EVENTS="1",
+        PYTHONPATH=_ROOT,
+    )
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "needle.runtime",
+            "manage",
+            "--package",
+            "e24z/mlx-mcp-bash-reference",
+            "--host-binding",
+            "mcp/bash",
+        ],
+        cwd=_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    try:
+        assert proc.returncode == 1, proc.stderr
+        assert "identity mismatch" in proc.stderr
+        assert "manager listening" not in proc.stderr
+    finally:
+        client.stop(socket_path=tmp_sock)
+        stop.set()
+        mgr.join(timeout=3)
 
 
 def test_session_failure_is_visible() -> None:
@@ -145,6 +240,8 @@ if __name__ == "__main__":
     test_manage_subprocess_serves(Path(tempfile.mkdtemp()) / "m1.sock")
     test_session_lease_loop(Path(tempfile.mkdtemp()) / "m2.sock")
     test_session_manager_spawn_command_carries_package_context()
+    test_session_manager_spawn_log_is_private()
+    test_manage_refuses_live_manager_with_different_identity(Path(tempfile.mkdtemp()) / "m4.sock")
     test_session_failure_is_visible()
     test_prune_without_manager_has_recovery_text(Path(tempfile.mkdtemp()) / "m3.sock")
     print("test_session OK")

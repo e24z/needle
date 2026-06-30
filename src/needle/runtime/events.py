@@ -51,9 +51,9 @@ def emit(event: str, **fields: object) -> None:
         rec = {"ts": round(time.time(), 3), "event": event, **fields}
         line = json.dumps(rec, default=str)
         path = _path()
-        path.parent.mkdir(parents=True, exist_ok=True)
+        naming.ensure_runtime_parent(path.parent)
         _rotate(path)
-        with open(path, "a") as f:
+        with naming.open_private_append(path) as f:
             f.write(line + "\n")
     except Exception:
         pass
