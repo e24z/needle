@@ -455,8 +455,12 @@ def test_revision_specific_snapshot_path_keeps_stale_files_out_of_new_revisions(
 
 
 def test_code_pruner_backend_uses_resolved_backbone_snapshot_for_network_loads() -> None:
-    source_path = Path(__file__).resolve().parent.parent / "src/needle/backends/code_pruner/model.py"
-    source = source_path.read_text(encoding="utf-8")
+    root = Path(__file__).resolve().parent.parent
+    source_paths = [
+        root / "src/needle/backends/code_pruner/model.py",
+        root / "src/needle/backends/code_pruner/backbone.py",
+    ]
+    source = "\n".join(path.read_text(encoding="utf-8") for path in source_paths)
     tree = ast.parse(source)
     bad_calls: list[str] = []
     found_backbone_revision_resolution = False
