@@ -23,9 +23,12 @@ REGISTRY_ROOT = ROOT / "src" / "needle" / "registry_data"
 
 
 def _run(args: list[str]) -> tuple[int, str, str]:
+    env = dict(os.environ)
+    env["COLUMNS"] = "120"
     proc = subprocess.run(
         ["uv", "run", "needle", *args],
         cwd=ROOT,
+        env=env,
         text=True,
         capture_output=True,
         check=False,
