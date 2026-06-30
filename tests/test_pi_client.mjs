@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,13 +9,17 @@ import test from "node:test";
 import {
 	acquireLease,
 	activePackageId,
+	appHome,
 	backendIdentity,
 	codeVersion,
 	ensureManager,
+	expandUserPath,
+	managerSocketPath,
 	managerTokenPath,
 	packageIdentity,
 	packageInventory,
 	prune,
+	readManagerToken,
 	request,
 	runtimeLaunchPlan,
 	socketIsLive,
@@ -261,6 +265,111 @@ test("Pi client mirrors manager token path precedence", async () => {
 	}
 });
 
+test("Pi runtime paths expand ~ like Python naming helpers", () => {
+	const dir = spawnSync("mktemp", ["-d", `${tmpdir()}/hay-pi-home-XXXXXX`], { encoding: "utf8" }).stdout.trim();
+	const home = join(dir, "home");
+	const env = {
+		...process.env,
+		HOME: home,
+		NEEDLE_HOME: "~/needle-home",
+		NEEDLE_MANAGER_SOCKET: "~/needle.sock",
+		NEEDLE_MANAGER_TOKEN_FILE: "~/needle.token",
+		PYTHONPATH: "src",
+	};
+	const py = spawnSync(
+		process.env.PYTHON || "python3",
+		[
+			"-c",
+			"import json; from needle.runtime import naming; print(json.dumps({'appHome': str(naming.app_home()), 'socket': str(naming.manager_socket_path()), 'token': str(naming.manager_token_path())}))",
+		],
+		{ cwd: process.cwd(), env, encoding: "utf8" },
+	);
+	assert.equal(py.status, 0, py.stderr);
+	const pythonPaths = JSON.parse(py.stdout);
+	const oldHome = process.env.HOME;
+	const oldNeedleHome = process.env.NEEDLE_HOME;
+	const oldHayHome = process.env.HAY_HOME;
+	const oldNeedleSocket = process.env.NEEDLE_MANAGER_SOCKET;
+	const oldHaySocket = process.env.HAY_MANAGER_SOCKET;
+	const oldNeedleToken = process.env.NEEDLE_MANAGER_TOKEN_FILE;
+	const oldHayToken = process.env.HAY_MANAGER_TOKEN_FILE;
+	try {
+		process.env.HOME = home;
+		process.env.NEEDLE_HOME = "~/needle-home";
+		process.env.NEEDLE_MANAGER_SOCKET = "~/needle.sock";
+		process.env.NEEDLE_MANAGER_TOKEN_FILE = "~/needle.token";
+		delete process.env.HAY_HOME;
+		delete process.env.HAY_MANAGER_SOCKET;
+		delete process.env.HAY_MANAGER_TOKEN_FILE;
+		assert.equal(appHome(), pythonPaths.appHome);
+		assert.equal(managerSocketPath(), pythonPaths.socket);
+		assert.equal(managerTokenPath(), pythonPaths.token);
+		assert.equal(expandUserPath("~/x"), join(home, "x"));
+	} finally {
+		if (oldHome === undefined) {
+			delete process.env.HOME;
+		} else {
+			process.env.HOME = oldHome;
+		}
+		if (oldNeedleHome === undefined) {
+			delete process.env.NEEDLE_HOME;
+		} else {
+			process.env.NEEDLE_HOME = oldNeedleHome;
+		}
+		if (oldHayHome === undefined) {
+			delete process.env.HAY_HOME;
+		} else {
+			process.env.HAY_HOME = oldHayHome;
+		}
+		if (oldNeedleSocket === undefined) {
+			delete process.env.NEEDLE_MANAGER_SOCKET;
+		} else {
+			process.env.NEEDLE_MANAGER_SOCKET = oldNeedleSocket;
+		}
+		if (oldHaySocket === undefined) {
+			delete process.env.HAY_MANAGER_SOCKET;
+		} else {
+			process.env.HAY_MANAGER_SOCKET = oldHaySocket;
+		}
+		if (oldNeedleToken === undefined) {
+			delete process.env.NEEDLE_MANAGER_TOKEN_FILE;
+		} else {
+			process.env.NEEDLE_MANAGER_TOKEN_FILE = oldNeedleToken;
+		}
+		if (oldHayToken === undefined) {
+			delete process.env.HAY_MANAGER_TOKEN_FILE;
+		} else {
+			process.env.HAY_MANAGER_TOKEN_FILE = oldHayToken;
+		}
+	}
+});
+
+test("Pi client rejects unsafe manager token files before reading", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "hay-pi-unsafe-token-"));
+	const socketPath = join(dir, "manager.sock");
+	const tokenPath = managerTokenPath(socketPath);
+	const target = join(dir, "target.token");
+	await writeFile(target, `${TEST_TOKEN}\n`);
+	await symlink(target, tokenPath);
+	await assert.rejects(() => readManagerToken(socketPath), /symlink/);
+
+	await rm(tokenPath);
+	await mkdir(tokenPath);
+	await assert.rejects(() => readManagerToken(socketPath), /regular file/);
+	await rm(tokenPath, { recursive: true });
+
+	const unsafeDir = join(dir, "unsafe-parent");
+	await mkdir(unsafeDir);
+	await chmod(unsafeDir, 0o777);
+	const unsafeSocketPath = join(unsafeDir, "manager.sock");
+	await writeFile(managerTokenPath(unsafeSocketPath), `${TEST_TOKEN}\n`);
+	try {
+		await assert.rejects(() => readManagerToken(unsafeSocketPath), /other-writable/);
+	} finally {
+		await chmod(unsafeDir, 0o700);
+	}
+});
+
 test("Pi adapter patches prunable tool results and records savings", async () => {
 	const counters = { calls: 0, originalChars: 0, prunedChars: 0, savedChars: 0 };
 	const event = {
@@ -431,6 +540,56 @@ test("Pi extension lifecycle leases, overrides read, updates status, and release
 		assert.ok(ops.includes("lease"), ops);
 		assert.ok(ops.includes("prune"), ops);
 		assert.ok(ops.includes("release"), ops);
+	} finally {
+		if (oldSocket === undefined) {
+			delete process.env.HAY_MANAGER_SOCKET;
+		} else {
+			process.env.HAY_MANAGER_SOCKET = oldSocket;
+		}
+		await closeServer(server);
+	}
+});
+
+test("Pi extension reports failed lease without starting runtime loops", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "hay-pi-lease-fail-"));
+	const socketPath = join(dir, "manager.sock");
+	const ops = [];
+	await writeManagerToken(socketPath);
+	const server = createJsonSocketServer(socketPath, (req, conn) => {
+		assertToken(req);
+		ops.push(req.op);
+		if (req.op === "lease") {
+			conn.end(JSON.stringify({ ok: false, error: "refused" }) + "\n");
+			return;
+		}
+		conn.end(JSON.stringify({ ok: true, resident: true, backend: "mock" }) + "\n");
+	});
+	await listen(server, socketPath);
+
+	const oldSocket = process.env.HAY_MANAGER_SOCKET;
+	process.env.HAY_MANAGER_SOCKET = socketPath;
+	try {
+		const handlers = new Map();
+		const statuses = [];
+		const pi = {
+			on: (event, handler) => handlers.set(event, handler),
+			registerCommand() {},
+			registerTool() {},
+		};
+		installNeedlePiExtension(pi, {
+			createReadTool: () => ({ name: "read", parameters: {}, async execute() {} }),
+			createBashTool: () => ({ name: "bash", parameters: {}, async execute() {} }),
+		});
+		const ctx = {
+			sessionManager: { getSessionId: () => "lease-fail", getEntries: () => [] },
+			ui: { setStatus: (key, text) => statuses.push([key, text]), theme: { fg: (_name, text) => text } },
+		};
+		await handlers.get("session_start")({}, ctx);
+		await new Promise((resolve) => setTimeout(resolve, 650));
+		await handlers.get("session_shutdown")({}, ctx);
+		assert.deepEqual(ops, ["lease"]);
+		assert.equal(statuses.at(-1)[0], "needle");
+		assert.match(statuses.at(-1)[1], /needle · 0 chars trimmed · 0 prunes/);
 	} finally {
 		if (oldSocket === undefined) {
 			delete process.env.HAY_MANAGER_SOCKET;
@@ -669,6 +828,101 @@ test("Pi ensureManager refuses a live manager when the token file is missing", a
 	} finally {
 		await closeServer(server);
 	}
+});
+
+test("Pi client refuses unsafe manager sockets", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "hay-pi-unsafe-socket-"));
+	const socketPath = join(dir, "manager.sock");
+	await writeFile(socketPath, "not a socket");
+	await writeManagerToken(socketPath);
+	assert.equal(await socketIsLive(socketPath), false);
+	await assert.rejects(
+		() => request({ op: "stats" }, { socketPath, timeoutMs: 100 }),
+		/manager socket is not safe/,
+	);
+});
+
+test("Pi ensureManager refuses a live manager with a mismatched code version", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "hay-pi-version-mismatch-"));
+	const socketPath = join(dir, "manager.sock");
+	await writeManagerToken(socketPath);
+	const plan = await runtimeLaunchPlan(process.cwd(), { hostBinding: "pi/native-tools" });
+	const server = createJsonSocketServer(socketPath, (req, conn) => {
+		assertToken(req);
+		assert.equal(req.op, "stats");
+		conn.end(JSON.stringify({
+			ok: true,
+			resident: false,
+			version: "old-version",
+			package_id: plan.packageId,
+			host_binding: plan.hostBinding,
+			backend_id: plan.backendId,
+			runtime_profile: plan.runtimeProfile,
+		}) + "\n");
+	});
+	await listen(server, socketPath);
+	let spawned = 0;
+	try {
+		const ok = await ensureManager({
+			repoRoot: process.cwd(),
+			socketPath,
+			launchPlan: plan,
+			expectedVersion: "new-version",
+			spawn() {
+				spawned += 1;
+				return { unref() {} };
+			},
+		});
+		assert.equal(ok, false);
+		assert.equal(spawned, 0);
+	} finally {
+		await closeServer(server);
+	}
+});
+
+test("Pi request caps newline-free manager responses", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "hay-pi-response-cap-"));
+	const socketPath = join(dir, "manager.sock");
+	await writeManagerToken(socketPath);
+	const server = createServer((conn) => {
+		conn.setEncoding("utf8");
+		conn.on("data", () => {
+			conn.write("x".repeat(128));
+		});
+	});
+	await listen(server, socketPath);
+	try {
+		await assert.rejects(
+			() => request({ op: "stats" }, { socketPath, maxResponseBytes: 32, timeoutMs: 500 }),
+			/response exceeded 32 bytes/,
+		);
+	} finally {
+		await closeServer(server);
+	}
+});
+
+test("Pi ensureManager handles spawn failures as unavailable", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "hay-pi-spawn-fail-"));
+	const socketPath = join(dir, "manager.sock");
+	const plan = await runtimeLaunchPlan(process.cwd(), { hostBinding: "pi/native-tools" });
+	const thrown = await ensureManager({
+		repoRoot: process.cwd(),
+		socketPath,
+		launchPlan: plan,
+		spawn() {
+			throw new Error("boom");
+		},
+	});
+	assert.equal(thrown, false);
+	const malformed = await ensureManager({
+		repoRoot: process.cwd(),
+		socketPath,
+		launchPlan: plan,
+		spawn() {
+			return {};
+		},
+	});
+	assert.equal(malformed, false);
 });
 
 test("Pi acquireLease sends runtime identity and replaces stale manager", async () => {
