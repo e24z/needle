@@ -16,11 +16,16 @@ def _request(
     req: dict, socket_path: str | Path | None = None, timeout: float = 30.0
 ) -> dict[str, Any]:
     sock_path = Path(socket_path) if socket_path else naming.manager_socket_path()
+    wire_req = dict(req)
+    try:
+        wire_req["token"] = naming.read_manager_token(sock_path)
+    except FileNotFoundError:
+        wire_req["token"] = naming.get_or_create_manager_token(sock_path)
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     s.settimeout(timeout)
     s.connect(str(sock_path))
     try:
-        s.sendall(encode(req))
+        s.sendall(encode(wire_req))
         with s.makefile("rb") as f:
             line = f.readline()
         if not line:

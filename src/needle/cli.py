@@ -24,6 +24,7 @@ import typer
 from . import __version__
 from .registry import (
     BUILTIN_REGISTRY_ROOT,
+    LoadedPackage,
     PackageConfigError,
     active_package_selection,
     load_active_package,
@@ -669,7 +670,9 @@ def _print_setup_checklist(
     print("next: run `needle setup` in an interactive terminal, or run one of the setup commands above.")
 
 
-def _select_setup_package(host: str, package_id: str | None, *, dry_run: bool) -> int:
+def _select_setup_package(
+    host: str, package_id: str | None, *, dry_run: bool
+) -> tuple[int, LoadedPackage | None]:
     meta = _SETUP_HOSTS[host]
     selected = package_id or str(meta["package"])
     binding = str(meta["binding"])
@@ -677,19 +680,19 @@ def _select_setup_package(host: str, package_id: str | None, *, dry_run: bool) -
         loaded = load_active_package(package_id=selected, host_binding=binding)
     except PackageConfigError as exc:
         _print_error(exc)
-        return 1
+        return 1, None
 
     print(f"Using Needle package: {loaded.package_id}")
     if dry_run:
-        return 0
+        return 0, loaded
 
     try:
         configured = set_configured_package_id(loaded.package_id, host_binding=binding)
     except PackageConfigError as exc:
         _print_error(exc)
-        return 1
+        return 1, None
     print(f"Selected Needle package: {configured.package_id}")
-    return 0
+    return 0, loaded
 
 
 def _run_setup_host(
@@ -706,15 +709,15 @@ def _run_setup_host(
         except ValueError as exc:
             _print_error(exc)
             return 1
-    code = _select_setup_package(host, package_id, dry_run=dry_run)
+    code, loaded = _select_setup_package(host, package_id, dry_run=dry_run)
     if code:
         return code
     print("")
     if host == "pi":
         return _setup_pi(_ns(dry_run=dry_run, uninstall=False, skip_canary=skip_canary))
     if host == "codex":
-        return _setup_codex(_ns(dry_run=dry_run, uninstall=False))
-    return _setup_claude_code(_ns(dry_run=dry_run, uninstall=False, scope=scope))
+        return _setup_codex(_ns(dry_run=dry_run, uninstall=False), loaded)
+    return _setup_claude_code(_ns(dry_run=dry_run, uninstall=False, scope=scope), loaded)
 
 
 def _setup_native_command(host: str, scope: str) -> list[str]:
@@ -987,7 +990,22 @@ def _codex_config_toml() -> str:
     )
 
 
-def _setup_claude_code(args: argparse.Namespace) -> int:
+def _runtime_manage_command(loaded: LoadedPackage) -> list[str]:
+    return [
+        "needle",
+        "runtime",
+        "manage",
+        "--package",
+        loaded.package_id,
+        "--host-binding",
+        loaded.binding_id,
+    ]
+
+
+def _setup_claude_code(
+    args: argparse.Namespace,
+    loaded_package: LoadedPackage | None = None,
+) -> int:
     try:
         scope = _claude_scope(args.scope)
     except ValueError as exc:
@@ -1012,17 +1030,18 @@ def _setup_claude_code(args: argparse.Namespace) -> int:
         return 0
 
     command = _claude_code_add_command(scope)
-    loaded = None
-    try:
-        loaded = load_active_package(package_id="e24z/mlx-mcp-bash-reference", host_binding="mcp/bash")
-    except PackageConfigError as exc:
-        _print_error(exc)
-        return 1
+    loaded = loaded_package
+    if loaded is None:
+        try:
+            loaded = load_active_package(host_binding="mcp/bash")
+        except PackageConfigError as exc:
+            _print_error(exc)
+            return 1
 
     print("Needle for Claude Code")
     print("Tool name: needle_bash")
     print("Tool command: needle mcp serve")
-    print("Runtime command: needle runtime manage --host-binding mcp/bash")
+    print(f"Runtime command: {_format_command(_runtime_manage_command(loaded))}")
     print(f"Claude scope: {scope}")
     print(f"Claude command: {_format_command(command)}")
     print("Statusline: needle statusline claude-code")
@@ -1049,7 +1068,10 @@ def _setup_claude_code(args: argparse.Namespace) -> int:
     return 0
 
 
-def _setup_codex(args: argparse.Namespace) -> int:
+def _setup_codex(
+    args: argparse.Namespace,
+    loaded_package: LoadedPackage | None = None,
+) -> int:
     if args.uninstall:
         command = _codex_remove_command()
         print("Needle Codex CLI MCP server: needle-bash")
@@ -1067,17 +1089,19 @@ def _setup_codex(args: argparse.Namespace) -> int:
         print("Needle Codex CLI MCP server removed through Codex's native MCP command.")
         return 0
 
-    try:
-        loaded = load_active_package(package_id="e24z/mlx-mcp-bash-reference", host_binding="mcp/bash")
-    except PackageConfigError as exc:
-        _print_error(exc)
-        return 1
+    loaded = loaded_package
+    if loaded is None:
+        try:
+            loaded = load_active_package(host_binding="mcp/bash")
+        except PackageConfigError as exc:
+            _print_error(exc)
+            return 1
 
     command = _codex_add_command()
     print("Needle for Codex CLI")
     print("Tool name: needle_bash")
     print("Tool command: needle mcp serve")
-    print("Runtime command: needle runtime manage --host-binding mcp/bash")
+    print(f"Runtime command: {_format_command(_runtime_manage_command(loaded))}")
     print(f"Codex command: {_format_command(command)}")
     print("Statusline: needle statusline codex")
     print("Status: needle status --events 20")
@@ -1118,10 +1142,11 @@ def _model_dir(args: argparse.Namespace) -> int:
 
 def _model_download(args: argparse.Namespace) -> int:
     repo = args.repo or _default_model_repo()
+    revision = args.revision or os.environ.get("NEEDLE_MODEL_REVISION") or os.environ.get("HAY_MODEL_REVISION")
     root = naming.model_root()
     local_dir = naming.model_dir_for_repo(repo)
     try:
-        from huggingface_hub import snapshot_download
+        from huggingface_hub import HfApi, snapshot_download
     except ImportError:
         print(
             "error: this Needle install can set up host adapters, but it does not include "
@@ -1134,14 +1159,44 @@ def _model_download(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+    resolved_revision = ""
+    try:
+        info = HfApi().model_info(repo, revision=revision or None)
+        resolved_revision = str(getattr(info, "sha", "") or "")
+    except Exception as exc:  # noqa: BLE001 - download may still produce a useful local error.
+        print(f"warning: could not resolve model revision before download: {exc}", file=sys.stderr)
     root.mkdir(parents=True, exist_ok=True)
     path = snapshot_download(
         repo,
+        revision=revision or None,
         local_dir=str(local_dir),
         cache_dir=str(root / ".hf-cache"),
     )
     print(path)
+    if resolved_revision:
+        _write_model_provenance(
+            local_dir,
+            repo=repo,
+            requested_revision=revision or "default",
+            resolved_revision=resolved_revision,
+        )
+        print(f"revision: {resolved_revision}")
     return 0
+
+
+def _write_model_provenance(
+    local_dir: Path,
+    *,
+    repo: str,
+    requested_revision: str,
+    resolved_revision: str,
+) -> None:
+    data = {
+        "repo": repo,
+        "requested_revision": requested_revision,
+        "resolved_revision": resolved_revision,
+    }
+    (local_dir / "needle-model.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
 def _model_clean(args: argparse.Namespace) -> int:
@@ -1281,9 +1336,14 @@ def model_download(
         "--repo",
         help="Hugging Face repo id; defaults to code-pruner.",
     ),
+    revision: str = typer.Option(
+        "",
+        "--revision",
+        help="Hugging Face revision, tag, branch, or commit to download.",
+    ),
 ) -> None:
     """Download the configured model repo."""
-    _exit_with(_model_download(_ns(repo=repo)))
+    _exit_with(_model_download(_ns(repo=repo, revision=revision)))
 
 
 @model_app.command("clean")

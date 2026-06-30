@@ -26,6 +26,7 @@
   "known_limits": [
     "Token and dollar savings are estimates unless paired or billing-backed.",
     "Missing context_focus_question passes through.",
+    "needle_bash executes unsandboxed local bash; it is not read-only enforcement.",
     "Local MLX performance depends on machine memory and model residency.",
     "MCP configuration alone does not force an agent to prefer needle_bash over native tools."
   ],
@@ -40,4 +41,3 @@
     "remote_compute": "Remote endpoints may receive tool text."
   }
 }
-

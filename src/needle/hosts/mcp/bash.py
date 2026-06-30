@@ -59,6 +59,8 @@ class BashObservation:
     stderr_truncated: bool = False
     stdout_limit_bytes: int | None = None
     stderr_limit_bytes: int | None = None
+    stdout_omitted_bytes: int = 0
+    stderr_omitted_bytes: int = 0
 
     @property
     def text(self) -> str:
@@ -97,14 +99,26 @@ def run_bash_command(
     return BashObservation(
         command=command,
         exit_code=result["exit_code"],
-        stdout=_decode_output(result["stdout"]),
-        stderr=_decode_output(result["stderr"]),
+        stdout=_decode_captured_output(
+            result["stdout"],
+            stream="stdout",
+            head_bytes=int(result["stdout_head_bytes"]),
+            omitted_bytes=int(result["stdout_omitted_bytes"]),
+        ),
+        stderr=_decode_captured_output(
+            result["stderr"],
+            stream="stderr",
+            head_bytes=int(result["stderr_head_bytes"]),
+            omitted_bytes=int(result["stderr_omitted_bytes"]),
+        ),
         timed_out=bool(result["timed_out"]),
         timeout_secs=timeout_secs if result["timed_out"] else None,
         stdout_truncated=bool(result["stdout_truncated"]),
         stderr_truncated=bool(result["stderr_truncated"]),
         stdout_limit_bytes=stdout_limit_bytes,
         stderr_limit_bytes=stderr_limit_bytes,
+        stdout_omitted_bytes=int(result["stdout_omitted_bytes"]),
+        stderr_omitted_bytes=int(result["stderr_omitted_bytes"]),
     )
 
 
@@ -117,12 +131,18 @@ def render_observation(observation: BashObservation) -> str:
         parts.append("stdout:")
         parts.append(observation.stdout.rstrip("\n"))
     if observation.stdout_truncated:
-        parts.append(f"[needle: stdout truncated at {observation.stdout_limit_bytes} bytes]")
+        parts.append(
+            f"[needle: stdout truncated to head+tail within {observation.stdout_limit_bytes} bytes; "
+            f"omitted {observation.stdout_omitted_bytes} bytes]"
+        )
     if observation.stderr:
         parts.append("stderr:")
         parts.append(observation.stderr.rstrip("\n"))
     if observation.stderr_truncated:
-        parts.append(f"[needle: stderr truncated at {observation.stderr_limit_bytes} bytes]")
+        parts.append(
+            f"[needle: stderr truncated to head+tail within {observation.stderr_limit_bytes} bytes; "
+            f"omitted {observation.stderr_omitted_bytes} bytes]"
+        )
     if len(parts) == 1:
         parts.append("stdout:")
         parts.append("")
@@ -242,6 +262,8 @@ def _observation_context(observation: BashObservation, rendered: str) -> dict[st
         "stderr_truncated": observation.stderr_truncated,
         "stdout_limit_bytes": observation.stdout_limit_bytes,
         "stderr_limit_bytes": observation.stderr_limit_bytes,
+        "stdout_omitted_bytes": observation.stdout_omitted_bytes,
+        "stderr_omitted_bytes": observation.stderr_omitted_bytes,
         "exit_code": observation.exit_code if observation.exit_code is not None else "timeout",
         "command_timeout": observation.timed_out,
     }
@@ -293,9 +315,10 @@ def _communicate_bounded(
     stderr_limit_bytes: int,
 ) -> dict[str, object]:
     selector = selectors.DefaultSelector()
-    buffers = {"stdout": bytearray(), "stderr": bytearray()}
-    limits = {"stdout": stdout_limit_bytes, "stderr": stderr_limit_bytes}
-    truncated = {"stdout": False, "stderr": False}
+    captures = {
+        "stdout": _BoundedCapture(stdout_limit_bytes),
+        "stderr": _BoundedCapture(stderr_limit_bytes),
+    }
 
     if proc.stdout is not None:
         selector.register(proc.stdout, selectors.EVENT_READ, "stdout")
@@ -309,13 +332,13 @@ def _communicate_bounded(
         if remaining <= 0:
             timed_out = True
             break
-        _drain_ready(selector, buffers, limits, truncated, timeout=min(0.1, remaining))
+        _drain_ready(selector, captures, timeout=min(0.1, remaining))
 
     if timed_out:
         _kill_process_group(proc)
         drain_deadline = time.monotonic() + 1.0
         while selector.get_map() and time.monotonic() < drain_deadline:
-            _drain_ready(selector, buffers, limits, truncated, timeout=0.05)
+            _drain_ready(selector, captures, timeout=0.05)
 
     selector.close()
     try:
@@ -327,19 +350,76 @@ def _communicate_bounded(
 
     return {
         "exit_code": exit_code,
-        "stdout": bytes(buffers["stdout"]),
-        "stderr": bytes(buffers["stderr"]),
+        "stdout": captures["stdout"].value,
+        "stderr": captures["stderr"].value,
         "timed_out": timed_out,
-        "stdout_truncated": truncated["stdout"],
-        "stderr_truncated": truncated["stderr"],
+        "stdout_truncated": captures["stdout"].truncated,
+        "stderr_truncated": captures["stderr"].truncated,
+        "stdout_head_bytes": captures["stdout"].head_len,
+        "stderr_head_bytes": captures["stderr"].head_len,
+        "stdout_omitted_bytes": captures["stdout"].omitted_bytes,
+        "stderr_omitted_bytes": captures["stderr"].omitted_bytes,
     }
+
+
+class _BoundedCapture:
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self._head_limit = limit // 3
+        self._tail_limit = limit - self._head_limit
+        self._full = bytearray()
+        self._head = bytearray()
+        self._tail = bytearray()
+        self._seen = 0
+        self.truncated = False
+
+    def append(self, chunk: bytes) -> bool:
+        if not chunk:
+            return self.truncated
+        if not self.truncated:
+            if len(self._full) + len(chunk) <= self.limit:
+                self._full.extend(chunk)
+                self._seen += len(chunk)
+                return False
+            combined = bytes(self._full) + chunk
+            self._seen += len(chunk)
+            self.truncated = True
+            self._full.clear()
+            if self._head_limit:
+                self._head.extend(combined[: self._head_limit])
+            if self._tail_limit:
+                self._tail.extend(combined[-self._tail_limit :])
+            return True
+
+        self._seen += len(chunk)
+        if self._tail_limit:
+            self._tail.extend(chunk)
+            if len(self._tail) > self._tail_limit:
+                del self._tail[: len(self._tail) - self._tail_limit]
+        return True
+
+    @property
+    def value(self) -> bytes:
+        if not self.truncated:
+            return bytes(self._full)
+        return bytes(self._head + self._tail)
+
+    @property
+    def head_len(self) -> int:
+        if not self.truncated:
+            return len(self._full)
+        return len(self._head)
+
+    @property
+    def omitted_bytes(self) -> int:
+        if not self.truncated:
+            return 0
+        return max(0, self._seen - len(self._head) - len(self._tail))
 
 
 def _drain_ready(
     selector: selectors.BaseSelector,
-    buffers: dict[str, bytearray],
-    limits: dict[str, int],
-    truncated: dict[str, bool],
+    captures: dict[str, _BoundedCapture],
     *,
     timeout: float,
 ) -> None:
@@ -359,14 +439,7 @@ def _drain_ready(
             except OSError:
                 pass
             continue
-        truncated[stream] = _append_limited(buffers[stream], chunk, limits[stream]) or truncated[stream]
-
-
-def _append_limited(buffer: bytearray, chunk: bytes, limit: int) -> bool:
-    remaining = max(0, limit - len(buffer))
-    if remaining:
-        buffer.extend(chunk[:remaining])
-    return len(chunk) > remaining
+        captures[stream].append(chunk)
 
 
 def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:
@@ -381,5 +454,16 @@ def _kill_process_group(proc: subprocess.Popen[bytes]) -> None:
             pass
 
 
-def _decode_output(value: bytes) -> str:
-    return value.decode("utf-8", errors="replace")
+def _decode_captured_output(
+    value: bytes,
+    *,
+    stream: str,
+    head_bytes: int,
+    omitted_bytes: int,
+) -> str:
+    if omitted_bytes <= 0:
+        return value.decode("utf-8", errors="replace")
+    head = value[:head_bytes].decode("utf-8", errors="replace")
+    tail = value[head_bytes:].decode("utf-8", errors="replace")
+    marker = f"\n[needle: {stream} omitted {omitted_bytes} bytes between head and tail]\n"
+    return f"{head}{marker}{tail}"

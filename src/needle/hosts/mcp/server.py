@@ -1,8 +1,4 @@
-"""Needle MCP stdio server.
-
-The server intentionally exposes one bash observation tool. Host-native tools
-remain responsible for edit/write/apply-patch mutation.
-"""
+"""Needle MCP stdio server."""
 
 from __future__ import annotations
 
@@ -21,15 +17,16 @@ def _build_server():
     mcp = FastMCP(
         "Needle MCP Bash",
         instructions=(
-            "Use needle_bash for observation through shell commands. "
+            "needle_bash executes an unsandboxed local bash command and captures bounded output. "
+            "Use it only for commands the user would be comfortable running in a shell. "
             "Provide context_focus_question for large outputs when there is a clear, "
-            "self-contained intent. Use host-native edit/write/apply-patch tools for mutation."
+            "self-contained intent. Prefer host-native edit/write/apply-patch tools for planned mutation."
         ),
     )
 
     @mcp.tool()
     def needle_bash(command: str, context_focus_question: str | None = None) -> str:
-        """Execute one bash command and optionally prune large output.
+        """Execute one unsandboxed bash command and optionally prune large output.
 
         Omit context_focus_question for raw output or small commands. When supplied,
         the question must be complete and self-contained; Needle does not invent
@@ -46,4 +43,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

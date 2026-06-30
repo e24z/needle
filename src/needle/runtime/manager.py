@@ -27,6 +27,7 @@ from __future__ import annotations
 import os
 import signal
 import socket
+import struct
 import threading
 import time
 from pathlib import Path
@@ -50,6 +51,8 @@ MANAGER_CONFIG_ENVS = {
     "idle_timeout": ("NEEDLE_IDLE_TIMEOUT", "HAY_IDLE_TIMEOUT"),
     "min_free_mb": ("NEEDLE_MIN_FREE_MB", "HAY_MIN_FREE_MB"),
     "max_prune_chars": ("NEEDLE_MAX_PRUNE_CHARS", "HAY_MAX_PRUNE_CHARS"),
+    "max_request_bytes": ("NEEDLE_MANAGER_MAX_REQUEST_BYTES", "HAY_MANAGER_MAX_REQUEST_BYTES"),
+    "request_read_timeout": ("NEEDLE_MANAGER_REQUEST_READ_TIMEOUT", "HAY_MANAGER_REQUEST_READ_TIMEOUT"),
     "mem_poll": ("NEEDLE_MEM_POLL", "HAY_MEM_POLL"),
 }
 
@@ -58,6 +61,8 @@ LEASE_TTL = float(_env(MANAGER_CONFIG_ENVS["lease_ttl"], "90"))
 IDLE_TIMEOUT = float(_env(MANAGER_CONFIG_ENVS["idle_timeout"], "300"))
 MIN_FREE_MB = float(_env(MANAGER_CONFIG_ENVS["min_free_mb"], "3072"))
 MAX_PRUNE_CHARS = int(_env(MANAGER_CONFIG_ENVS["max_prune_chars"], "1000000"))
+MAX_REQUEST_BYTES = int(_env(MANAGER_CONFIG_ENVS["max_request_bytes"], "2500000"))
+REQUEST_READ_TIMEOUT = float(_env(MANAGER_CONFIG_ENVS["request_read_timeout"], "2"))
 MEM_POLL = float(_env(MANAGER_CONFIG_ENVS["mem_poll"], "5"))
 
 _STATS_LIST_LIMIT = 16
@@ -184,6 +189,7 @@ class Manager:
         idle_timeout: float = IDLE_TIMEOUT,
         min_free_mb: float = MIN_FREE_MB,
         max_prune_chars: int = MAX_PRUNE_CHARS,
+        max_request_bytes: int = MAX_REQUEST_BYTES,
         mem_poll: float = MEM_POLL,
         memstat: Callable[[], tuple[int, int]] = sysmem.memstat,
         emit: Callable[..., None] = events.emit,
@@ -199,6 +205,7 @@ class Manager:
         self.idle_timeout = idle_timeout
         self.min_free_mb = min_free_mb
         self.max_prune_chars = max_prune_chars
+        self.max_request_bytes = max_request_bytes
         self.mem_poll = mem_poll
         self.memstat = memstat
         self._beats: dict[str, float] = {}      # session id -> last heartbeat (monotonic)
@@ -354,19 +361,65 @@ class Manager:
         self._empty_since = None  # evicted; don't fire again until reloaded
 
 
-def _serve_conn(conn: socket.socket, mgr: Manager) -> None:
-    conn.settimeout(60)  # a silent client must not hang the serial loop
+def _peer_uid(conn: socket.socket) -> int | None:
+    if not hasattr(os, "getuid"):
+        return None
+    if hasattr(socket, "SO_PEERCRED"):
+        try:
+            raw = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+            _pid, uid, _gid = struct.unpack("3i", raw)
+            return int(uid)
+        except OSError:
+            return None
+    return None
+
+
+def _read_request_frame(conn: socket.socket, limit: int) -> bytes:
+    data = bytearray()
+    while len(data) <= limit:
+        chunk = conn.recv(min(8192, limit + 1 - len(data)))
+        if not chunk:
+            break
+        data.extend(chunk)
+        if b"\n" in chunk:
+            line, _sep, _rest = bytes(data).partition(b"\n")
+            if len(line) > limit:
+                raise ValueError(f"request too large: limit is {limit} bytes")
+            return line.strip()
+    if len(data) > limit:
+        raise ValueError(f"request too large: limit is {limit} bytes")
+    return bytes(data).strip()
+
+
+def _serve_conn(
+    conn: socket.socket,
+    mgr: Manager,
+    *,
+    auth_token: str,
+    handle_lock: threading.Lock,
+) -> None:
+    conn.settimeout(REQUEST_READ_TIMEOUT)
     try:
-        with conn, conn.makefile("rb") as f:
-            for line in f:
-                line = line.strip()
+        with conn:
+            peer_uid = _peer_uid(conn)
+            if peer_uid is not None and hasattr(os, "getuid") and peer_uid != os.getuid():
+                conn.sendall(encode({"ok": False, "error": "unauthorized"}))
+                return
+            try:
+                line = _read_request_frame(conn, mgr.max_request_bytes)
                 if not line:
-                    continue
-                try:
-                    resp = mgr.handle(decode(line))
-                except Exception as exc:  # never let one bad request kill the conn
-                    resp = {"ok": False, "error": str(exc)}
-                conn.sendall(encode(resp))
+                    return
+                req = decode(line)
+                if not isinstance(req, dict):
+                    raise ValueError("request must be a JSON object")
+                if req.pop("token", None) != auth_token:
+                    conn.sendall(encode({"ok": False, "error": "unauthorized"}))
+                    return
+                with handle_lock:
+                    resp = mgr.handle(req)
+            except Exception as exc:  # never let one bad request kill the manager
+                resp = {"ok": False, "error": str(exc)}
+            conn.sendall(encode(resp))
     except OSError:  # includes socket.timeout
         try:
             conn.close()
@@ -399,9 +452,12 @@ def serve_manager(
     if heavy is None:
         heavy = (not explicit_backend) and is_code_pruner_backend_name()
     sock_path = Path(socket_path) if socket_path else naming.manager_socket_path()
-    sock_path.parent.mkdir(parents=True, exist_ok=True)
+    naming.ensure_runtime_parent(sock_path.parent)
+    auth_token = naming.get_or_create_manager_token(sock_path)
 
     if sock_path.exists():
+        if not naming.socket_owner_is_current_user(sock_path):
+            raise RuntimeError(f"manager socket is not owned by the current user: {sock_path}")
         if naming.socket_is_live(sock_path):
             if ready_cb:  # another manager already owns this machine; defer to it
                 ready_cb(sock_path)
@@ -411,6 +467,10 @@ def serve_manager(
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         srv.bind(str(sock_path))
+        try:
+            os.chmod(sock_path, 0o600)
+        except OSError:
+            pass
     except OSError as exc:
         srv.close()
         if naming.socket_is_live(sock_path):
@@ -431,6 +491,7 @@ def serve_manager(
         idle_timeout=idle_timeout,
         runtime_identity=runtime_identity,
     )
+    handle_lock = threading.Lock()
 
     if ready_cb:
         ready_cb(sock_path)
@@ -441,12 +502,18 @@ def serve_manager(
 
     try:
         while not stop_event.is_set():
-            mgr.maintain()
+            with handle_lock:
+                mgr.maintain()
             try:
                 conn, _ = srv.accept()
             except socket.timeout:
                 continue
-            _serve_conn(conn, mgr)  # serial: one model, one Metal thread
+            threading.Thread(
+                target=_serve_conn,
+                args=(conn, mgr),
+                kwargs={"auth_token": auth_token, "handle_lock": handle_lock},
+                daemon=True,
+            ).start()
     finally:
         srv.close()
         if sock_path.exists():

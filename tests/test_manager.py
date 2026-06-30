@@ -59,6 +59,20 @@ class StatsBackend:
 
 
 def _call(sock_path: Path, req: dict) -> dict:
+    wire_req = dict(req)
+    wire_req["token"] = naming.read_manager_token(sock_path)
+    c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    c.settimeout(2)
+    c.connect(str(sock_path))
+    try:
+        c.sendall(encode(wire_req))
+        with c.makefile("rb") as f:
+            return decode(f.readline())
+    finally:
+        c.close()
+
+
+def _raw_call(sock_path: Path, req: dict) -> dict:
     c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     c.settimeout(2)
     c.connect(str(sock_path))
@@ -202,6 +216,8 @@ def main() -> int:
     assert ready.wait(2), "manager never signalled ready"
 
     try:
+        assert _raw_call(tmp, {"op": "stats"}) == {"ok": False, "error": "unauthorized"}
+
         # Leasing does NOT load the model (lazy): nothing built yet.
         assert _call(tmp, {"op": "lease", "session": "s1"})["ok"]
         s = _call(tmp, {"op": "stats"})

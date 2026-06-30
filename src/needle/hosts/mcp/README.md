@@ -1,14 +1,16 @@
 # Needle MCP Bash
 
 Needle MCP Bash is the portable MCP package for agents that can use local stdio
-MCP servers. It exposes one observation tool:
+MCP servers. It exposes one shell-execution tool:
 
 ```text
 needle_bash(command, context_focus_question?)
 ```
 
-Use it for shell-shaped observation. Keep mutation on the host's native edit,
-write, or apply-patch tools.
+`needle_bash` runs unsandboxed local `bash -c`. Use it only for commands the
+user would be comfortable running in a normal shell. Prefer the host's native
+edit, write, or apply-patch tools for planned file mutation so those changes
+stay visible in the host workflow.
 
 This package does not intercept host-native tools. Claude Code's native Bash and
 Codex's built-in Bash are not pruned by Needle. Codex support is experimental
@@ -40,10 +42,11 @@ pass-throughs, manager timeouts, and no-savings pass-throughs.
 
 ## Runtime Limits
 
-`needle_bash` is an observation tool, not a sandbox. It runs the command in a
-fresh non-login bash process, captures bounded stdout/stderr, and kills the
-command's process group if the command timeout expires. Normal child processes
-die with that group; intentionally detached processes may outlive the tool call.
+`needle_bash` is not a sandbox or read-only enforcement layer. It runs the
+command in a fresh non-login bash process, captures bounded stdout/stderr, and
+kills the command's process group if the command timeout expires. Normal child
+processes die with that group; intentionally detached processes may outlive the
+tool call.
 
 Useful environment knobs:
 
@@ -56,7 +59,9 @@ NEEDLE_MCP_MIN_CHARS=500
 ```
 
 The stdout/stderr caps are applied while output is captured, before Needle asks
-the resident runtime to prune the observation.
+the resident runtime to prune the observation. Truncated output keeps both the
+head and tail, with an omission marker between them, so final failures are still
+available to the pruner.
 
 For Claude Code, start with:
 

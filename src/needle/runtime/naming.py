@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import secrets
 import socket
 from pathlib import Path
 
@@ -64,9 +65,105 @@ def manager_socket_path() -> Path:
     return app_home() / "manager.sock"
 
 
+def manager_token_path(socket_path: str | Path | None = None) -> Path:
+    """Path for the per-install manager capability token.
+
+    The default token lives beside the default socket under NEEDLE_HOME. Tests
+    and manual runs that override the socket get an adjacent token file instead
+    of touching the user's real runtime directory.
+    """
+    env = os.environ.get("NEEDLE_MANAGER_TOKEN_FILE") or os.environ.get("HAY_MANAGER_TOKEN_FILE")
+    if env:
+        return Path(env).expanduser()
+    sock = Path(socket_path).expanduser() if socket_path is not None else manager_socket_path()
+    if sock == app_home() / "manager.sock":
+        return app_home() / "manager.token"
+    return sock.with_name(f"{sock.name}.token")
+
+
+def _is_owned_by_current_user(path: Path) -> bool:
+    if not hasattr(os, "getuid"):
+        return True
+    try:
+        return path.stat().st_uid == os.getuid()
+    except OSError:
+        return False
+
+
+def ensure_private_dir(path: Path) -> None:
+    """Create/chmod a Needle-owned runtime directory to user-only access."""
+    path.mkdir(parents=True, exist_ok=True)
+    if hasattr(os, "getuid") and path.exists() and path.stat().st_uid != os.getuid():
+        raise PermissionError(f"runtime directory is not owned by the current user: {path}")
+    try:
+        os.chmod(path, 0o700)
+    except OSError:
+        pass
+
+
+def ensure_runtime_parent(path: Path) -> None:
+    """Create a runtime parent without changing permissions on shared dirs."""
+    if path == app_home():
+        ensure_private_dir(path)
+        return
+    existed = path.exists()
+    path.mkdir(parents=True, exist_ok=True)
+    if not existed:
+        try:
+            os.chmod(path, 0o700)
+        except OSError:
+            pass
+    if hasattr(os, "getuid") and path.exists() and path.stat().st_uid != os.getuid():
+        raise PermissionError(f"runtime directory is not owned by the current user: {path}")
+
+
+def read_manager_token(socket_path: str | Path | None = None) -> str:
+    path = manager_token_path(socket_path)
+    if not _is_owned_by_current_user(path):
+        raise PermissionError(f"manager token is not owned by the current user: {path}")
+    token = path.read_text(encoding="utf-8").strip()
+    if not token:
+        raise PermissionError(f"manager token is empty: {path}")
+    return token
+
+
+def get_or_create_manager_token(socket_path: str | Path | None = None) -> str:
+    """Return a stable random capability token stored mode 0600."""
+    path = manager_token_path(socket_path)
+    ensure_runtime_parent(path.parent)
+    if path.exists():
+        token = read_manager_token(socket_path)
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+        return token
+
+    token = secrets.token_urlsafe(32)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    fd = os.open(path, flags, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(token + "\n")
+    except Exception:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        raise
+    return token
+
+
+def socket_owner_is_current_user(path: Path) -> bool:
+    """True when an existing socket path is safe to contact as this user."""
+    return _is_owned_by_current_user(path)
+
+
 def socket_is_live(path: Path) -> bool:
     """True if something is already accepting connections on this unix socket.
     The basis for first-writer-wins binding: a later starter defers to it."""
+    if path.exists() and not socket_owner_is_current_user(path):
+        return False
     probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     probe.settimeout(0.5)
     try:

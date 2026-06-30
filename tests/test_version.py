@@ -27,11 +27,13 @@ from needle.runtime.protocol import decode, encode  # noqa: E402
 
 
 def _call(sock_path: Path, req: dict) -> dict:
+    wire_req = dict(req)
+    wire_req["token"] = naming.read_manager_token(sock_path)
     c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     c.settimeout(2)
     c.connect(str(sock_path))
     try:
-        c.sendall(encode(req))
+        c.sendall(encode(wire_req))
         with c.makefile("rb") as f:
             return decode(f.readline())
     finally:
