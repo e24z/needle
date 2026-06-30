@@ -129,6 +129,7 @@ def test_light_backbone_config_fetch_uses_resolved_revision() -> None:
         "mlx_lm",
         "mlx_lm.models",
         "mlx_lm.models.qwen3",
+        "numpy",
         "transformers",
         "needle.backends.code_pruner.model",
     ]
@@ -157,6 +158,9 @@ def test_light_backbone_config_fetch_uses_resolved_revision() -> None:
         fake_mlx_lm.load = lambda *_args, **_kwargs: None
         fake_models = types.ModuleType("mlx_lm.models")
         fake_qwen3 = types.ModuleType("mlx_lm.models.qwen3")
+        fake_numpy = types.ModuleType("numpy")
+        fake_numpy.ndarray = object
+        fake_numpy.int64 = "int64"
 
         class FakeModelArgs:
             @classmethod
@@ -186,6 +190,7 @@ def test_light_backbone_config_fetch_uses_resolved_revision() -> None:
         sys.modules["mlx_lm"] = fake_mlx_lm
         sys.modules["mlx_lm.models"] = fake_models
         sys.modules["mlx_lm.models.qwen3"] = fake_qwen3
+        sys.modules["numpy"] = fake_numpy
         sys.modules["transformers"] = fake_transformers
         sys.modules.pop("needle.backends.code_pruner.model", None)
         try:
