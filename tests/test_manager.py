@@ -19,7 +19,14 @@ from pathlib import Path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))  # runnable bare, like its siblings
 
-from needle.runtime.manager import MANAGER_CONFIG_ENVS, Manager, _env, serve_manager  # noqa: E402
+from needle.runtime.manager import (  # noqa: E402
+    MANAGER_CONFIG_ENVS,
+    Manager,
+    _env,
+    _socket_file_id,
+    _unlink_socket_if_same,
+    serve_manager,
+)
 from needle.runtime import client, naming  # noqa: E402
 from needle.runtime.protocol import decode, encode  # noqa: E402
 
@@ -76,6 +83,19 @@ class SerializedBackend:
         finally:
             with self.lock:
                 self.active -= 1
+
+
+class BlockingBackend:
+    name = "blocking"
+
+    def __init__(self, started: threading.Event, release: threading.Event) -> None:
+        self.started = started
+        self.release = release
+
+    def prune(self, *, text: str, query: str) -> str:
+        self.started.set()
+        assert self.release.wait(5), "blocked prune was not released"
+        return text
 
 
 def _call(sock_path: Path, req: dict) -> dict:
@@ -220,6 +240,66 @@ def test_manager_lease_requires_matching_runtime_identity() -> None:
         assert stop.is_set(), (field, resp)
 
 
+def test_mismatched_lease_returns_stale_while_prune_is_blocked() -> None:
+    tmp = Path(tempfile.mkdtemp()) / "manager.sock"
+    identity_a = {
+        "package_id": "pkg/a",
+        "host_binding": "mcp/bash",
+        "runtime_profile": "local",
+        "backend_id": "backend/a",
+    }
+    identity_b = {
+        "package_id": "pkg/b",
+        "host_binding": "mcp/bash",
+        "runtime_profile": "local",
+        "backend_id": "backend/a",
+    }
+    ready = threading.Event()
+    stop = threading.Event()
+    prune_started = threading.Event()
+    prune_release = threading.Event()
+    t = threading.Thread(
+        target=serve_manager,
+        kwargs=dict(
+            backend_factory=lambda: BlockingBackend(prune_started, prune_release),
+            socket_path=tmp,
+            ready_cb=lambda _p: ready.set(),
+            stop_event=stop,
+            poll_interval=0.03,
+            runtime_identity=identity_a,
+            version="v1",
+        ),
+        daemon=True,
+    )
+    t.start()
+    assert ready.wait(2), "manager never signalled ready"
+    prune_result: list[dict] = []
+    prune_thread = threading.Thread(
+        target=lambda: prune_result.append(
+            _call(tmp, {"op": "prune", "text": "abcdef", "query": "q"})
+        ),
+        daemon=True,
+    )
+    prune_thread.start()
+    assert prune_started.wait(2), "prune did not enter blocking backend"
+
+    started_at = time.monotonic()
+    resp = _call(tmp, {"op": "lease", "session": "s-b", "version": "v1", **identity_b})
+    elapsed = time.monotonic() - started_at
+
+    try:
+        assert elapsed < 0.5, (elapsed, resp)
+        assert resp["ok"] is False, resp
+        assert resp["stale"] is True, resp
+        assert resp["identity_mismatch"] is True, resp
+        assert prune_thread.is_alive(), "lease waited for blocked prune to finish"
+    finally:
+        prune_release.set()
+        stop.set()
+        prune_thread.join(timeout=3)
+        t.join(timeout=3)
+
+
 def test_code_version_changes_for_backend_affecting_files() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td) / "needle"
@@ -243,6 +323,24 @@ def test_code_version_changes_for_backend_affecting_files() -> None:
 
     assert before != after_backend
     assert after_backend != after_source
+
+
+def test_old_cleanup_does_not_unlink_replacement_socket() -> None:
+    tmp = Path(tempfile.mkdtemp()) / "manager.sock"
+    first = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    first.bind(str(tmp))
+    first_id = _socket_file_id(tmp)
+    first.close()
+    tmp.unlink()
+
+    replacement = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    replacement.bind(str(tmp))
+    try:
+        _unlink_socket_if_same(tmp, first_id)
+        assert tmp.exists(), "old cleanup removed replacement socket"
+    finally:
+        replacement.close()
+        tmp.unlink(missing_ok=True)
 
 
 def test_client_does_not_create_token_for_live_manager_missing_token() -> None:
@@ -372,7 +470,9 @@ def main() -> int:
     test_manager_surfaces_bounded_backend_stats()
     test_manager_stats_expose_runtime_identity()
     test_manager_lease_requires_matching_runtime_identity()
+    test_mismatched_lease_returns_stale_while_prune_is_blocked()
     test_code_version_changes_for_backend_affecting_files()
+    test_old_cleanup_does_not_unlink_replacement_socket()
     test_client_does_not_create_token_for_live_manager_missing_token()
     test_manager_bounds_stalled_connection_workers()
     test_prune_requests_remain_serialized_under_concurrency()

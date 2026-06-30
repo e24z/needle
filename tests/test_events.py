@@ -56,6 +56,34 @@ def test_emit_creates_private_event_log_under_permissive_umask() -> None:
         os.environ.pop("NEEDLE_HOME", None)
 
 
+def test_event_rotation_repairs_backup_permissions() -> None:
+    old_umask = os.umask(0)
+    old_max = events.MAX_BYTES
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            home = Path(d) / "home"
+            home.mkdir()
+            path = home / "events.jsonl"
+            path.write_text("x" * 32, encoding="utf-8")
+            os.chmod(path, 0o644)
+            os.environ["NEEDLE_HOME"] = str(home)
+            os.environ.pop("HAY_NO_EVENTS", None)
+            os.environ.pop("NEEDLE_NO_EVENTS", None)
+            events.MAX_BYTES = 1
+
+            events.emit("rotated", n=1)
+
+            rotated = home / "events.jsonl.1"
+            assert rotated.exists()
+            assert path.exists()
+            assert rotated.stat().st_mode & 0o777 == 0o600
+            assert path.stat().st_mode & 0o777 == 0o600
+    finally:
+        events.MAX_BYTES = old_max
+        os.umask(old_umask)
+        os.environ.pop("NEEDLE_HOME", None)
+
+
 def test_kill_switch() -> None:
     with tempfile.TemporaryDirectory() as d:
         os.environ["NEEDLE_HOME"] = d
@@ -109,6 +137,7 @@ def test_manager_emits_lifecycle() -> None:
 def main() -> int:
     test_emit_tail_roundtrip()
     test_emit_creates_private_event_log_under_permissive_umask()
+    test_event_rotation_repairs_backup_permissions()
     test_kill_switch()
     test_legacy_event_env_aliases_still_work()
     test_manager_emits_lifecycle()

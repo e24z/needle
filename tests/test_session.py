@@ -42,6 +42,19 @@ def _wait(pred, timeout: float = 8.0, interval: float = 0.05) -> bool:
     return False
 
 
+class BlockingBackend:
+    name = "blocking"
+
+    def __init__(self, started: threading.Event, release: threading.Event) -> None:
+        self.started = started
+        self.release = release
+
+    def prune(self, *, text: str, query: str) -> str:
+        self.started.set()
+        assert self.release.wait(5), "blocked prune was not released"
+        return text
+
+
 def test_manage_subprocess_serves(tmp_sock: Path) -> None:
     env = dict(
         os.environ,
@@ -203,6 +216,103 @@ def test_manage_refuses_live_manager_with_different_identity(tmp_sock: Path) -> 
         mgr.join(timeout=3)
 
 
+def test_acquire_replaces_busy_stale_manager(tmp_sock: Path) -> None:
+    old_socket = os.environ.get("HAY_MANAGER_SOCKET")
+    old_ensure = session_mod._ensure_manager
+    os.environ["HAY_MANAGER_SOCKET"] = str(tmp_sock)
+    identity_a = session_mod._requested_runtime_identity(
+        package_id="e24z/mlx-pi-reference",
+        host_binding="pi/native-tools",
+    )
+    identity_b = session_mod._requested_runtime_identity(
+        package_id="e24z/mlx-mcp-bash-reference",
+        host_binding="mcp/bash",
+    )
+    version = naming.code_version()
+    old_ready = threading.Event()
+    old_stop = threading.Event()
+    prune_started = threading.Event()
+    prune_release = threading.Event()
+    old_mgr = threading.Thread(
+        target=serve_manager,
+        kwargs=dict(
+            backend_factory=lambda: BlockingBackend(prune_started, prune_release),
+            socket_path=str(tmp_sock),
+            ready_cb=lambda _p: old_ready.set(),
+            stop_event=old_stop,
+            poll_interval=0.03,
+            runtime_identity=identity_a,
+            version=version,
+        ),
+        daemon=True,
+    )
+    old_mgr.start()
+    assert old_ready.wait(2), "old manager not ready"
+    prune_thread = threading.Thread(
+        target=lambda: client.prune(
+            text="abcdef",
+            query="q",
+            socket_path=tmp_sock,
+            timeout=5,
+        ),
+        daemon=True,
+    )
+    prune_thread.start()
+    assert prune_started.wait(2), "prune did not enter blocking backend"
+
+    new_ready = threading.Event()
+    new_stop = threading.Event()
+    new_mgr: list[threading.Thread] = []
+
+    def fake_ensure_manager(timeout: float = 10.0, **_kwargs) -> bool:
+        if naming.socket_is_live(tmp_sock):
+            return True
+        if not new_mgr:
+            thread = threading.Thread(
+                target=serve_manager,
+                kwargs=dict(
+                    backend_factory=FakePruner,
+                    socket_path=str(tmp_sock),
+                    ready_cb=lambda _p: new_ready.set(),
+                    stop_event=new_stop,
+                    poll_interval=0.03,
+                    runtime_identity=identity_b,
+                    version=version,
+                ),
+                daemon=True,
+            )
+            new_mgr.append(thread)
+            thread.start()
+        return new_ready.wait(timeout)
+
+    session_mod._ensure_manager = fake_ensure_manager
+    try:
+        assert session_mod._acquire(
+            "sess-b",
+            version,
+            attempts=4,
+            package_id="e24z/mlx-mcp-bash-reference",
+            host_binding="mcp/bash",
+        )
+        stats = client.stats(socket_path=tmp_sock)
+        assert stats["package_id"] == identity_b["package_id"], stats
+        assert stats["host_binding"] == identity_b["host_binding"], stats
+        assert stats["sessions"] == 1, stats
+    finally:
+        prune_release.set()
+        old_stop.set()
+        new_stop.set()
+        session_mod._ensure_manager = old_ensure
+        if old_socket is None:
+            os.environ.pop("HAY_MANAGER_SOCKET", None)
+        else:
+            os.environ["HAY_MANAGER_SOCKET"] = old_socket
+        prune_thread.join(timeout=3)
+        old_mgr.join(timeout=3)
+        for thread in new_mgr:
+            thread.join(timeout=3)
+
+
 def test_session_failure_is_visible() -> None:
     old_ensure = session_mod._ensure_manager
     session_mod._ensure_manager = lambda timeout=10.0, **_kwargs: False
@@ -242,6 +352,7 @@ if __name__ == "__main__":
     test_session_manager_spawn_command_carries_package_context()
     test_session_manager_spawn_log_is_private()
     test_manage_refuses_live_manager_with_different_identity(Path(tempfile.mkdtemp()) / "m4.sock")
+    test_acquire_replaces_busy_stale_manager(Path(tempfile.mkdtemp()) / "m5.sock")
     test_session_failure_is_visible()
     test_prune_without_manager_has_recovery_text(Path(tempfile.mkdtemp()) / "m3.sock")
     print("test_session OK")

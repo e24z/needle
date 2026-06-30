@@ -277,6 +277,35 @@ class Manager:
     def identity(self) -> dict[str, str]:
         return {"version": self.version, **self._runtime_identity}
 
+    def stale_lease_response(self, req: dict[str, Any]) -> dict[str, Any] | None:
+        if req.get("op") != "lease":
+            return None
+        mismatches = _identity_mismatches(req, self.identity())
+        if not mismatches:
+            return None
+        return self._stale_response(req, mismatches)
+
+    def _stale_response(
+        self,
+        req: dict[str, Any],
+        mismatches: dict[str, dict[str, str]],
+    ) -> dict[str, Any]:
+        self._emit(
+            "stale_stepaside",
+            mismatches=mismatches,
+            their_version=req.get("version", ""),
+            our_version=self.version,
+        )
+        if self._stop is not None:
+            self._stop.set()
+        return {
+            "ok": False,
+            "stale": True,
+            "identity_mismatch": True,
+            "version": self.version,
+            "mismatches": mismatches,
+        }
+
     # -- request handling -------------------------------------------------
     def handle(self, req: dict[str, Any]) -> dict[str, Any]:
         op = req.get("op", "prune")
@@ -322,21 +351,7 @@ class Manager:
             mismatches = _identity_mismatches(req, self.identity())
             if mismatches:
                 # Different runtime than the session requested: step aside for a fresh manager.
-                self._emit(
-                    "stale_stepaside",
-                    mismatches=mismatches,
-                    their_version=req.get("version", ""),
-                    our_version=self.version,
-                )
-                if self._stop is not None:
-                    self._stop.set()
-                return {
-                    "ok": False,
-                    "stale": True,
-                    "identity_mismatch": True,
-                    "version": self.version,
-                    "mismatches": mismatches,
-                }
+                return self._stale_response(req, mismatches)
             session = req.get("session", "")
             if session not in self._beats:
                 self._emit("lease", session=session)  # new lease (re-leases stay quiet)
@@ -482,6 +497,25 @@ def _assert_live_manager_compatible(
         raise RuntimeError("live manager identity mismatch: " + "; ".join(parts))
 
 
+def _socket_file_id(path: Path) -> tuple[int, int] | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (stat.st_dev, stat.st_ino)
+
+
+def _unlink_socket_if_same(path: Path, expected_id: tuple[int, int] | None) -> None:
+    if expected_id is None:
+        return
+    if _socket_file_id(path) != expected_id:
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
 def _serve_conn(
     conn: socket.socket,
     mgr: Manager,
@@ -505,6 +539,10 @@ def _serve_conn(
                     raise ValueError("request must be a JSON object")
                 if req.pop("token", None) != auth_token:
                     conn.sendall(encode({"ok": False, "error": "unauthorized"}))
+                    return
+                resp = mgr.stale_lease_response(req)
+                if resp is not None:
+                    conn.sendall(encode(resp))
                     return
                 with handle_lock:
                     resp = mgr.handle(req)
@@ -572,12 +610,14 @@ def serve_manager(
 
     auth_token = naming.get_or_create_manager_token(sock_path)
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    bound_socket_id: tuple[int, int] | None = None
     try:
         srv.bind(str(sock_path))
         try:
             os.chmod(sock_path, 0o600)
         except OSError:
             pass
+        bound_socket_id = _socket_file_id(sock_path)
     except OSError as exc:
         srv.close()
         if naming.socket_is_live(sock_path):
@@ -611,8 +651,11 @@ def serve_manager(
 
     try:
         while not stop_event.is_set():
-            with handle_lock:
-                mgr.maintain()
+            if handle_lock.acquire(blocking=False):
+                try:
+                    mgr.maintain()
+                finally:
+                    handle_lock.release()
             try:
                 conn, _ = srv.accept()
             except socket.timeout:
@@ -636,5 +679,4 @@ def serve_manager(
             ).start()
     finally:
         srv.close()
-        if sock_path.exists():
-            sock_path.unlink()
+        _unlink_socket_if_same(sock_path, bound_socket_id)

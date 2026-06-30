@@ -158,6 +158,25 @@ def open_private_append(path: Path) -> io.TextIOWrapper:
         raise
 
 
+def write_private_text(path: Path, text: str) -> None:
+    """Write a current-user local state file with mode 0600."""
+    ensure_runtime_parent(path.parent)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        if hasattr(os, "getuid") and os.fstat(fd).st_uid != os.getuid():
+            raise PermissionError(f"runtime file is not owned by the current user: {path}")
+        try:
+            os.fchmod(fd, 0o600)
+        except OSError:
+            pass
+        fh = os.fdopen(fd, "w", encoding="utf-8")
+    except Exception:
+        os.close(fd)
+        raise
+    with fh:
+        fh.write(text)
+
+
 def read_manager_token(socket_path: str | Path | None = None) -> str:
     path = manager_token_path(socket_path)
     if not path.exists():

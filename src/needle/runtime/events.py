@@ -62,7 +62,9 @@ def emit(event: str, **fields: object) -> None:
 def _rotate(path: Path) -> None:
     try:
         if path.exists() and path.stat().st_size >= MAX_BYTES:
-            os.replace(path, path.with_name(path.name + ".1"))  # events.jsonl -> events.jsonl.1
+            rotated = path.with_name(path.name + ".1")
+            os.replace(path, rotated)  # events.jsonl -> events.jsonl.1
+            naming.ensure_private_file(rotated)
     except OSError:
         pass
 

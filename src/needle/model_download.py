@@ -36,6 +36,13 @@ def read_model_provenance(local_dir: Path) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def _ensure_model_dir(path: Path) -> None:
+    app_home = naming.app_home()
+    if path == app_home or path.is_relative_to(app_home):
+        naming.ensure_private_dir(app_home)
+    naming.ensure_runtime_parent(path)
+
+
 def write_model_provenance(
     local_dir: Path,
     *,
@@ -53,8 +60,11 @@ def write_model_provenance(
         or datetime.datetime.now(datetime.UTC).isoformat(),
         "caller": caller,
     }
-    local_dir.mkdir(parents=True, exist_ok=True)
-    provenance_path(local_dir).write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    _ensure_model_dir(local_dir)
+    naming.write_private_text(
+        provenance_path(local_dir),
+        json.dumps(data, indent=2) + "\n",
+    )
     return data
 
 
@@ -62,12 +72,16 @@ def _looks_like_commit_sha(revision: str | None) -> bool:
     return bool(revision and _SHA_RE.match(revision))
 
 
-def _existing_matches_request(existing: dict[str, Any], requested_revision: str) -> bool:
-    if requested_revision == "default":
-        return True
-    existing_requested = str(existing.get("requested_revision") or "")
+def _existing_matches_resolved_commit(
+    existing: dict[str, Any],
+    *,
+    repo: str,
+    resolved_revision: str,
+) -> bool:
+    if str(existing.get("repo") or "") != repo:
+        return False
     existing_resolved = str(existing.get("resolved_revision") or "")
-    return requested_revision in {existing_requested, existing_resolved}
+    return bool(existing_resolved and existing_resolved == resolved_revision)
 
 
 def resolve_model_revision(
@@ -103,12 +117,25 @@ def download_model_snapshot(
     root = naming.model_root()
     local_dir = naming.model_dir_for_repo(repo)
     existing = read_model_provenance(local_dir)
-    if existing and not force and _existing_matches_request(existing, requested_revision):
+    if _looks_like_commit_sha(revision):
+        resolved_revision = str(revision)
+    else:
+        resolved_revision = resolve_model_revision(repo, revision, hf_api=hf_api)
+
+    if (
+        existing
+        and not force
+        and _existing_matches_resolved_commit(
+            existing,
+            repo=repo,
+            resolved_revision=resolved_revision,
+        )
+    ):
         return ModelDownloadResult(
             path=str(local_dir),
             repo=repo,
-            requested_revision=str(existing.get("requested_revision") or requested_revision),
-            resolved_revision=str(existing.get("resolved_revision") or ""),
+            requested_revision=requested_revision,
+            resolved_revision=resolved_revision,
             downloaded=False,
             provenance=existing,
         )
@@ -118,8 +145,8 @@ def download_model_snapshot(
 
         snapshot_download_fn = snapshot_download
 
-    resolved_revision = resolve_model_revision(repo, revision, hf_api=hf_api)
-    root.mkdir(parents=True, exist_ok=True)
+    _ensure_model_dir(root)
+    _ensure_model_dir(local_dir)
     path = snapshot_download_fn(
         repo,
         revision=resolved_revision,
