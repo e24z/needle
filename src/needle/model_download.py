@@ -28,6 +28,16 @@ def provenance_path(local_dir: Path) -> Path:
     return local_dir / "needle-model.json"
 
 
+def _safe_path_segment(value: str) -> str:
+    safe = "".join(ch if ch.isalnum() or ch in "._-" else "-" for ch in value).strip("-")
+    return safe or "snapshot"
+
+
+def model_snapshot_dir(repo: str, resolved_revision: str) -> Path:
+    """Revision-scoped local directory for a resolved Hugging Face snapshot."""
+    return naming.model_dir_for_repo(repo) / _safe_path_segment(resolved_revision)
+
+
 def read_model_provenance(local_dir: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(provenance_path(local_dir).read_text(encoding="utf-8"))
@@ -51,6 +61,7 @@ def write_model_provenance(
     resolved_revision: str,
     caller: str,
     downloaded_at: str | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     data = {
         "repo": repo,
@@ -60,6 +71,22 @@ def write_model_provenance(
         or datetime.datetime.now(datetime.UTC).isoformat(),
         "caller": caller,
     }
+    if extra:
+        data.update(extra)
+    _ensure_model_dir(local_dir)
+    naming.write_private_text(
+        provenance_path(local_dir),
+        json.dumps(data, indent=2) + "\n",
+    )
+    return data
+
+
+def augment_model_provenance(local_dir: Path, updates: dict[str, Any]) -> dict[str, Any] | None:
+    """Merge extra resolved-runtime metadata into an existing provenance file."""
+    existing = read_model_provenance(local_dir)
+    if existing is None:
+        return None
+    data = {**existing, **updates}
     _ensure_model_dir(local_dir)
     naming.write_private_text(
         provenance_path(local_dir),
@@ -115,12 +142,13 @@ def download_model_snapshot(
 ) -> ModelDownloadResult:
     requested_revision = revision or "default"
     root = naming.model_root()
-    local_dir = naming.model_dir_for_repo(repo)
-    existing = read_model_provenance(local_dir)
     if _looks_like_commit_sha(revision):
         resolved_revision = str(revision)
     else:
         resolved_revision = resolve_model_revision(repo, revision, hf_api=hf_api)
+    repo_dir = naming.model_dir_for_repo(repo)
+    local_dir = model_snapshot_dir(repo, resolved_revision)
+    existing = read_model_provenance(local_dir)
 
     if (
         existing
@@ -146,6 +174,7 @@ def download_model_snapshot(
         snapshot_download_fn = snapshot_download
 
     _ensure_model_dir(root)
+    _ensure_model_dir(repo_dir)
     _ensure_model_dir(local_dir)
     path = snapshot_download_fn(
         repo,

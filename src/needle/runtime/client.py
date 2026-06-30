@@ -11,6 +11,8 @@ from typing import Any
 from . import naming
 from .protocol import decode, encode
 
+_LEASE_RESERVED_KEYS = {"op", "session", "version", "token"}
+
 
 def _request(
     req: dict, socket_path: str | Path | None = None, timeout: float = 30.0
@@ -58,6 +60,10 @@ def lease(
 ) -> dict[str, Any]:
     req = {"op": "lease", "session": session, "version": version}
     if runtime_identity:
+        reserved = _LEASE_RESERVED_KEYS & set(runtime_identity)
+        if reserved:
+            keys = ", ".join(sorted(reserved))
+            raise ValueError(f"runtime_identity may not override reserved lease fields: {keys}")
         req.update(runtime_identity)
     return _request(req, socket_path, timeout)
 

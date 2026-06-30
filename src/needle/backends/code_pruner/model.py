@@ -2,6 +2,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -47,6 +48,7 @@ viterbi_cpp = None
 _PROMPT_PREFIX = '<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n'
 _PROMPT_SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
 _MIN_CODE_TOKENS = 100
+_BACKBONE_REVISION_ENV_NAMES = ("NEEDLE_BACKBONE_REVISION", "HAY_BACKBONE_REVISION")
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,14 @@ class _PreparedChunk:
     @property
     def code_tokens(self) -> int:
         return self.doc_end - self.doc_start
+
+
+@dataclass(frozen=True)
+class _ResolvedBackbone:
+    repo: str
+    requested_revision: str
+    resolved_revision: str
+    path: str | None = None
 
 
 def _mlx_func(name: str):
@@ -97,6 +107,53 @@ def _env_mb(names: str | tuple[str, ...]) -> int | None:
     if mb < 0:
         raise ValueError(f"{names[0]} must be non-negative")
     return mb
+
+
+def _requested_backbone_revision(config: dict[str, object]) -> str | None:
+    revision = first_env(_BACKBONE_REVISION_ENV_NAMES)
+    if revision is None:
+        raw = config.get("backbone_revision") or config.get("backbone_model_revision")
+        revision = str(raw) if raw is not None else None
+    revision = revision.strip() if revision else None
+    return revision or None
+
+
+def _resolve_backbone_reference(
+    backbone_name: str,
+    config: dict[str, object],
+) -> _ResolvedBackbone:
+    local_path = Path(backbone_name).expanduser()
+    if local_path.is_dir():
+        return _ResolvedBackbone(
+            repo=backbone_name,
+            requested_revision="local",
+            resolved_revision="local",
+            path=str(local_path),
+        )
+
+    from needle.model_download import resolve_model_revision
+
+    revision = _requested_backbone_revision(config)
+    return _ResolvedBackbone(
+        repo=backbone_name,
+        requested_revision=revision or "default",
+        resolved_revision=resolve_model_revision(backbone_name, revision),
+    )
+
+
+def _download_backbone_snapshot(backbone: _ResolvedBackbone) -> str:
+    if backbone.path:
+        return backbone.path
+
+    from needle.model_download import download_model_snapshot
+
+    result = download_model_snapshot(
+        repo=backbone.repo,
+        revision=backbone.resolved_revision,
+        caller="runtime-backbone",
+        force=False,
+    )
+    return result.path
 
 
 def _set_mlx_limit(name: str, limit_mb: int | None) -> None:
@@ -468,6 +525,8 @@ class MLXSwePrunerBackend:
         backbone_name = config.get(
             "backbone_model_name_or_path", "Qwen/Qwen3-Reranker-0.6B"
         )
+        backbone = _resolve_backbone_reference(str(backbone_name), config)
+        self._record_backbone_provenance(backbone)
 
         # 2. Get the backbone architecture + tokenizer.
         if _env_flag(MLX_LIGHT_ENV_NAMES, True):
@@ -475,10 +534,10 @@ class MLXSwePrunerBackend:
             # its own tokenizer, so build the Qwen3 architecture from the backbone's
             # tiny config.json and skip loading Qwen's ~1.2GB of weights entirely
             # (step 4 overwrites them anyway). Avoids the double-load.
-            self.backbone, self.tokenizer = self._build_backbone_light(backbone_name)
+            self.backbone, self.tokenizer = self._build_backbone_light(backbone)
         else:
             # Faithful path: mlx-lm loads Qwen weights, then step 4 overwrites them.
-            self.backbone, tokenizer_wrapper = load(backbone_name)
+            self.backbone, tokenizer_wrapper = load(_download_backbone_snapshot(backbone))
             self.tokenizer = tokenizer_wrapper._tokenizer
         self.backbone.eval()
 
@@ -515,7 +574,20 @@ class MLXSwePrunerBackend:
         }
         self.last_stats: dict[str, object] = {}
 
-    def _build_backbone_light(self, backbone_name: str):
+    def _record_backbone_provenance(self, backbone: _ResolvedBackbone) -> None:
+        from needle.model_download import augment_model_provenance
+
+        augment_model_provenance(
+            Path(self.model_dir),
+            {
+                "backbone_repo": backbone.repo,
+                "backbone_requested_revision": backbone.requested_revision,
+                "backbone_resolved_revision": backbone.resolved_revision,
+                **({"backbone_path": backbone.path} if backbone.path else {}),
+            },
+        )
+
+    def _build_backbone_light(self, backbone: _ResolvedBackbone):
         """Build the Qwen3 backbone architecture from its config (no Qwen
         weights) and load code-pruner's bundled tokenizer. Code-pruner's
         backbone weights are applied in step 4."""
@@ -523,7 +595,15 @@ class MLXSwePrunerBackend:
         from mlx_lm.models.qwen3 import Model, ModelArgs
         from transformers import AutoTokenizer
 
-        with open(hf_hub_download(backbone_name, "config.json")) as f:
+        if backbone.path:
+            config_path = os.path.join(backbone.path, "config.json")
+        else:
+            config_path = hf_hub_download(
+                backbone.repo,
+                "config.json",
+                revision=backbone.resolved_revision,
+            )
+        with open(config_path) as f:
             backbone_config = json.load(f)
         backbone = Model(ModelArgs.from_dict(backbone_config))
         tokenizer = AutoTokenizer.from_pretrained(self.model_dir)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from contextlib import redirect_stdout
 import json
 import os
@@ -16,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from needle import cli  # noqa: E402
 from needle.model_download import (  # noqa: E402
     download_model_snapshot,
+    model_snapshot_dir,
     read_model_provenance,
     write_model_provenance,
 )
@@ -190,7 +192,7 @@ def test_existing_local_model_with_provenance_is_reused_without_download() -> No
         old_env = _with_model_root(Path(td) / "models")
         api = _Api()
         try:
-            local_dir = naming.model_dir_for_repo("org/model")
+            local_dir = model_snapshot_dir("org/model", "commit-sha-123")
             original = write_model_provenance(
                 local_dir,
                 repo="org/model",
@@ -225,8 +227,8 @@ def test_existing_provenance_for_colliding_repo_is_not_reused() -> None:
         old_env = _with_model_root(Path(td) / "models")
         calls: list[dict[str, str | None]] = []
         try:
-            local_dir = naming.model_dir_for_repo("org/model")
-            assert local_dir == naming.model_dir_for_repo("org--model")
+            local_dir = model_snapshot_dir("org/model", "abc123def")
+            assert local_dir == model_snapshot_dir("org--model", "abc123def")
             write_model_provenance(
                 local_dir,
                 repo="org/model",
@@ -258,7 +260,7 @@ def test_existing_branch_snapshot_downloads_when_resolved_commit_changes() -> No
         api = _Api("newsha")
         calls: list[dict[str, str | None]] = []
         try:
-            local_dir = naming.model_dir_for_repo("org/model")
+            local_dir = model_snapshot_dir("org/model", "oldsha")
             write_model_provenance(
                 local_dir,
                 repo="org/model",
@@ -290,7 +292,7 @@ def test_existing_default_snapshot_downloads_when_resolved_commit_changes() -> N
         api = _Api("newsha")
         calls: list[dict[str, str | None]] = []
         try:
-            local_dir = naming.model_dir_for_repo("org/model")
+            local_dir = model_snapshot_dir("org/model", "oldsha")
             write_model_provenance(
                 local_dir,
                 repo="org/model",
@@ -322,7 +324,7 @@ def test_existing_mutable_snapshot_reuses_after_resolving_same_commit() -> None:
         old_env = _with_model_root(Path(td) / "models")
         api = _Api("same-sha")
         try:
-            local_dir = naming.model_dir_for_repo("org/model")
+            local_dir = model_snapshot_dir("org/model", "same-sha")
             write_model_provenance(
                 local_dir,
                 repo="org/model",
@@ -355,7 +357,7 @@ def test_existing_exact_sha_snapshot_reuses_without_api_or_download() -> None:
     with tempfile.TemporaryDirectory() as td:
         old_env = _with_model_root(Path(td) / "models")
         try:
-            local_dir = naming.model_dir_for_repo("org/model")
+            local_dir = model_snapshot_dir("org/model", "abc123def")
             write_model_provenance(
                 local_dir,
                 repo="org/model",
@@ -392,7 +394,7 @@ def test_existing_local_model_with_different_explicit_sha_downloads() -> None:
         old_env = _with_model_root(Path(td) / "models")
         calls: list[dict[str, str | None]] = []
         try:
-            local_dir = naming.model_dir_for_repo("org/model")
+            local_dir = model_snapshot_dir("org/model", "abc123def")
             write_model_provenance(
                 local_dir,
                 repo="org/model",
@@ -417,6 +419,98 @@ def test_existing_local_model_with_different_explicit_sha_downloads() -> None:
         assert result.provenance["resolved_revision"] == "def456abc"
 
 
+def test_revision_specific_snapshot_path_keeps_stale_files_out_of_new_revisions() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        old_env = _with_model_root(Path(td) / "models")
+        api = _Api("newsha")
+        calls: list[dict[str, str | None]] = []
+        try:
+            old_dir = model_snapshot_dir("org/model", "oldsha")
+            write_model_provenance(
+                old_dir,
+                repo="org/model",
+                requested_revision="main",
+                resolved_revision="oldsha",
+                caller="cli",
+                downloaded_at="2026-01-01T00:00:00+00:00",
+            )
+            (old_dir / "removed-in-new-revision.safetensors").write_text("stale", encoding="utf-8")
+
+            result = download_model_snapshot(
+                repo="org/model",
+                revision="main",
+                caller="runtime",
+                force=False,
+                hf_api=api,
+                snapshot_download_fn=_snapshot_recorder(calls),
+            )
+            new_dir = model_snapshot_dir("org/model", "newsha")
+        finally:
+            _restore_env(old_env)
+
+        assert Path(result.path) == new_dir
+        assert calls[0]["local_dir"] == str(new_dir), calls
+        assert (old_dir / "removed-in-new-revision.safetensors").exists()
+        assert not (new_dir / "removed-in-new-revision.safetensors").exists()
+
+
+def test_code_pruner_backend_uses_resolved_backbone_snapshot_for_network_loads() -> None:
+    source_path = Path(__file__).resolve().parent.parent / "src/needle/backends/code_pruner/model.py"
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    bad_calls: list[str] = []
+    found_backbone_revision_resolution = False
+    found_resolved_backbone_download = False
+
+    def call_name(node: ast.AST) -> str:
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            return node.attr
+        return ""
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = call_name(node.func)
+        if name == "hf_hub_download":
+            if not any(keyword.arg == "revision" for keyword in node.keywords):
+                bad_calls.append("hf_hub_download without revision")
+        if (
+            name == "load"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id == "backbone_name"
+        ):
+            bad_calls.append("load(backbone_name)")
+        if name == "resolve_model_revision":
+            found_backbone_revision_resolution = (
+                found_backbone_revision_resolution
+                or (
+                    node.args
+                    and isinstance(node.args[0], ast.Name)
+                    and node.args[0].id == "backbone_name"
+                )
+            )
+        if name == "download_model_snapshot":
+            keywords = {keyword.arg: keyword.value for keyword in node.keywords}
+            repo = keywords.get("repo")
+            caller = keywords.get("caller")
+            found_resolved_backbone_download = found_resolved_backbone_download or (
+                isinstance(repo, ast.Attribute)
+                and isinstance(repo.value, ast.Name)
+                and repo.value.id == "backbone"
+                and repo.attr == "repo"
+                and isinstance(caller, ast.Constant)
+                and caller.value == "runtime-backbone"
+            )
+
+    assert bad_calls == []
+    assert found_backbone_revision_resolution
+    assert found_resolved_backbone_download
+    assert "backbone_resolved_revision" in source
+
+
 def main() -> int:
     test_cli_model_download_uses_resolved_commit_and_writes_provenance()
     test_runtime_lazy_download_uses_same_revision_and_provenance_schema()
@@ -429,6 +523,8 @@ def main() -> int:
     test_existing_mutable_snapshot_reuses_after_resolving_same_commit()
     test_existing_exact_sha_snapshot_reuses_without_api_or_download()
     test_existing_local_model_with_different_explicit_sha_downloads()
+    test_revision_specific_snapshot_path_keeps_stale_files_out_of_new_revisions()
+    test_code_pruner_backend_uses_resolved_backbone_snapshot_for_network_loads()
     print("test_model_download OK")
     return 0
 

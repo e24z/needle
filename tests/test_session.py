@@ -123,6 +123,34 @@ def test_session_manager_spawn_command_carries_package_context() -> None:
     assert "mcp/bash" in argv
 
 
+def test_client_lease_rejects_reserved_runtime_identity_fields() -> None:
+    old_request = client._request
+    seen: dict[str, object] = {}
+
+    def fake_request(req, socket_path=None, timeout: float = 30.0):  # noqa: ANN001
+        seen.clear()
+        seen.update(req)
+        return {"ok": True}
+
+    client._request = fake_request
+    try:
+        assert client.lease("sess", "v1", runtime_identity={"package_id": "pkg"})["ok"]
+        assert seen["op"] == "lease"
+        assert seen["session"] == "sess"
+        assert seen["version"] == "v1"
+        assert seen["package_id"] == "pkg"
+
+        for key in ("op", "session", "version", "token"):
+            try:
+                client.lease("sess", "v1", runtime_identity={key: "clobber"})
+            except ValueError as exc:
+                assert key in str(exc)
+            else:
+                raise AssertionError(f"reserved runtime_identity key was accepted: {key}")
+    finally:
+        client._request = old_request
+
+
 def test_session_manager_spawn_log_is_private() -> None:
     with tempfile.TemporaryDirectory() as td:
         home = Path(td) / "home"
@@ -350,6 +378,7 @@ if __name__ == "__main__":
     test_manage_subprocess_serves(Path(tempfile.mkdtemp()) / "m1.sock")
     test_session_lease_loop(Path(tempfile.mkdtemp()) / "m2.sock")
     test_session_manager_spawn_command_carries_package_context()
+    test_client_lease_rejects_reserved_runtime_identity_fields()
     test_session_manager_spawn_log_is_private()
     test_manage_refuses_live_manager_with_different_identity(Path(tempfile.mkdtemp()) / "m4.sock")
     test_acquire_replaces_busy_stale_manager(Path(tempfile.mkdtemp()) / "m5.sock")
