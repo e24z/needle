@@ -448,9 +448,16 @@ def test_runtime_status_wrapper_is_available() -> None:
 def test_runtime_manage_help_exposes_package_context_options() -> None:
     code, out, err = _run(["runtime", "manage", "--help"])
     assert code == 0, err
-    assert "--package" in out
-    assert "--host-binding" in out
-    assert "--raw" in out
+    assert "Usage:" in out
+
+    import typer
+    import needle.cli as cli
+
+    command = typer.main.get_command(cli.app).commands["runtime"].commands["manage"]
+    options = {opt for param in command.params for opt in param.opts}
+    assert "--package" in options
+    assert "--host-binding" in options
+    assert "--raw" in options
 
 
 def test_runtime_manage_wrapper_forwards_package_context_without_starting_manager() -> None:
