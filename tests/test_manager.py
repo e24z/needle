@@ -23,8 +23,6 @@ from needle.runtime.manager import (  # noqa: E402
     MANAGER_CONFIG_ENVS,
     Manager,
     _env,
-    _socket_file_id,
-    _unlink_socket_if_same,
     serve_manager,
 )
 from needle.runtime import client, naming  # noqa: E402
@@ -325,21 +323,58 @@ def test_code_version_changes_for_backend_affecting_files() -> None:
     assert after_backend != after_source
 
 
-def test_old_cleanup_does_not_unlink_replacement_socket() -> None:
+def test_stopped_manager_leaves_dead_socket_for_next_startup() -> None:
     tmp = Path(tempfile.mkdtemp()) / "manager.sock"
-    first = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    first.bind(str(tmp))
-    first_id = _socket_file_id(tmp)
-    first.close()
-    tmp.unlink()
-
-    replacement = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    replacement.bind(str(tmp))
+    first_ready = threading.Event()
+    first_stop = threading.Event()
+    second_stop: threading.Event | None = None
+    second: threading.Thread | None = None
+    first = threading.Thread(
+        target=serve_manager,
+        kwargs=dict(
+            backend_factory=SpyBackend,
+            socket_path=tmp,
+            ready_cb=lambda _p: first_ready.set(),
+            stop_event=first_stop,
+            poll_interval=0.03,
+        ),
+        daemon=True,
+    )
+    first.start()
+    assert first_ready.wait(2), "first manager never signalled ready"
     try:
-        _unlink_socket_if_same(tmp, first_id)
-        assert tmp.exists(), "old cleanup removed replacement socket"
+        assert _call(tmp, {"op": "stop"})["ok"]
+        assert _wait_until(lambda: not naming.socket_is_live(tmp)), "first manager stayed live"
+        assert tmp.exists(), "stopped manager should leave stale socket for startup cleanup"
+
+        second_ready = threading.Event()
+        second_stop = threading.Event()
+        second = threading.Thread(
+            target=serve_manager,
+            kwargs=dict(
+                backend_factory=SpyBackend,
+                socket_path=tmp,
+                ready_cb=lambda _p: second_ready.set(),
+                stop_event=second_stop,
+                poll_interval=0.03,
+            ),
+            daemon=True,
+        )
+        second.start()
+        assert second_ready.wait(2), "second manager did not replace stale socket"
+        assert _call(tmp, {"op": "stats"})["ok"]
     finally:
-        replacement.close()
+        if second_stop is not None:
+            second_stop.set()
+        first_stop.set()
+        first.join(timeout=2)
+        if naming.socket_is_live(tmp):
+            try:
+                client.stop(socket_path=tmp)
+            except OSError:
+                pass
+        if second is not None:
+            second.join(timeout=2)
         tmp.unlink(missing_ok=True)
 
 
@@ -472,7 +507,7 @@ def main() -> int:
     test_manager_lease_requires_matching_runtime_identity()
     test_mismatched_lease_returns_stale_while_prune_is_blocked()
     test_code_version_changes_for_backend_affecting_files()
-    test_old_cleanup_does_not_unlink_replacement_socket()
+    test_stopped_manager_leaves_dead_socket_for_next_startup()
     test_client_does_not_create_token_for_live_manager_missing_token()
     test_manager_bounds_stalled_connection_workers()
     test_prune_requests_remain_serialized_under_concurrency()
@@ -551,7 +586,7 @@ def main() -> int:
         assert _call(tmp, {"op": "stats"})["ok"], "first manager stopped serving"
 
         assert _call(tmp, {"op": "stop"})["ok"], "manager did not accept stop"
-        assert _wait_until(lambda: not tmp.exists()), "manager socket was not removed"
+        assert _wait_until(lambda: not naming.socket_is_live(tmp)), "manager socket stayed live"
 
         ready_on_failed_bind = threading.Event()
         too_long = tmp.parent / ("x" * 200)

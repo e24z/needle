@@ -497,25 +497,6 @@ def _assert_live_manager_compatible(
         raise RuntimeError("live manager identity mismatch: " + "; ".join(parts))
 
 
-def _socket_file_id(path: Path) -> tuple[int, int] | None:
-    try:
-        stat = path.stat()
-    except OSError:
-        return None
-    return (stat.st_dev, stat.st_ino)
-
-
-def _unlink_socket_if_same(path: Path, expected_id: tuple[int, int] | None) -> None:
-    if expected_id is None:
-        return
-    if _socket_file_id(path) != expected_id:
-        return
-    try:
-        path.unlink()
-    except FileNotFoundError:
-        pass
-
-
 def _serve_conn(
     conn: socket.socket,
     mgr: Manager,
@@ -610,14 +591,12 @@ def serve_manager(
 
     auth_token = naming.get_or_create_manager_token(sock_path)
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    bound_socket_id: tuple[int, int] | None = None
     try:
         srv.bind(str(sock_path))
         try:
             os.chmod(sock_path, 0o600)
         except OSError:
             pass
-        bound_socket_id = _socket_file_id(sock_path)
     except OSError as exc:
         srv.close()
         if naming.socket_is_live(sock_path):
@@ -679,4 +658,7 @@ def serve_manager(
             ).start()
     finally:
         srv.close()
-        _unlink_socket_if_same(sock_path, bound_socket_id)
+        # Do not unlink the public socket path during shutdown. A replacement
+        # manager may already have rebound the same pathname, and Unix-socket
+        # inodes can be reused quickly enough to fool stat-based identity
+        # checks. The next startup removes dead socket files before binding.
