@@ -39,6 +39,25 @@ def _manager_argv(package_id: str = "", host_binding: str = "") -> list[str]:
     return argv
 
 
+def _requested_runtime_identity(
+    *,
+    package_id: str = "",
+    host_binding: str = "",
+) -> dict[str, str]:
+    from needle.registry import runtime_launch_plan
+
+    plan = runtime_launch_plan(
+        package_id=package_id or None,
+        host_binding=host_binding or None,
+    )
+    return {
+        "package_id": plan.package_id,
+        "host_binding": plan.host_binding,
+        "backend_id": plan.backend_id,
+        "runtime_profile": plan.runtime_profile,
+    }
+
+
 def _ensure_manager(
     timeout: float = 10.0,
     *,
@@ -53,8 +72,7 @@ def _ensure_manager(
     if naming.socket_is_live(sock):
         return True
     home = naming.app_home()
-    home.mkdir(parents=True, exist_ok=True)
-    log = open(home / "manager.log", "a")
+    log = naming.open_private_append(home / "manager.log")
     try:
         subprocess.Popen(
             _manager_argv(package_id=package_id, host_binding=host_binding),
@@ -84,26 +102,26 @@ def _acquire(
     """Lease, handling a stale manager: if it reports our code is newer than what
     it started on, it steps aside -- we wait for the socket to free, start a
     fresh manager on the current code, and retry."""
+    identity = _requested_runtime_identity(
+        package_id=package_id,
+        host_binding=host_binding,
+    )
     for _ in range(attempts):
         try:
-            resp = client.lease(session_id, version)
-        except OSError:
+            resp = client.lease(session_id, version, runtime_identity=identity)
+        except (OSError, RuntimeError):
             if not _ensure_manager(package_id=package_id, host_binding=host_binding):
                 return False
             continue
         if resp.get("ok"):
             return True
         if resp.get("stale"):
-            # TODO(takeover-race): we wait for the old manager to free the socket,
-            # then _ensure_manager() — but if it's stuck in a long prune past this
-            # 10s window, socket_is_live() stays true, _ensure_manager() declines to
-            # spawn, and we can burn the retry budget re-hitting the stale manager
-            # (ending leaseless). Fix: force a respawn here rather than trusting
-            # socket_is_live (or have the stepped-aside manager unlink before draining).
             sock = naming.manager_socket_path()
-            deadline = time.monotonic() + 10.0
+            deadline = time.monotonic() + 3.0
             while time.monotonic() < deadline and naming.socket_is_live(sock):
-                time.sleep(0.1)
+                time.sleep(0.05)
+            if naming.socket_is_live(sock):
+                continue
             if not _ensure_manager(package_id=package_id, host_binding=host_binding):
                 return False
             continue
@@ -130,6 +148,14 @@ def run_session(
 
     manager_package_id = package_id or ""
     manager_host_binding = host_binding or ""
+    try:
+        _requested_runtime_identity(
+            package_id=manager_package_id,
+            host_binding=manager_host_binding,
+        )
+    except ValueError as exc:
+        print(f"{naming.APP_NAME}: could not resolve runtime package: {exc}", file=sys.stderr)
+        return 1
 
     if not _ensure_manager(package_id=manager_package_id, host_binding=manager_host_binding):
         print(

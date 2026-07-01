@@ -19,11 +19,11 @@ dependencies = [
 
 [project.optional-dependencies]
 backend-code-pruner-mlx = [
-    "mlx",
-    "mlx-lm",
-    "numpy",
-    "huggingface-hub",
-    "transformers",
+    "mlx>=0.31,<0.32",
+    "mlx-lm>=0.31,<0.32",
+    "numpy>=2.4,<3",
+    "huggingface-hub>=1,<2",
+    "transformers>=5,<6",
 ]
 
 [project.scripts]

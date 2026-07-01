@@ -11,7 +11,10 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
@@ -20,9 +23,12 @@ REGISTRY_ROOT = ROOT / "src" / "needle" / "registry_data"
 
 
 def _run(args: list[str]) -> tuple[int, str, str]:
+    env = dict(os.environ)
+    env["COLUMNS"] = "120"
     proc = subprocess.run(
         ["uv", "run", "needle", *args],
         cwd=ROOT,
+        env=env,
         text=True,
         capture_output=True,
         check=False,
@@ -267,6 +273,25 @@ def test_model_dir_command_reports_needle_model_path() -> None:
                 os.environ["NEEDLE_MODEL_ROOT"] = old_root
 
 
+def test_model_provenance_records_resolved_revision() -> None:
+    import needle.cli as cli
+
+    with tempfile.TemporaryDirectory() as td:
+        target = Path(td)
+        cli._write_model_provenance(
+            target,
+            repo="org/model",
+            requested_revision="main",
+            resolved_revision="abc123",
+        )
+        data = json.loads((target / "needle-model.json").read_text(encoding="utf-8"))
+        assert data["repo"] == "org/model"
+        assert data["requested_revision"] == "main"
+        assert data["resolved_revision"] == "abc123"
+        assert data["caller"] == "cli"
+        assert "downloaded_at" in data
+
+
 def test_setup_pi_dry_run_uses_packaged_adapter() -> None:
     code, out, err = _run(["setup", "pi", "--dry-run"])
     assert code == 0, err
@@ -335,7 +360,10 @@ def test_setup_claude_code_dry_run_prints_native_mcp_setup() -> None:
     assert "Needle for Claude Code" in out
     assert "Using Needle package: e24z/mlx-mcp-bash-reference" in out
     assert "Tool command: needle mcp serve" in out
-    assert "Runtime command: needle runtime manage --host-binding mcp/bash" in out
+    assert (
+        "Runtime command: needle runtime manage --package e24z/mlx-mcp-bash-reference "
+        "--host-binding mcp/bash"
+    ) in out
     assert "Statusline: needle statusline claude-code" in out
     assert "Status: needle status --events 20" in out
     assert "start the Needle runtime before expecting pruning." in out
@@ -355,7 +383,10 @@ def test_setup_codex_dry_run_prints_native_mcp_setup() -> None:
     assert "Needle for Codex CLI" in out
     assert "Using Needle package: e24z/mlx-mcp-bash-reference" in out
     assert "Tool command: needle mcp serve" in out
-    assert "Runtime command: needle runtime manage --host-binding mcp/bash" in out
+    assert (
+        "Runtime command: needle runtime manage --package e24z/mlx-mcp-bash-reference "
+        "--host-binding mcp/bash"
+    ) in out
     assert "Statusline: needle statusline codex" in out
     assert "Status: needle status --events 20" in out
     assert "Codex support is experimental" in out
@@ -365,6 +396,21 @@ def test_setup_codex_dry_run_prints_native_mcp_setup() -> None:
     assert "Codex note:" in out
     assert "Needle does not transparently rewrite Codex's built-in Bash output." in out
     assert "dry run: no changes made" in out
+
+
+def test_setup_codex_uses_selected_loaded_package() -> None:
+    import needle.cli as cli
+
+    fake_loaded = SimpleNamespace(package_id="example/custom-mcp", binding_id="mcp/bash")
+    out = StringIO()
+
+    with redirect_stdout(out):
+        code = cli._setup_codex(cli._ns(dry_run=True, uninstall=False), fake_loaded)
+
+    assert code == 0
+    rendered = out.getvalue()
+    assert "Needle for Codex CLI" in rendered
+    assert "Runtime command: needle runtime manage --package example/custom-mcp --host-binding mcp/bash" in rendered
 
 
 def test_setup_claude_code_rejects_unknown_scope() -> None:
@@ -402,9 +448,16 @@ def test_runtime_status_wrapper_is_available() -> None:
 def test_runtime_manage_help_exposes_package_context_options() -> None:
     code, out, err = _run(["runtime", "manage", "--help"])
     assert code == 0, err
-    assert "--package" in out
-    assert "--host-binding" in out
-    assert "--raw" in out
+    assert "Usage:" in out
+
+    import typer
+    import needle.cli as cli
+
+    command = typer.main.get_command(cli.app).commands["runtime"].commands["manage"]
+    options = {opt for param in command.params for opt in param.opts}
+    assert "--package" in options
+    assert "--host-binding" in options
+    assert "--raw" in options
 
 
 def test_runtime_manage_wrapper_forwards_package_context_without_starting_manager() -> None:
@@ -488,12 +541,14 @@ def main() -> int:
     test_evidence_check_lists_mcp_fixture_cases()
     test_uninstall_dry_run_and_yes_use_needle_owned_paths()
     test_model_dir_command_reports_needle_model_path()
+    test_model_provenance_records_resolved_revision()
     test_setup_root_dry_run_lists_hosts_without_mutating()
     test_setup_homebrew_entrypoint_defers_in_noninteractive_shell()
     test_setup_root_rejects_unknown_host()
     test_setup_pi_dry_run_uses_packaged_adapter()
     test_setup_claude_code_dry_run_prints_native_mcp_setup()
     test_setup_codex_dry_run_prints_native_mcp_setup()
+    test_setup_codex_uses_selected_loaded_package()
     test_setup_claude_code_rejects_unknown_scope()
     test_claude_code_statusline_plain_reports_runtime_health()
     test_runtime_status_wrapper_is_available()

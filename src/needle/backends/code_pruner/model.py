@@ -2,6 +2,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import mlx.core as mx
 import mlx.nn as nn
@@ -13,6 +14,11 @@ from .batching import (
     BatchRetryFailed,
     score_batches_with_retry,
     split_batches_by_padded_token_budget,
+)
+from .backbone import (
+    ResolvedBackbone,
+    download_backbone_snapshot,
+    resolve_backbone_reference,
 )
 from .chunking import (
     TokenChunk,
@@ -468,6 +474,8 @@ class MLXSwePrunerBackend:
         backbone_name = config.get(
             "backbone_model_name_or_path", "Qwen/Qwen3-Reranker-0.6B"
         )
+        backbone = resolve_backbone_reference(str(backbone_name), config)
+        self._record_backbone_provenance(backbone)
 
         # 2. Get the backbone architecture + tokenizer.
         if _env_flag(MLX_LIGHT_ENV_NAMES, True):
@@ -475,10 +483,10 @@ class MLXSwePrunerBackend:
             # its own tokenizer, so build the Qwen3 architecture from the backbone's
             # tiny config.json and skip loading Qwen's ~1.2GB of weights entirely
             # (step 4 overwrites them anyway). Avoids the double-load.
-            self.backbone, self.tokenizer = self._build_backbone_light(backbone_name)
+            self.backbone, self.tokenizer = self._build_backbone_light(backbone)
         else:
             # Faithful path: mlx-lm loads Qwen weights, then step 4 overwrites them.
-            self.backbone, tokenizer_wrapper = load(backbone_name)
+            self.backbone, tokenizer_wrapper = load(download_backbone_snapshot(backbone))
             self.tokenizer = tokenizer_wrapper._tokenizer
         self.backbone.eval()
 
@@ -515,7 +523,20 @@ class MLXSwePrunerBackend:
         }
         self.last_stats: dict[str, object] = {}
 
-    def _build_backbone_light(self, backbone_name: str):
+    def _record_backbone_provenance(self, backbone: ResolvedBackbone) -> None:
+        from needle.model_download import augment_model_provenance
+
+        augment_model_provenance(
+            Path(self.model_dir),
+            {
+                "backbone_repo": backbone.repo,
+                "backbone_requested_revision": backbone.requested_revision,
+                "backbone_resolved_revision": backbone.resolved_revision,
+                **({"backbone_path": backbone.path} if backbone.path else {}),
+            },
+        )
+
+    def _build_backbone_light(self, backbone: ResolvedBackbone):
         """Build the Qwen3 backbone architecture from its config (no Qwen
         weights) and load code-pruner's bundled tokenizer. Code-pruner's
         backbone weights are applied in step 4."""
@@ -523,7 +544,15 @@ class MLXSwePrunerBackend:
         from mlx_lm.models.qwen3 import Model, ModelArgs
         from transformers import AutoTokenizer
 
-        with open(hf_hub_download(backbone_name, "config.json")) as f:
+        if backbone.path:
+            config_path = os.path.join(backbone.path, "config.json")
+        else:
+            config_path = hf_hub_download(
+                backbone.repo,
+                "config.json",
+                revision=backbone.resolved_revision,
+            )
+        with open(config_path) as f:
             backbone_config = json.load(f)
         backbone = Model(ModelArgs.from_dict(backbone_config))
         tokenizer = AutoTokenizer.from_pretrained(self.model_dir)
@@ -1302,17 +1331,17 @@ def _resolve_model_dir() -> str:
     explicit = os.environ.get("NEEDLE_MODEL_DIR") or os.environ.get("HAY_MODEL_DIR")
     if explicit:
         return explicit
-    from huggingface_hub import snapshot_download
+    from needle.model_download import download_model_snapshot
 
     repo = os.environ.get("NEEDLE_MODEL") or os.environ.get("HAY_MODEL", "ayanami-kitasan/code-pruner")
-    root = naming.model_root()
-    local_dir = naming.model_dir_for_repo(repo)
-    root.mkdir(parents=True, exist_ok=True)
-    return snapshot_download(
-        repo,
-        local_dir=str(local_dir),
-        cache_dir=str(root / ".hf-cache"),
+    revision = os.environ.get("NEEDLE_MODEL_REVISION") or os.environ.get("HAY_MODEL_REVISION")
+    result = download_model_snapshot(
+        repo=repo,
+        revision=revision,
+        caller="runtime",
+        force=False,
     )
+    return result.path
 
 
 class CodePrunerBackend:

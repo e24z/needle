@@ -191,24 +191,29 @@ def test_needle_bash_reports_nonzero_exit_without_throwing() -> None:
 
 def test_needle_bash_caps_large_stdout_before_rendering() -> None:
     obs = run_bash_command(
-        f"{sys.executable} -c \"import sys; sys.stdout.write('a' * 64)\"",
+        f"{sys.executable} -c \"import sys; sys.stdout.write('HEAD' + 'm' * 64 + 'TAIL')\"",
         timeout_secs=5,
-        stdout_limit_bytes=10,
+        stdout_limit_bytes=12,
     )
-    assert obs.stdout == "a" * 10
+    assert obs.stdout.startswith("HEAD")
+    assert obs.stdout.endswith("TAIL")
+    assert "omitted" in obs.stdout
+    assert "m" * 12 not in obs.stdout
     assert obs.stdout_truncated is True
-    assert "[needle: stdout truncated at 10 bytes]" in obs.text
+    assert "[needle: stdout truncated to head+tail within 12 bytes; omitted" in obs.text
 
 
 def test_needle_bash_caps_large_stderr_before_rendering() -> None:
     obs = run_bash_command(
-        f"{sys.executable} -c \"import sys; sys.stderr.write('e' * 64)\"",
+        f"{sys.executable} -c \"import sys; sys.stderr.write('ERRH' + 'e' * 64 + 'ERRT')\"",
         timeout_secs=5,
-        stderr_limit_bytes=7,
+        stderr_limit_bytes=12,
     )
-    assert obs.stderr == "e" * 7
+    assert obs.stderr.startswith("ERRH")
+    assert obs.stderr.endswith("ERRT")
+    assert "omitted" in obs.stderr
     assert obs.stderr_truncated is True
-    assert "[needle: stderr truncated at 7 bytes]" in obs.text
+    assert "[needle: stderr truncated to head+tail within 12 bytes; omitted" in obs.text
 
 
 def test_needle_bash_timeout_preserves_bounded_partial_output() -> None:
@@ -220,7 +225,8 @@ def test_needle_bash_timeout_preserves_bounded_partial_output() -> None:
     )
     assert obs.timed_out is True
     assert obs.exit_code is None
-    assert obs.stdout == "x" * 8
+    assert obs.stdout.startswith("xx")
+    assert obs.stdout.endswith("xxxxxx")
     assert obs.stdout_truncated is True
     assert "exit_code: timeout" in obs.text
 
@@ -246,6 +252,10 @@ def test_needle_bash_commands_read_from_devnull() -> None:
             "timed_out": False,
             "stdout_truncated": False,
             "stderr_truncated": False,
+            "stdout_head_bytes": 0,
+            "stderr_head_bytes": 0,
+            "stdout_omitted_bytes": 0,
+            "stderr_omitted_bytes": 0,
         }
 
     old_popen = bash_mod.subprocess.Popen

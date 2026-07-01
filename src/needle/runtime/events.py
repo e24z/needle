@@ -51,9 +51,9 @@ def emit(event: str, **fields: object) -> None:
         rec = {"ts": round(time.time(), 3), "event": event, **fields}
         line = json.dumps(rec, default=str)
         path = _path()
-        path.parent.mkdir(parents=True, exist_ok=True)
+        naming.ensure_runtime_parent(path.parent)
         _rotate(path)
-        with open(path, "a") as f:
+        with naming.open_private_append(path) as f:
             f.write(line + "\n")
     except Exception:
         pass
@@ -62,7 +62,9 @@ def emit(event: str, **fields: object) -> None:
 def _rotate(path: Path) -> None:
     try:
         if path.exists() and path.stat().st_size >= MAX_BYTES:
-            os.replace(path, path.with_name(path.name + ".1"))  # events.jsonl -> events.jsonl.1
+            rotated = path.with_name(path.name + ".1")
+            os.replace(path, rotated)  # events.jsonl -> events.jsonl.1
+            naming.ensure_private_file(rotated)
     except OSError:
         pass
 

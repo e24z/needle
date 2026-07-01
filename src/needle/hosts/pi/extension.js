@@ -7,7 +7,6 @@ import {
 	acquireLease,
 	appHome,
 	codeVersion,
-	ensureManager,
 	heartbeat,
 	managerSocketPath,
 	packageInventory,
@@ -15,6 +14,7 @@ import {
 	prune,
 	release,
 	repoRootFromModuleUrl,
+	runtimeLaunchPlan,
 	sourceIdentity,
 	stats,
 	tailEvents,
@@ -60,6 +60,7 @@ export function installNeedlePiExtension(pi, options = {}) {
 	const counters = emptyCounters();
 	const statusCache = { snapshot: null, checkedAt: 0, pending: null, busyPrunes: 0 };
 	let sessionId = "";
+	let leaseActive = false;
 	let heartbeatTimer;
 	let statusTimer;
 
@@ -71,8 +72,14 @@ export function installNeedlePiExtension(pi, options = {}) {
 		sessionId = ctx.sessionManager?.getSessionId?.() || `pi-${Date.now()}`;
 		Object.assign(counters, restoreCounters(ctx.sessionManager?.getEntries?.() || []));
 		const version = await codeVersion(repoRoot);
-		const ready = await ensureManager({ repoRoot });
-		if (ready) await acquireLease(sessionId, version, { repoRoot });
+		const launchPlan = await runtimeLaunchPlan(repoRoot, { hostBinding: "pi/native-tools" });
+		const ready = await acquireLease(sessionId, version, { repoRoot, launchPlan });
+		if (!ready) {
+			markStatusFailure(statusCache, "lease acquisition failed");
+			await updateStatus(ctx, counters, statusCache);
+			return;
+		}
+		leaseActive = true;
 		await updateStatus(ctx, counters, statusCache, { force: true });
 		heartbeatTimer = setInterval(() => {
 			if (sessionId) heartbeat(sessionId).catch(() => undefined);
@@ -85,8 +92,15 @@ export function installNeedlePiExtension(pi, options = {}) {
 	pi.on("session_shutdown", async () => {
 		if (heartbeatTimer) clearInterval(heartbeatTimer);
 		if (statusTimer) clearInterval(statusTimer);
-		if (sessionId) await release(sessionId).catch(() => undefined);
+		if (leaseActive && sessionId) await release(sessionId).catch(() => undefined);
+		leaseActive = false;
 	});
+}
+
+function markStatusFailure(cache, error) {
+	cache.snapshot = { ok: false, error };
+	cache.checkedAt = Date.now();
+	cache.pending = null;
 }
 
 async function loadPiTools() {

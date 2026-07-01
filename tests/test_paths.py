@@ -25,6 +25,8 @@ def _reload_naming(**env):
         "HAY_HOME",
         "NEEDLE_MODEL_ROOT",
         "HAY_MODEL_ROOT",
+        "NEEDLE_MANAGER_TOKEN_FILE",
+        "HAY_MANAGER_TOKEN_FILE",
     ):
         os.environ.pop(k, None)
     os.environ.update(env)
@@ -53,6 +55,7 @@ def test_default_runtime_state_is_needle_owned() -> None:
     assert naming.app_home() == Path.home() / ".needle"
     assert naming.model_root() == Path.home() / ".needle/models"
     assert naming.manager_socket_path() == Path.home() / ".needle/manager.sock"
+    assert naming.manager_token_path() == Path.home() / ".needle/manager.token"
 
 
 def test_package_names_have_rename_aliases() -> None:
@@ -77,6 +80,43 @@ def test_socket_is_live_false_when_absent() -> None:
     assert naming.socket_is_live(naming.manager_socket_path()) is False
 
 
+def test_manager_token_is_private_and_socket_scoped() -> None:
+    with tempfile.TemporaryDirectory() as td:
+        home = Path(td) / "home"
+        naming = _reload_naming(NEEDLE_HOME=str(home))
+        token = naming.get_or_create_manager_token()
+        token_path = home / "manager.token"
+        assert token == token_path.read_text(encoding="utf-8").strip()
+        assert token_path.stat().st_mode & 0o777 == 0o600
+        assert home.stat().st_mode & 0o777 == 0o700
+
+        explicit = Path(td) / "explicit.sock"
+        assert naming.manager_token_path(explicit) == Path(td) / "explicit.sock.token"
+        explicit_token = naming.get_or_create_manager_token(explicit)
+        assert explicit_token == naming.read_manager_token(explicit)
+
+
+def test_private_runtime_helpers_repair_permissive_modes() -> None:
+    old_umask = os.umask(0)
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td) / "home"
+            home.mkdir(mode=0o777)
+            os.chmod(home, 0o777)
+            naming = _reload_naming(NEEDLE_HOME=str(home))
+
+            log_path = home / "manager.log"
+            log_path.write_text("", encoding="utf-8")
+            os.chmod(log_path, 0o666)
+            with naming.open_private_append(log_path) as fh:
+                fh.write("hello\n")
+
+            assert home.stat().st_mode & 0o777 == 0o700
+            assert log_path.stat().st_mode & 0o777 == 0o600
+    finally:
+        os.umask(old_umask)
+
+
 def test_model_dir_is_needle_owned_and_sanitized() -> None:
     naming = _reload_naming(NEEDLE_HOME="/tmp/needlehome")
     assert naming.model_root() == Path("/tmp/needlehome/models")
@@ -95,6 +135,8 @@ if __name__ == "__main__":
     test_package_names_have_rename_aliases()
     test_hay_env_names_remain_compatibility_aliases()
     test_socket_is_live_false_when_absent()
+    test_manager_token_is_private_and_socket_scoped()
+    test_private_runtime_helpers_repair_permissive_modes()
     test_model_dir_is_needle_owned_and_sanitized()
     for k in (
         "NEEDLE_APP_NAME",
@@ -106,6 +148,8 @@ if __name__ == "__main__":
         "HAY_HOME",
         "NEEDLE_MODEL_ROOT",
         "HAY_MODEL_ROOT",
+        "NEEDLE_MANAGER_TOKEN_FILE",
+        "HAY_MANAGER_TOKEN_FILE",
     ):
         os.environ.pop(k, None)
     print("ok: manager socket overridable, machine-wide, liveness probe works")

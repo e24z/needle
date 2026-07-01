@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
-import { appendFile, mkdtemp, readFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { registryRoot, repoRootFromModuleUrl } from "./client.mjs";
+import { managerTokenPath, registryRoot, repoRootFromModuleUrl } from "./client.mjs";
 import { installNeedlePiExtension } from "./extension.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -21,7 +21,9 @@ async function main() {
 	const temp = await mkdtemp(join(tmpdir(), "needle-pi-canary-"));
 	const socketPath = join(temp, "manager.sock");
 	const eventsPath = join(temp, "events.jsonl");
-	const serverState = { pruneCalls: 0, sessions: new Set(), fixture, eventsPath };
+	const token = "demo-manager-token";
+	await writeFile(managerTokenPath(socketPath), `${token}\n`, "utf8");
+	const serverState = { pruneCalls: 0, sessions: new Set(), fixture, eventsPath, token };
 	const server = createDemoManager(socketPath, serverState);
 	await listenDemoManager(server, socketPath);
 
@@ -129,7 +131,9 @@ function createDemoManager(socketPath, state) {
 			if (idx < 0) return;
 			const req = JSON.parse(buf.slice(0, idx));
 			let resp;
-			if (req.op === "stats") {
+			if (req.token !== state.token) {
+				resp = { ok: false, error: "unauthorized" };
+			} else if (req.op === "stats") {
 				resp = {
 					ok: true,
 					resident: true,

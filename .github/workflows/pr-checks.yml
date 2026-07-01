@@ -1,0 +1,45 @@
+name: PR checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - "codex/**"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Python and Pi adapter tests
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Compile Python sources
+        run: uv run python -m compileall src tests
+
+      - name: Run Python tests
+        run: uv run --with pytest python -m pytest tests -q
+
+      - name: Run Pi adapter tests
+        run: node --test tests/test_pi_client.mjs
+
+      - name: Run Pi canary demo
+        run: npm run demo:pi-canary

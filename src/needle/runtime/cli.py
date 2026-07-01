@@ -99,7 +99,7 @@ def _prune(args: argparse.Namespace) -> int:
     text = sys.stdin.read()
     try:
         resp = client.prune(text=text, query=args.query)
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
         print(
             f"error: {naming.APP_NAME} manager is not reachable at {naming.manager_socket_path()}: {exc}",
             file=sys.stderr,
@@ -255,7 +255,7 @@ def _render_status(stats: dict | None, recent: list[dict]) -> str:
 def _status(args: argparse.Namespace) -> int:
     try:
         stats = client.stats(timeout=0.5)
-    except OSError:
+    except (OSError, RuntimeError):
         stats = None  # no manager / unreachable -> "down", still show recent events
     print(_render_status(stats, events.tail(args.events)))
     return 0
@@ -264,7 +264,7 @@ def _status(args: argparse.Namespace) -> int:
 def _stop(args: argparse.Namespace) -> int:
     try:
         resp = client.stop(timeout=0.5)
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
         print(f"{naming.APP_NAME}: manager already stopped ({exc})", file=sys.stderr)
         return 0
     if not resp.get("ok"):

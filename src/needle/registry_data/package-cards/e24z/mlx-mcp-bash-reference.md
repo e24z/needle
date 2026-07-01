@@ -2,15 +2,17 @@
 
 Package: `e24z/mlx-mcp-bash-reference`
 
-Needle MCP Bash exposes one portable MCP tool for shell-shaped observation:
+Needle MCP Bash exposes one portable MCP tool for shell-shaped command output:
 
 ```text
 needle_bash(command, context_focus_question?)
 ```
 
-Agents should use this tool for `rg`, `sed`, `git diff`, test output, and other
-read-only command observations. Deliberate file mutation stays with the host's
-native edit, write, or apply-patch tools.
+`needle_bash` executes unsandboxed local `bash -c` and captures bounded output
+for optional pruning. Agents should use it only for commands the user would be
+comfortable running in a normal shell, such as `rg`, `sed`, `git diff`, and test
+commands. Planned file mutation should stay with the host's native edit, write,
+or apply-patch tools so changes remain visible in the host workflow.
 
 - Implements: `swe-pruner/reference`
 - Uses backend: `e24z/code-pruner-mlx`

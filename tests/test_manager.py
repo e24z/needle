@@ -19,8 +19,13 @@ from pathlib import Path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))  # runnable bare, like its siblings
 
-from needle.runtime.manager import MANAGER_CONFIG_ENVS, Manager, _env, serve_manager  # noqa: E402
-from needle.runtime import naming  # noqa: E402
+from needle.runtime.manager import (  # noqa: E402
+    MANAGER_CONFIG_ENVS,
+    Manager,
+    _env,
+    serve_manager,
+)
+from needle.runtime import client, naming  # noqa: E402
 from needle.runtime.protocol import decode, encode  # noqa: E402
 
 
@@ -58,7 +63,54 @@ class StatsBackend:
         return text[:4]
 
 
+class SerializedBackend:
+    name = "serialized"
+
+    def __init__(self) -> None:
+        self.active = 0
+        self.max_active = 0
+        self.lock = threading.Lock()
+
+    def prune(self, *, text: str, query: str) -> str:
+        with self.lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        try:
+            time.sleep(0.1)
+            return text
+        finally:
+            with self.lock:
+                self.active -= 1
+
+
+class BlockingBackend:
+    name = "blocking"
+
+    def __init__(self, started: threading.Event, release: threading.Event) -> None:
+        self.started = started
+        self.release = release
+
+    def prune(self, *, text: str, query: str) -> str:
+        self.started.set()
+        assert self.release.wait(5), "blocked prune was not released"
+        return text
+
+
 def _call(sock_path: Path, req: dict) -> dict:
+    wire_req = dict(req)
+    wire_req["token"] = naming.read_manager_token(sock_path)
+    c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    c.settimeout(2)
+    c.connect(str(sock_path))
+    try:
+        c.sendall(encode(wire_req))
+        with c.makefile("rb") as f:
+            return decode(f.readline())
+    finally:
+        c.close()
+
+
+def _raw_call(sock_path: Path, req: dict) -> dict:
     c = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     c.settimeout(2)
     c.connect(str(sock_path))
@@ -145,6 +197,107 @@ def test_manager_stats_expose_runtime_identity() -> None:
     assert stats["backend_id"] == "e24z/code-pruner-mlx", stats
 
 
+def test_manager_lease_requires_matching_runtime_identity() -> None:
+    identity = {
+        "package_id": "pkg/a",
+        "host_binding": "mcp/bash",
+        "runtime_profile": "local",
+        "backend_id": "backend/a",
+    }
+    matching = {
+        "op": "lease",
+        "session": "s1",
+        "version": "v1",
+        **identity,
+    }
+    ok_manager = Manager(lambda: StatsBackend(), version="v1", runtime_identity=identity)
+    assert ok_manager.handle(matching)["ok"]
+
+    cases = {
+        "package_id": "pkg/b",
+        "host_binding": "pi/native-tools",
+        "runtime_profile": "other-profile",
+        "backend_id": "backend/b",
+        "version": "v2",
+    }
+    for field, requested in cases.items():
+        stop = threading.Event()
+        manager = Manager(
+            lambda: StatsBackend(),
+            version="v1",
+            stop_event=stop,
+            runtime_identity=identity,
+        )
+        req = dict(matching)
+        req[field] = requested
+        resp = manager.handle(req)
+        assert resp["ok"] is False, (field, resp)
+        assert resp["stale"] is True, (field, resp)
+        assert resp["identity_mismatch"] is True, (field, resp)
+        assert field in resp["mismatches"], (field, resp)
+        assert stop.is_set(), (field, resp)
+
+
+def test_mismatched_lease_returns_stale_while_prune_is_blocked() -> None:
+    tmp = Path(tempfile.mkdtemp()) / "manager.sock"
+    identity_a = {
+        "package_id": "pkg/a",
+        "host_binding": "mcp/bash",
+        "runtime_profile": "local",
+        "backend_id": "backend/a",
+    }
+    identity_b = {
+        "package_id": "pkg/b",
+        "host_binding": "mcp/bash",
+        "runtime_profile": "local",
+        "backend_id": "backend/a",
+    }
+    ready = threading.Event()
+    stop = threading.Event()
+    prune_started = threading.Event()
+    prune_release = threading.Event()
+    t = threading.Thread(
+        target=serve_manager,
+        kwargs=dict(
+            backend_factory=lambda: BlockingBackend(prune_started, prune_release),
+            socket_path=tmp,
+            ready_cb=lambda _p: ready.set(),
+            stop_event=stop,
+            poll_interval=0.03,
+            runtime_identity=identity_a,
+            version="v1",
+        ),
+        daemon=True,
+    )
+    t.start()
+    assert ready.wait(2), "manager never signalled ready"
+    prune_result: list[dict] = []
+    prune_thread = threading.Thread(
+        target=lambda: prune_result.append(
+            _call(tmp, {"op": "prune", "text": "abcdef", "query": "q"})
+        ),
+        daemon=True,
+    )
+    prune_thread.start()
+    assert prune_started.wait(2), "prune did not enter blocking backend"
+
+    started_at = time.monotonic()
+    resp = _call(tmp, {"op": "lease", "session": "s-b", "version": "v1", **identity_b})
+    elapsed = time.monotonic() - started_at
+
+    try:
+        assert elapsed < 0.5, (elapsed, resp)
+        assert resp["ok"] is False, resp
+        assert resp["stale"] is True, resp
+        assert resp["identity_mismatch"] is True, resp
+        assert prune_thread.is_alive(), "lease waited for blocked prune to finish"
+    finally:
+        prune_release.set()
+        stop.set()
+        prune_thread.join(timeout=3)
+        t.join(timeout=3)
+
+
 def test_code_version_changes_for_backend_affecting_files() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td) / "needle"
@@ -170,11 +323,194 @@ def test_code_version_changes_for_backend_affecting_files() -> None:
     assert after_backend != after_source
 
 
+def test_stopped_manager_leaves_dead_socket_for_next_startup() -> None:
+    tmp = Path(tempfile.mkdtemp()) / "manager.sock"
+    first_ready = threading.Event()
+    first_stop = threading.Event()
+    second_stop: threading.Event | None = None
+    second: threading.Thread | None = None
+    first = threading.Thread(
+        target=serve_manager,
+        kwargs=dict(
+            backend_factory=SpyBackend,
+            socket_path=tmp,
+            ready_cb=lambda _p: first_ready.set(),
+            stop_event=first_stop,
+            poll_interval=0.03,
+        ),
+        daemon=True,
+    )
+    first.start()
+    assert first_ready.wait(2), "first manager never signalled ready"
+    try:
+        assert _call(tmp, {"op": "stop"})["ok"]
+        assert _wait_until(lambda: not naming.socket_is_live(tmp)), "first manager stayed live"
+        assert tmp.exists(), "stopped manager should leave stale socket for startup cleanup"
+
+        second_ready = threading.Event()
+        second_stop = threading.Event()
+        second = threading.Thread(
+            target=serve_manager,
+            kwargs=dict(
+                backend_factory=SpyBackend,
+                socket_path=tmp,
+                ready_cb=lambda _p: second_ready.set(),
+                stop_event=second_stop,
+                poll_interval=0.03,
+            ),
+            daemon=True,
+        )
+        second.start()
+        assert second_ready.wait(2), "second manager did not replace stale socket"
+        assert _call(tmp, {"op": "stats"})["ok"]
+    finally:
+        if second_stop is not None:
+            second_stop.set()
+        first_stop.set()
+        first.join(timeout=2)
+        if naming.socket_is_live(tmp):
+            try:
+                client.stop(socket_path=tmp)
+            except OSError:
+                pass
+        if second is not None:
+            second.join(timeout=2)
+        tmp.unlink(missing_ok=True)
+
+
+def test_client_does_not_create_token_for_live_manager_missing_token() -> None:
+    tmp = Path(tempfile.mkdtemp()) / "manager.sock"
+    ready = threading.Event()
+    stop = threading.Event()
+    t = threading.Thread(
+        target=serve_manager,
+        kwargs=dict(
+            backend_factory=SpyBackend,
+            socket_path=tmp,
+            ready_cb=lambda _p: ready.set(),
+            stop_event=stop,
+            poll_interval=0.03,
+        ),
+        daemon=True,
+    )
+    t.start()
+    assert ready.wait(2), "manager never signalled ready"
+    token_path = naming.manager_token_path(tmp)
+    original = naming.read_manager_token(tmp)
+    try:
+        assert client.stats(socket_path=tmp)["ok"]
+
+        token_path.unlink()
+        try:
+            client.stats(socket_path=tmp)
+        except RuntimeError as exc:
+            assert "manager token is missing" in str(exc)
+        else:
+            raise AssertionError("missing token should not be recreated by client")
+        assert not token_path.exists(), "client recreated a token while manager was live"
+
+        token_path.write_text("wrong-token\n", encoding="utf-8")
+        os.chmod(token_path, 0o600)
+        resp = client.stats(socket_path=tmp)
+        assert resp == {"ok": False, "error": "unauthorized"}, resp
+        assert token_path.read_text(encoding="utf-8").strip() == "wrong-token"
+
+        token_path.write_text(original + "\n", encoding="utf-8")
+        os.chmod(token_path, 0o600)
+        assert _call(tmp, {"op": "stop"})["ok"]
+    finally:
+        stop.set()
+        token_path.write_text(original + "\n", encoding="utf-8")
+        os.chmod(token_path, 0o600)
+        t.join(timeout=2)
+
+
+def test_manager_bounds_stalled_connection_workers() -> None:
+    tmp = Path(tempfile.mkdtemp()) / "manager.sock"
+    ready = threading.Event()
+    stop = threading.Event()
+    t = threading.Thread(
+        target=serve_manager,
+        kwargs=dict(
+            backend_factory=SpyBackend,
+            socket_path=tmp,
+            ready_cb=lambda _p: ready.set(),
+            stop_event=stop,
+            poll_interval=0.03,
+            max_connection_workers=1,
+        ),
+        daemon=True,
+    )
+    t.start()
+    assert ready.wait(2), "manager never signalled ready"
+    stalled = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    stalled.settimeout(2)
+    stalled.connect(str(tmp))
+    time.sleep(0.05)
+    excess = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    excess.settimeout(1)
+    excess.connect(str(tmp))
+    try:
+        with excess.makefile("rb") as f:
+            resp = decode(f.readline())
+        assert resp == {"ok": False, "error": "manager busy"}, resp
+    finally:
+        excess.close()
+        stalled.close()
+        stop.set()
+        t.join(timeout=3)
+
+
+def test_prune_requests_remain_serialized_under_concurrency() -> None:
+    tmp = Path(tempfile.mkdtemp()) / "manager.sock"
+    ready = threading.Event()
+    stop = threading.Event()
+    backend = SerializedBackend()
+    t = threading.Thread(
+        target=serve_manager,
+        kwargs=dict(
+            backend_factory=lambda: backend,
+            socket_path=tmp,
+            ready_cb=lambda _p: ready.set(),
+            stop_event=stop,
+            poll_interval=0.03,
+            max_connection_workers=2,
+        ),
+        daemon=True,
+    )
+    t.start()
+    assert ready.wait(2), "manager never signalled ready"
+    results: list[dict] = []
+
+    def call_prune() -> None:
+        results.append(_call(tmp, {"op": "prune", "text": "abcdef", "query": "q"}))
+
+    threads = [threading.Thread(target=call_prune) for _ in range(2)]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=3)
+        assert len(results) == 2, results
+        assert all(resp.get("ok") for resp in results), results
+        assert backend.max_active == 1
+    finally:
+        _call(tmp, {"op": "stop"})
+        stop.set()
+        t.join(timeout=2)
+
+
 def main() -> int:
     test_manager_config_env_prefers_needle_names()
     test_manager_surfaces_bounded_backend_stats()
     test_manager_stats_expose_runtime_identity()
+    test_manager_lease_requires_matching_runtime_identity()
+    test_mismatched_lease_returns_stale_while_prune_is_blocked()
     test_code_version_changes_for_backend_affecting_files()
+    test_stopped_manager_leaves_dead_socket_for_next_startup()
+    test_client_does_not_create_token_for_live_manager_missing_token()
+    test_manager_bounds_stalled_connection_workers()
+    test_prune_requests_remain_serialized_under_concurrency()
     tmp = Path(tempfile.mkdtemp()) / "manager.sock"
     builds: list[SpyBackend] = []
 
@@ -202,6 +538,8 @@ def main() -> int:
     assert ready.wait(2), "manager never signalled ready"
 
     try:
+        assert _raw_call(tmp, {"op": "stats"}) == {"ok": False, "error": "unauthorized"}
+
         # Leasing does NOT load the model (lazy): nothing built yet.
         assert _call(tmp, {"op": "lease", "session": "s1"})["ok"]
         s = _call(tmp, {"op": "stats"})
@@ -248,7 +586,7 @@ def main() -> int:
         assert _call(tmp, {"op": "stats"})["ok"], "first manager stopped serving"
 
         assert _call(tmp, {"op": "stop"})["ok"], "manager did not accept stop"
-        assert _wait_until(lambda: not tmp.exists()), "manager socket was not removed"
+        assert _wait_until(lambda: not naming.socket_is_live(tmp)), "manager socket stayed live"
 
         ready_on_failed_bind = threading.Event()
         too_long = tmp.parent / ("x" * 200)
