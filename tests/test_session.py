@@ -19,6 +19,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 os.environ["HAY_NO_EVENTS"] = "1"  # legacy compatibility alias; don't write the real local event log
@@ -30,6 +32,11 @@ from needle.runtime.manager import serve_manager  # noqa: E402
 from needle.runtime.session import run_session  # noqa: E402
 
 _ROOT = str(Path(__file__).resolve().parent.parent / "src")
+
+
+@pytest.fixture
+def tmp_sock(tmp_path: Path) -> Path:
+    return tmp_path / "needle-manager.sock"
 
 
 def _wait(pred, timeout: float = 8.0, interval: float = 0.05) -> bool:
