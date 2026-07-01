@@ -1,6 +1,6 @@
 """Bash-minimal MCP observation tool.
 
-The portable MCP package owns observation, not mutation. It executes one bash
+The portable MCP surface owns observation, not mutation. It executes one bash
 command, renders a stable text observation, and optionally asks the resident
 Needle runtime to prune that observation toward an explicit focus question.
 """

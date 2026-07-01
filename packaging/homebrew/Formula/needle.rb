@@ -221,11 +221,10 @@ class Needle < Formula
         needle setup
 
       Direct setup commands:
-        needle setup pi
         needle setup claude-code
         needle setup codex
 
-      Needle will not change Pi, Claude Code, or Codex until you confirm setup.
+      Needle will not change Claude Code or Codex until you confirm setup.
       Codex support is experimental.
 
       Full local MLX pruning still needs backend dependencies and model files;
@@ -234,10 +233,10 @@ class Needle < Formula
   end
 
   test do
-    assert_match "Needle package and runtime control plane", shell_output("#{bin}/needle --help")
+    assert_match "Needle runtime and MCP control plane", shell_output("#{bin}/needle --help")
     assert_match "dry run: no changes made", shell_output("#{bin}/needle setup --dry-run")
     assert_match "Homebrew installed Needle", shell_output("NEEDLE_HOME=#{testpath}/needle-home #{bin}/needle setup --from-homebrew")
-    assert_match "dry run: no changes made", shell_output("#{bin}/needle setup pi --dry-run")
+    assert_match "dry run: no changes made", shell_output("#{bin}/needle setup claude-code --dry-run")
     assert_match "dry run: no changes made", shell_output("#{bin}/needle setup codex --dry-run")
     assert_match "- needle", shell_output("NEEDLE_MANAGER_SOCKET=#{testpath}/missing.sock #{bin}/needle statusline claude-code --plain")
   end

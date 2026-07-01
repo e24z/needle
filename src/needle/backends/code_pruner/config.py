@@ -7,11 +7,9 @@ machines with no MLX runtime.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 
 
-REFERENCE_CAPABILITY = "swe-pruner/reference"
-SOFT_LAMR_CAPABILITY = "e24z/soft-lamr"
 # NEEDLE_* names are canonical; HAY_* entries remain legacy compatibility
 # aliases for early installs and local experiment scripts.
 REPAIR_ENV_NAMES = ("NEEDLE_REPAIR", "HAY_REPAIR")
@@ -33,32 +31,23 @@ THRESHOLD_ENV_NAMES = ("NEEDLE_THRESHOLD", "HAY_THRESHOLD")
 ADAPTIVE_MLX_PROFILES = {"local_adaptive", "local-mlx-adaptive", "local_mlx_adaptive"}
 
 
-def repair_enabled_for_active_package() -> bool:
-    """Return whether the active package should apply AST repair.
+def repair_enabled_for_builtin_runtime() -> bool:
+    """Return whether the built-in Soft-LaMR path should apply AST repair.
 
-    Explicit env flags win for local experiments. Otherwise the package's named
-    capability decides: SWE-Pruner reference behavior is repair-free, while the
-    Soft-LaMR capability opts into Python AST mask expansion.
+    Explicit env flags win for local experiments. Otherwise repair is on because
+    Soft-LaMR is now the only product path.
     """
-    return repair_enabled_for_capabilities(_active_capability_ids(), os.environ)
-
-
-def repair_enabled_for_capabilities(
-    capability_ids: Iterable[str],
-    environ: Mapping[str, str] | None = None,
-) -> bool:
-    env = os.environ if environ is None else environ
-    explicit = _first_env(REPAIR_ENV_NAMES, env)
+    explicit = _first_env(REPAIR_ENV_NAMES, os.environ)
     if explicit is not None:
         return _parse_bool(explicit)
-    return SOFT_LAMR_CAPABILITY in set(capability_ids)
+    return True
 
 
 def configured_max_length(environ: Mapping[str, str] | None = None) -> int | None:
     """Explicit max-length override for local experiments.
 
-    Package runtime profiles should not set this. They should set
-    NEEDLE_MLX_PROFILE so the backend can choose per input.
+    The built-in runtime profile sets NEEDLE_MLX_PROFILE so the backend can
+    choose per input. This explicit value remains an experiment override.
     """
     env = os.environ if environ is None else environ
     value = _first_env(MAX_LENGTH_ENV_NAMES, env)
@@ -100,8 +89,8 @@ def choose_mlx_max_length(
 ) -> tuple[int, str]:
     """Choose the sequence length for one prune request.
 
-    This is a runtime profile, not a capability rule: it changes local MLX
-    performance shape while leaving the text->text pruning contract intact.
+    This changes local MLX performance shape while leaving the text->text pruning
+    contract intact.
     """
     env = os.environ if environ is None else environ
     explicit = configured_max_length(env)
@@ -126,15 +115,6 @@ def choose_mlx_max_length(
     )
     selected = small_max_length if original_tokens <= single_chunk_until else large_max_length
     return max(selected, prompt_tokens + min_code_tokens), profile
-
-
-def _active_capability_ids() -> list[str]:
-    try:
-        from ...registry import load_active_package
-
-        return load_active_package().capability_ids
-    except Exception:  # noqa: BLE001
-        return [REFERENCE_CAPABILITY]
 
 
 def _first_env(names: tuple[str, ...], env: Mapping[str, str]) -> str | None:

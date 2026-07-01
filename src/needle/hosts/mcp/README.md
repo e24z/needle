@@ -1,7 +1,7 @@
 # Needle MCP Bash
 
-Needle MCP Bash is the portable MCP package for agents that can use local stdio
-MCP servers. It exposes one shell-execution tool:
+Needle MCP Bash is the portable observation surface for agents that can use
+local stdio MCP servers. It exposes one shell-execution tool:
 
 ```text
 needle_bash(command, context_focus_question?)
@@ -12,7 +12,7 @@ user would be comfortable running in a normal shell. Prefer the host's native
 edit, write, or apply-patch tools for planned file mutation so those changes
 stay visible in the host workflow.
 
-This package does not intercept host-native tools. Claude Code's native Bash and
+This surface does not intercept host-native tools. Claude Code's native Bash and
 Codex's built-in Bash are not pruned by Needle. Codex support is experimental
 MCP dogfood. The host transcript must show a `needle_bash` MCP call for the
 observation to have passed through Needle.
@@ -28,7 +28,7 @@ machine-wide runtime manager, so start it separately before expecting real
 pruning:
 
 ```bash
-needle runtime manage --host-binding mcp/bash
+needle runtime manage
 ```
 
 If `needle_bash` returns raw output, check:

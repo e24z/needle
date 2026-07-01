@@ -38,17 +38,17 @@ def main() -> int:
 
     identified = _render_status(
         _stats(
-            package_id="e24z/mlx-pi-soft-lamr",
-            host_binding="pi/native-tools",
+            runtime_id="mlx-soft-lamr",
+            tool_surface="mcp/bash",
             runtime_profile="local_mlx_adaptive",
-            backend_id="e24z/code-pruner-mlx",
+            backend_id="code-pruner-mlx",
         ),
         [],
     )
-    assert "package e24z/mlx-pi-soft-lamr" in identified
-    assert "host pi/native-tools" in identified
+    assert "runtime mlx-soft-lamr" in identified
+    assert "surface mcp/bash" in identified
     assert "profile local_mlx_adaptive" in identified
-    assert "backend-id e24z/code-pruner-mlx" in identified
+    assert "backend-id code-pruner-mlx" in identified
 
     recent = _render_status(
         _stats(

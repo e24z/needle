@@ -1,4 +1,4 @@
-"""Needle CLI package management.
+"""Needle thin-spine CLI surface.
 
 Run: PYTHONPATH=src python3 tests/test_cli.py
 """
@@ -11,15 +11,11 @@ import subprocess
 import sys
 import tempfile
 import tomllib
-from contextlib import redirect_stdout
-from io import StringIO
 from pathlib import Path
-from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 ROOT = Path(__file__).resolve().parent.parent
-REGISTRY_ROOT = ROOT / "src" / "needle" / "registry_data"
 
 
 def _run(args: list[str]) -> tuple[int, str, str]:
@@ -41,8 +37,6 @@ def test_typer_help_groups_public_commands() -> None:
     assert code == 0, err
     assert "Commands" in out
     for command in (
-        "package",
-        "evidence",
         "model",
         "mcp",
         "runtime",
@@ -53,6 +47,8 @@ def test_typer_help_groups_public_commands() -> None:
         "uninstall",
     ):
         assert command in out
+    assert "package" not in out
+    assert "evidence" not in out
 
 
 def test_cli_version_and_usage_errors_are_human_readable() -> None:
@@ -76,179 +72,44 @@ def test_base_cli_dependency_does_not_pull_backend_runtime() -> None:
         assert backend_dep not in dependencies
 
 
-def test_package_cli_lists_and_selects_packages() -> None:
-    with tempfile.TemporaryDirectory() as td:
-        old_config = os.environ.get("HAY_CONFIG")
-        old_needle_config = os.environ.get("NEEDLE_CONFIG")
-        old_package = os.environ.get("HAY_PACKAGE")
-        old_needle_package = os.environ.get("NEEDLE_PACKAGE")
-        old_registry_root = os.environ.get("HAY_REGISTRY_ROOT")
-        old_needle_registry_root = os.environ.get("NEEDLE_REGISTRY_ROOT")
-        os.environ["NEEDLE_CONFIG"] = str(Path(td) / "config.json")
-        os.environ["NEEDLE_REGISTRY_ROOT"] = str(REGISTRY_ROOT)
-        os.environ.pop("HAY_CONFIG", None)
-        os.environ.pop("HAY_REGISTRY_ROOT", None)
-        os.environ.pop("HAY_PACKAGE", None)
-        os.environ.pop("NEEDLE_PACKAGE", None)
-        try:
-            code, out, err = _run(["package", "list", "--host-binding", "pi/native-tools"])
-            assert code == 0, err
-            assert "e24z/mlx-pi-reference" in out
-            assert "e24z/mlx-pi-soft-lamr" in out
-            assert "MLX Pi Soft LAMR" in out
-            assert "host:     Pi native tools" in out
-            assert "behavior: Soft LAMR" in out
-            assert "backend:  local MLX backend" in out
-            assert "Use --verbose for registry ids" in out
-
-            code, out, err = _run(["package", "list", "--host-binding", "pi/native-tools", "--verbose"])
-            assert code == 0, err
-            assert "implements=swe-pruner/reference" in out
-            assert "protocol=needle/text-transform" in out
-            assert "uses=e24z/code-pruner-mlx" in out
-
-            code, out, err = _run(["package", "use", "e24z/mlx-pi-soft-lamr"])
-            assert code == 0, err
-            assert "selected package: e24z/mlx-pi-soft-lamr" in out
-            assert "runtime command: needle runtime manage" in out
-            assert "restart the resident runtime" in out
-
-            code, out, err = _run(["package", "current"])
-            assert code == 0, err
-            assert out.splitlines()[0] == "e24z/mlx-pi-soft-lamr"
-            assert "source: config:" in out
-
-            code, out, err = _run(["package", "current", "--host-binding", "pi/native-tools"])
-            assert code == 0, err
-            assert out.splitlines()[0] == "e24z/mlx-pi-soft-lamr"
-            assert "source: config:" in out
-            assert "host binding: pi/native-tools" in out
-
-            code, out, err = _run(["package", "doctor", "--host-binding", "pi/native-tools"])
-            assert code == 0, err
-            assert "package: e24z/mlx-pi-soft-lamr" in out
-            assert "protocol: needle/text-transform" in out
-            assert "implements: e24z/soft-lamr" in out
-            assert "uses backend: e24z/code-pruner-mlx" in out
-            assert "runtime launcher: needle-cli" in out
-            assert "runtime command: needle runtime manage" in out
-            assert "field audit:" in out
-            assert "FIELD-AUDIT.md" in out
-            assert "runtime_profile.env: applied to the resident manager process" in out
-            assert "http_pruner: not advertised as a usable runtime alternative" in out
-            assert "package graph: ok" in out
-            assert "backend requirements: apple_silicon, mlx" in out
-            assert "backend readiness:" in out
-            assert "evidence: fixture_pack:mlx-pi-soft-lamr" in out
-            assert "evidence/fixture-packs/mlx-pi-soft-lamr/manifest.json" in out
-
-            code, out, err = _run(["package", "list", "--host-binding", "mcp/bash"])
-            assert code == 0, err
-            assert "e24z/mlx-mcp-bash-reference" in out
-            assert "host:     MCP bash" in out
-        finally:
-            if old_config is None:
-                os.environ.pop("HAY_CONFIG", None)
-            else:
-                os.environ["HAY_CONFIG"] = old_config
-            if old_needle_config is None:
-                os.environ.pop("NEEDLE_CONFIG", None)
-            else:
-                os.environ["NEEDLE_CONFIG"] = old_needle_config
-            if old_package is None:
-                os.environ.pop("HAY_PACKAGE", None)
-            else:
-                os.environ["HAY_PACKAGE"] = old_package
-            if old_needle_package is None:
-                os.environ.pop("NEEDLE_PACKAGE", None)
-            else:
-                os.environ["NEEDLE_PACKAGE"] = old_needle_package
-            if old_registry_root is None:
-                os.environ.pop("HAY_REGISTRY_ROOT", None)
-            else:
-                os.environ["HAY_REGISTRY_ROOT"] = old_registry_root
-            if old_needle_registry_root is None:
-                os.environ.pop("NEEDLE_REGISTRY_ROOT", None)
-            else:
-                os.environ["NEEDLE_REGISTRY_ROOT"] = old_needle_registry_root
-
-
-def test_package_cli_rejects_unknown_package() -> None:
-    code, out, err = _run(["package", "use", "e24z/nope"])
-    assert code == 1
-    assert out == ""
-    assert "missing package object" in err
-
-
-def test_evidence_check_lists_fixture_cases() -> None:
-    code, out, err = _run(["evidence", "check", "e24z/mlx-pi-reference", "--host-binding", "pi/native-tools"])
-    assert code == 0, err
-    assert "package: e24z/mlx-pi-reference" in out
-    assert "evidence: ok (fixture manifests only)" in out
-    assert "proof level: local fixtures" in out
-    assert "fixture_pack:mlx-pi-reference" in out
-    assert "case: read-visible-prune  tool=read  behavior=visible_prune" in out
-    assert "case: bash-visible-prune  tool=bash  behavior=visible_prune" in out
-    assert "case: read-missing-focus-passthrough  tool=read  behavior=passthrough_original" in out
-
-
-def test_evidence_check_lists_mcp_fixture_cases() -> None:
-    code, out, err = _run(["evidence", "check", "e24z/mlx-mcp-bash-reference", "--host-binding", "mcp/bash"])
-    assert code == 0, err
-    assert "package: e24z/mlx-mcp-bash-reference" in out
-    assert "fixture_pack:mlx-mcp-bash-reference" in out
-    assert "case: needle-bash-visible-prune  tool=needle_bash  behavior=visible_prune" in out
-    assert (
-        "case: needle-bash-missing-focus-passthrough  "
-        "tool=needle_bash  behavior=passthrough_original"
-    ) in out
-
-
 def test_uninstall_dry_run_and_yes_use_needle_owned_paths() -> None:
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
         home = root / "home"
         models = root / "models"
-        config = root / "config.json"
         home.mkdir()
         models.mkdir()
-        config.write_text('{"package": "e24z/mlx-pi-reference"}\n', encoding="utf-8")
         (home / "events.jsonl").write_text("", encoding="utf-8")
         old_env = {
             name: os.environ.get(name)
             for name in (
                 "NEEDLE_HOME",
                 "NEEDLE_MODEL_ROOT",
-                "NEEDLE_CONFIG",
                 "NEEDLE_MANAGER_SOCKET",
             )
         }
         os.environ["NEEDLE_HOME"] = str(home)
         os.environ["NEEDLE_MODEL_ROOT"] = str(models)
-        os.environ["NEEDLE_CONFIG"] = str(config)
         os.environ["NEEDLE_MANAGER_SOCKET"] = str(root / "missing.sock")
         try:
             code, out, err = _run(["uninstall"])
             assert code == 0, err
             assert str(home) in out
             assert str(models) in out
-            assert str(config) in out
             assert home.exists()
             assert models.exists()
-            assert config.exists()
 
             code, out, err = _run(["uninstall", "--yes"])
             assert code == 0, err
             assert "removed Needle-owned local state" in out
-            assert "needle setup pi --uninstall" in out
             assert "needle setup claude-code --uninstall" in out
             assert "Codex:  needle setup codex --uninstall" in out
+            assert "setup pi" not in out
             assert "brew uninstall needle" in out
             assert "pipx uninstall needle" in out
             assert "uv tool uninstall needle" in out
             assert not home.exists()
             assert not models.exists()
-            assert not config.exists()
         finally:
             for name, value in old_env.items():
                 if value is None:
@@ -274,17 +135,33 @@ def test_model_dir_command_reports_needle_model_path() -> None:
 
 
 def test_model_provenance_records_resolved_revision() -> None:
-    import needle.cli as cli
-
     with tempfile.TemporaryDirectory() as td:
         target = Path(td)
-        cli._write_model_provenance(
-            target,
-            repo="org/model",
-            requested_revision="main",
-            resolved_revision="abc123",
+        script = """
+import json
+import sys
+from pathlib import Path
+
+import needle.cli as cli
+
+target = Path(sys.argv[1])
+cli._write_model_provenance(
+    target,
+    repo="org/model",
+    requested_revision="main",
+    resolved_revision="abc123",
+)
+print((target / "needle-model.json").read_text(encoding="utf-8"))
+"""
+        proc = subprocess.run(
+            ["uv", "run", "python", "-c", script, str(target)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
         )
-        data = json.loads((target / "needle-model.json").read_text(encoding="utf-8"))
+        assert proc.returncode == 0, proc.stderr or proc.stdout
+        data = json.loads(proc.stdout)
         assert data["repo"] == "org/model"
         assert data["requested_revision"] == "main"
         assert data["resolved_revision"] == "abc123"
@@ -292,34 +169,21 @@ def test_model_provenance_records_resolved_revision() -> None:
         assert "downloaded_at" in data
 
 
-def test_setup_pi_dry_run_uses_packaged_adapter() -> None:
-    code, out, err = _run(["setup", "pi", "--dry-run"])
-    assert code == 0, err
-    assert "Pi package:" in out
-    assert "needle/hosts/pi" in out
-    assert "Pi command: pi install" in out
-    assert "Canary command: node" in out
-    assert "dry run: no changes made" in out
-    assert "next: run `needle setup pi`" in out
-
-
 def test_setup_root_dry_run_lists_hosts_without_mutating() -> None:
     code, out, err = _run(["setup", "--dry-run"])
     assert code == 0, err
     assert "Needle setup" in out
-    assert "Pi (native read/bash tools" in out
-    assert "Claude Code (MCP tool named needle_bash)" in out
-    assert "Codex CLI (experimental MCP tool named needle_bash)" in out
-    assert "package: e24z/mlx-pi-soft-lamr" in out
-    assert "setup:   needle setup pi" in out
+    assert "Runtime: mlx-soft-lamr (code-pruner-mlx, local_mlx_adaptive)" in out
+    assert "Tool surface: needle_bash through MCP" in out
+    assert "claude-code: Claude Code (MCP tool named needle_bash)" in out
+    assert "codex: Codex CLI (MCP tool named needle_bash)" in out
     assert "setup:   needle setup claude-code" in out
     assert "setup:   needle setup codex" in out
-    assert "command: pi install" in out
     assert "command: claude mcp add --transport stdio --scope local needle-bash -- needle mcp serve" in out
     assert "command: codex mcp add needle-bash -- needle mcp serve" in out
-    assert "needle model dir" in out
-    assert "needle model download" in out
-    assert "Needle will not change Pi, Claude Code, or Codex until you confirm setup." in out
+    assert "Needle will not change Claude Code or Codex until you confirm setup." in out
+    assert "pi" not in out.lower()
+    assert "package:" not in out
     assert "dry run: no changes made" in out
 
 
@@ -337,7 +201,8 @@ def test_setup_homebrew_entrypoint_defers_in_noninteractive_shell() -> None:
             data = json.loads(marker.read_text(encoding="utf-8"))
             assert data["source"] == "homebrew"
             assert data["resume"] == "needle setup"
-            assert data["hosts"]["pi"]["setup"] == "needle setup pi"
+            assert data["runtime"] == "mlx-soft-lamr"
+            assert set(data["hosts"]) == {"claude-code", "codex"}
             assert data["hosts"]["claude-code"]["setup"] == "needle setup claude-code"
             assert data["hosts"]["codex"]["setup"] == "needle setup codex"
         finally:
@@ -358,12 +223,12 @@ def test_setup_claude_code_dry_run_prints_native_mcp_setup() -> None:
     code, out, err = _run(["setup", "claude-code", "--dry-run"])
     assert code == 0, err
     assert "Needle for Claude Code" in out
-    assert "Using Needle package: e24z/mlx-mcp-bash-reference" in out
+    assert "Tool name: needle_bash" in out
     assert "Tool command: needle mcp serve" in out
-    assert (
-        "Runtime command: needle runtime manage --package e24z/mlx-mcp-bash-reference "
-        "--host-binding mcp/bash"
-    ) in out
+    assert "Runtime command: needle runtime manage" in out
+    assert "Runtime: mlx-soft-lamr (code-pruner-mlx, local_mlx_adaptive)" in out
+    assert "package" not in out.lower()
+    assert "--host-binding" not in out
     assert "Statusline: needle statusline claude-code" in out
     assert "Status: needle status --events 20" in out
     assert "start the Needle runtime before expecting pruning." in out
@@ -381,12 +246,12 @@ def test_setup_codex_dry_run_prints_native_mcp_setup() -> None:
     code, out, err = _run(["setup", "codex", "--dry-run"])
     assert code == 0, err
     assert "Needle for Codex CLI" in out
-    assert "Using Needle package: e24z/mlx-mcp-bash-reference" in out
+    assert "Tool name: needle_bash" in out
     assert "Tool command: needle mcp serve" in out
-    assert (
-        "Runtime command: needle runtime manage --package e24z/mlx-mcp-bash-reference "
-        "--host-binding mcp/bash"
-    ) in out
+    assert "Runtime command: needle runtime manage" in out
+    assert "Runtime: mlx-soft-lamr (code-pruner-mlx, local_mlx_adaptive)" in out
+    assert "package" not in out.lower()
+    assert "--host-binding" not in out
     assert "Statusline: needle statusline codex" in out
     assert "Status: needle status --events 20" in out
     assert "Codex support is experimental" in out
@@ -398,21 +263,6 @@ def test_setup_codex_dry_run_prints_native_mcp_setup() -> None:
     assert "dry run: no changes made" in out
 
 
-def test_setup_codex_uses_selected_loaded_package() -> None:
-    import needle.cli as cli
-
-    fake_loaded = SimpleNamespace(package_id="example/custom-mcp", binding_id="mcp/bash")
-    out = StringIO()
-
-    with redirect_stdout(out):
-        code = cli._setup_codex(cli._ns(dry_run=True, uninstall=False), fake_loaded)
-
-    assert code == 0
-    rendered = out.getvalue()
-    assert "Needle for Codex CLI" in rendered
-    assert "Runtime command: needle runtime manage --package example/custom-mcp --host-binding mcp/bash" in rendered
-
-
 def test_setup_claude_code_rejects_unknown_scope() -> None:
     code, out, err = _run(["setup", "claude-code", "--dry-run", "--scope", "workspace"])
     assert code == 1
@@ -420,7 +270,7 @@ def test_setup_claude_code_rejects_unknown_scope() -> None:
     assert "scope must be one of" in err
 
 
-def test_claude_code_statusline_plain_reports_runtime_health() -> None:
+def test_statusline_plain_reports_runtime_health() -> None:
     with tempfile.TemporaryDirectory() as td:
         old_socket = os.environ.get("NEEDLE_MANAGER_SOCKET")
         os.environ["NEEDLE_MANAGER_SOCKET"] = str(Path(td) / "missing.sock")
@@ -445,22 +295,35 @@ def test_runtime_status_wrapper_is_available() -> None:
     assert "manager:" in out
 
 
-def test_runtime_manage_help_exposes_package_context_options() -> None:
+def test_runtime_manage_help_exposes_only_raw_context_option() -> None:
     code, out, err = _run(["runtime", "manage", "--help"])
     assert code == 0, err
     assert "Usage:" in out
 
-    import typer
-    import needle.cli as cli
+    script = """
+import json
+import typer
+import needle.cli as cli
 
-    command = typer.main.get_command(cli.app).commands["runtime"].commands["manage"]
-    options = {opt for param in command.params for opt in param.opts}
-    assert "--package" in options
-    assert "--host-binding" in options
+command = typer.main.get_command(cli.app).commands["runtime"].commands["manage"]
+options = sorted({opt for param in command.params for opt in param.opts})
+print(json.dumps(options))
+"""
+    proc = subprocess.run(
+        ["uv", "run", "python", "-c", script],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+    options = set(json.loads(proc.stdout))
     assert "--raw" in options
+    assert "--package" not in options
+    assert "--host-binding" not in options
 
 
-def test_runtime_manage_wrapper_forwards_package_context_without_starting_manager() -> None:
+def test_runtime_manage_wrapper_forwards_raw_without_starting_manager() -> None:
     script = """
 import json
 
@@ -476,18 +339,7 @@ def fake_main(argv):
     return 0
 
 runtime_cli.main = fake_main
-result = CliRunner().invoke(
-    cli.app,
-    [
-        "runtime",
-        "manage",
-        "--package",
-        "e24z/mlx-pi-soft-lamr",
-        "--host-binding",
-        "pi/native-tools",
-        "--raw",
-    ],
-)
+result = CliRunner().invoke(cli.app, ["runtime", "manage", "--raw"])
 if result.exit_code != 0:
     raise SystemExit(result.output)
 print(json.dumps(seen))
@@ -500,14 +352,7 @@ print(json.dumps(seen))
         check=False,
     )
     assert proc.returncode == 0, proc.stderr or proc.stdout
-    assert json.loads(proc.stdout) == [[
-        "manage",
-        "--package",
-        "e24z/mlx-pi-soft-lamr",
-        "--host-binding",
-        "pi/native-tools",
-        "--raw",
-    ]]
+    assert json.loads(proc.stdout) == [["manage", "--raw"]]
 
 
 def test_stop_is_idempotent_when_runtime_is_down() -> None:
@@ -535,25 +380,19 @@ def main() -> int:
     test_typer_help_groups_public_commands()
     test_cli_version_and_usage_errors_are_human_readable()
     test_base_cli_dependency_does_not_pull_backend_runtime()
-    test_package_cli_lists_and_selects_packages()
-    test_package_cli_rejects_unknown_package()
-    test_evidence_check_lists_fixture_cases()
-    test_evidence_check_lists_mcp_fixture_cases()
     test_uninstall_dry_run_and_yes_use_needle_owned_paths()
     test_model_dir_command_reports_needle_model_path()
     test_model_provenance_records_resolved_revision()
     test_setup_root_dry_run_lists_hosts_without_mutating()
     test_setup_homebrew_entrypoint_defers_in_noninteractive_shell()
     test_setup_root_rejects_unknown_host()
-    test_setup_pi_dry_run_uses_packaged_adapter()
     test_setup_claude_code_dry_run_prints_native_mcp_setup()
     test_setup_codex_dry_run_prints_native_mcp_setup()
-    test_setup_codex_uses_selected_loaded_package()
     test_setup_claude_code_rejects_unknown_scope()
-    test_claude_code_statusline_plain_reports_runtime_health()
+    test_statusline_plain_reports_runtime_health()
     test_runtime_status_wrapper_is_available()
-    test_runtime_manage_help_exposes_package_context_options()
-    test_runtime_manage_wrapper_forwards_package_context_without_starting_manager()
+    test_runtime_manage_help_exposes_only_raw_context_option()
+    test_runtime_manage_wrapper_forwards_raw_without_starting_manager()
     test_stop_is_idempotent_when_runtime_is_down()
     print("test_cli OK")
     return 0

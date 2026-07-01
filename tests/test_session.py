@@ -111,16 +111,8 @@ def test_session_lease_loop(tmp_sock: Path) -> None:
     os.environ.pop("HAY_MANAGER_SOCKET", None)
 
 
-def test_session_manager_spawn_command_carries_package_context() -> None:
-    argv = session_mod._manager_argv(
-        package_id="e24z/mlx-mcp-bash-reference",
-        host_binding="mcp/bash",
-    )
-    assert argv[:3] == [sys.executable, "-m", "needle.runtime"]
-    assert "--package" in argv
-    assert "e24z/mlx-mcp-bash-reference" in argv
-    assert "--host-binding" in argv
-    assert "mcp/bash" in argv
+def test_session_manager_spawn_command_is_single_path() -> None:
+    assert session_mod._manager_argv() == [sys.executable, "-m", "needle.runtime", "manage"]
 
 
 def test_client_lease_rejects_reserved_runtime_identity_fields() -> None:
@@ -134,11 +126,11 @@ def test_client_lease_rejects_reserved_runtime_identity_fields() -> None:
 
     client._request = fake_request
     try:
-        assert client.lease("sess", "v1", runtime_identity={"package_id": "pkg"})["ok"]
+        assert client.lease("sess", "v1", runtime_identity={"runtime_id": "runtime/custom"})["ok"]
         assert seen["op"] == "lease"
         assert seen["session"] == "sess"
         assert seen["version"] == "v1"
-        assert seen["package_id"] == "pkg"
+        assert seen["runtime_id"] == "runtime/custom"
 
         for key in ("op", "session", "version", "token"):
             try:
@@ -201,9 +193,9 @@ def test_manage_refuses_live_manager_with_different_identity(tmp_sock: Path) -> 
             stop_event=stop,
             poll_interval=0.03,
             runtime_identity={
-                "package_id": "e24z/mlx-pi-reference",
-                "host_binding": "pi/native-tools",
-                "backend_id": "e24z/code-pruner-mlx",
+                "runtime_id": "old-runtime",
+                "tool_surface": "mcp/bash",
+                "backend_id": "code-pruner-mlx",
                 "runtime_profile": "local_mlx_adaptive",
             },
         ),
@@ -223,10 +215,6 @@ def test_manage_refuses_live_manager_with_different_identity(tmp_sock: Path) -> 
             "-m",
             "needle.runtime",
             "manage",
-            "--package",
-            "e24z/mlx-mcp-bash-reference",
-            "--host-binding",
-            "mcp/bash",
         ],
         cwd=_ROOT,
         env=env,
@@ -248,14 +236,13 @@ def test_acquire_replaces_busy_stale_manager(tmp_sock: Path) -> None:
     old_socket = os.environ.get("HAY_MANAGER_SOCKET")
     old_ensure = session_mod._ensure_manager
     os.environ["HAY_MANAGER_SOCKET"] = str(tmp_sock)
-    identity_a = session_mod._requested_runtime_identity(
-        package_id="e24z/mlx-pi-reference",
-        host_binding="pi/native-tools",
-    )
-    identity_b = session_mod._requested_runtime_identity(
-        package_id="e24z/mlx-mcp-bash-reference",
-        host_binding="mcp/bash",
-    )
+    identity_a = {
+        "runtime_id": "old-runtime",
+        "tool_surface": "mcp/bash",
+        "backend_id": "code-pruner-mlx",
+        "runtime_profile": "local_mlx_adaptive",
+    }
+    identity_b = session_mod._requested_runtime_identity()
     version = naming.code_version()
     old_ready = threading.Event()
     old_stop = threading.Event()
@@ -319,12 +306,10 @@ def test_acquire_replaces_busy_stale_manager(tmp_sock: Path) -> None:
             "sess-b",
             version,
             attempts=4,
-            package_id="e24z/mlx-mcp-bash-reference",
-            host_binding="mcp/bash",
         )
         stats = client.stats(socket_path=tmp_sock)
-        assert stats["package_id"] == identity_b["package_id"], stats
-        assert stats["host_binding"] == identity_b["host_binding"], stats
+        assert stats["runtime_id"] == identity_b["runtime_id"], stats
+        assert stats["tool_surface"] == identity_b["tool_surface"], stats
         assert stats["sessions"] == 1, stats
     finally:
         prune_release.set()
@@ -377,7 +362,7 @@ if __name__ == "__main__":
 
     test_manage_subprocess_serves(Path(tempfile.mkdtemp()) / "m1.sock")
     test_session_lease_loop(Path(tempfile.mkdtemp()) / "m2.sock")
-    test_session_manager_spawn_command_carries_package_context()
+    test_session_manager_spawn_command_is_single_path()
     test_client_lease_rejects_reserved_runtime_identity_fields()
     test_session_manager_spawn_log_is_private()
     test_manage_refuses_live_manager_with_different_identity(Path(tempfile.mkdtemp()) / "m4.sock")

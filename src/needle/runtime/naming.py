@@ -16,21 +16,6 @@ from pathlib import Path
 # Product name. The ONLY place the default product name appears in runtime code.
 APP_NAME = os.environ.get("NEEDLE_APP_NAME") or os.environ.get("HAY_APP_NAME", "needle")
 
-# Built-in package aliases for legacy alpha package ids. Long-term, these aliases
-# should disappear once old alpha configs and env vars no longer exist.
-DEFAULT_PACKAGE_ID = "e24z/mlx-pi-soft-lamr"
-PACKAGE_ALIASES = {
-    "e24z/pi-local-mac": "e24z/mlx-pi-reference",
-    "e24z/pi-local-mac-soft-lamr": "e24z/mlx-pi-soft-lamr",
-    "e24z/mcp-bash-local": "e24z/mlx-mcp-bash-reference",
-}
-
-
-def canonical_package_id(package_id: str) -> str:
-    """Map early alpha package ids to their current public names."""
-    return PACKAGE_ALIASES.get(package_id, package_id)
-
-
 def app_home() -> Path:
     """Directory for runtime state (socket, logs). Override with NEEDLE_HOME."""
     env = os.environ.get("NEEDLE_HOME") or os.environ.get("HAY_HOME")
@@ -244,20 +229,10 @@ def socket_is_live(path: Path) -> bool:
 
 def _iter_code_version_files(package_root: Path) -> list[Path]:
     files: list[Path] = []
-    for rel in ("runtime", "backends"):
+    for rel in ("runtime", "backends", "hosts/mcp"):
         root = package_root / rel
         if root.exists():
             files.extend(path for path in root.rglob("*.py") if "__pycache__" not in path.parts)
-    registry = package_root / "registry.py"
-    if registry.exists():
-        files.append(registry)
-    for rel in ("registry_data/packages", "registry_data/backends"):
-        root = package_root / rel
-        if root.exists():
-            files.extend(
-                path for path in root.rglob("*")
-                if path.is_file() and path.suffix in {".yaml", ".json"}
-            )
     return sorted(files, key=lambda path: path.relative_to(package_root).as_posix())
 
 

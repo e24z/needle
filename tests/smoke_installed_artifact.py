@@ -48,9 +48,7 @@ def main() -> int:
         env = {**os.environ, "NEEDLE_HOME": str(tmp / "home")}
         commands = [
             [str(needle), "--help"],
-            [str(needle), "package", "doctor", "--host-binding", "pi/native-tools"],
-            [str(needle), "evidence", "check", "--host-binding", "pi/native-tools"],
-            [str(needle), "setup", "pi", "--dry-run"],
+            [str(needle), "runtime", "manage", "--help"],
             [str(needle), "setup", "claude-code", "--dry-run"],
             [str(needle), "setup", "codex", "--dry-run"],
         ]
@@ -117,14 +115,9 @@ def check_wheel_contents(wheel: Path) -> None:
         names = set(zf.namelist())
     required = {
         "needle/cli.py",
-        "needle/registry.py",
-        "needle/hosts/pi/extension.js",
-        "needle/hosts/pi/client.mjs",
+        "needle/runtime/config.py",
         "needle/hosts/mcp/server.py",
         "needle/hosts/mcp/README.md",
-        "needle/registry_data/packages/e24z/mlx-pi-soft-lamr.yaml",
-        "needle/registry_data/FIELD-AUDIT.md",
-        "needle/registry_data/package-cards/e24z/mlx-pi-soft-lamr.md",
     }
     missing = sorted(required - names)
     if missing:
@@ -144,9 +137,8 @@ def check_sdist_contents(sdist: Path) -> None:
         "/pyproject.toml",
         "/README.md",
         "/src/needle/cli.py",
-        "/src/needle/hosts/pi/extension.js",
-        "/src/needle/registry_data/packages/e24z/mlx-pi-soft-lamr.yaml",
-        "/src/needle/registry_data/FIELD-AUDIT.md",
+        "/src/needle/runtime/config.py",
+        "/src/needle/hosts/mcp/server.py",
     }
     missing = [
         suffix for suffix in required_suffixes if not any(name.endswith(suffix) for name in names)
@@ -163,12 +155,9 @@ import needle
 root = Path(needle.__file__).resolve().parent
 required = [
     root / "cli.py",
-    root / "hosts/pi/extension.js",
-    root / "hosts/pi/package.json",
+    root / "runtime/config.py",
     root / "hosts/mcp/server.py",
-    root / "registry_data/packages/e24z/mlx-pi-soft-lamr.yaml",
-    root / "registry_data/FIELD-AUDIT.md",
-    root / "registry_data/evidence/fixture-packs/mlx-pi-soft-lamr/manifest.json",
+    root / "hosts/mcp/README.md",
 ]
 missing = [str(path) for path in required if not path.exists()]
 if missing:

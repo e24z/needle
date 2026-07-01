@@ -58,14 +58,6 @@ def test_default_runtime_state_is_needle_owned() -> None:
     assert naming.manager_token_path() == Path.home() / ".needle/manager.token"
 
 
-def test_package_names_have_rename_aliases() -> None:
-    naming = _reload_naming()
-    assert naming.DEFAULT_PACKAGE_ID == "e24z/mlx-pi-soft-lamr"
-    assert naming.canonical_package_id("e24z/pi-local-mac") == "e24z/mlx-pi-reference"
-    assert naming.canonical_package_id("e24z/pi-local-mac-soft-lamr") == "e24z/mlx-pi-soft-lamr"
-    assert naming.canonical_package_id("e24z/mcp-bash-local") == "e24z/mlx-mcp-bash-reference"
-
-
 def test_hay_env_names_remain_compatibility_aliases() -> None:
     naming = _reload_naming(HAY_MANAGER_SOCKET="/tmp/legacy-manager.sock")
     assert str(naming.manager_socket_path()) == "/tmp/legacy-manager.sock"
@@ -132,7 +124,6 @@ if __name__ == "__main__":
     test_manager_socket_overrides()
     test_manager_socket_is_machine_wide()
     test_default_runtime_state_is_needle_owned()
-    test_package_names_have_rename_aliases()
     test_hay_env_names_remain_compatibility_aliases()
     test_socket_is_live_false_when_absent()
     test_manager_token_is_private_and_socket_scoped()

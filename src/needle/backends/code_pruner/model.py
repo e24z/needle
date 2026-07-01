@@ -41,7 +41,7 @@ from .config import (
     configured_max_batch_tokens,
     configured_max_length,
     first_env,
-    repair_enabled_for_active_package,
+    repair_enabled_for_builtin_runtime,
 )
 from .lines import aggregate_token_scores_to_lines, prune_code_lines
 
@@ -1314,7 +1314,7 @@ def _is_filter_marker(line: str) -> bool:
 
 # ---------------------------------------------------------------------------
 # Needle wrapper: a sealed backend implementing the `prune(text, query)` backend
-# protocol. Everything above this line is the ML port from code-pruner; the
+# contract. Everything above this line is the ML port from code-pruner; the
 # wrapper below is the only part that talks to the rest of Needle.
 # ---------------------------------------------------------------------------
 
@@ -1352,7 +1352,7 @@ class CodePrunerBackend:
     name = "code-pruner"
 
     def __init__(self, model_dir: str | None = None) -> None:
-        repair = repair_enabled_for_active_package()
+        repair = repair_enabled_for_builtin_runtime()
         _set_mlx_limit("set_cache_limit", _env_mb(MLX_CACHE_LIMIT_ENV_NAMES))
         _set_mlx_limit("set_wired_limit", _env_mb(MLX_WIRED_LIMIT_ENV_NAMES))
         self._clear_cache_after_prune = _env_flag(MLX_CLEAR_CACHE_ENV_NAMES, True)

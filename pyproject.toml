@@ -2,9 +2,9 @@
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
-# uv-native provisioning. Backend manifests declare which extra launches their
-# runtime. The public `needle` control plane stays lightweight enough to install
-# without MLX.
+# uv-native provisioning. The public `needle` control plane stays lightweight
+# enough to install without MLX; the built-in pruning runtime uses this optional
+# extra for local model execution.
 [project]
 name = "needle"
 version = "0.1.0"
@@ -39,12 +39,5 @@ include = ["needle*"]
 
 [tool.setuptools.package-data]
 needle = [
-    "registry_data/**/*.yaml",
-    "registry_data/**/*.json",
-    "registry_data/**/*.md",
-    "hosts/pi/*.js",
-    "hosts/pi/*.mjs",
-    "hosts/pi/*.json",
-    "hosts/pi/*.md",
     "hosts/mcp/*.md",
 ]

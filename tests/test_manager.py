@@ -182,25 +182,25 @@ def test_manager_stats_expose_runtime_identity() -> None:
     manager = Manager(
         lambda: StatsBackend(),
         runtime_identity={
-            "package_id": "e24z/mlx-pi-soft-lamr",
-            "host_binding": "pi/native-tools",
+            "runtime_id": "mlx-soft-lamr",
+            "tool_surface": "mcp/bash",
             "runtime_profile": "local_mlx_adaptive",
-            "backend_id": "e24z/code-pruner-mlx",
+            "backend_id": "code-pruner-mlx",
         },
     )
 
     stats = manager.handle({"op": "stats"})
 
-    assert stats["package_id"] == "e24z/mlx-pi-soft-lamr", stats
-    assert stats["host_binding"] == "pi/native-tools", stats
+    assert stats["runtime_id"] == "mlx-soft-lamr", stats
+    assert stats["tool_surface"] == "mcp/bash", stats
     assert stats["runtime_profile"] == "local_mlx_adaptive", stats
-    assert stats["backend_id"] == "e24z/code-pruner-mlx", stats
+    assert stats["backend_id"] == "code-pruner-mlx", stats
 
 
 def test_manager_lease_requires_matching_runtime_identity() -> None:
     identity = {
-        "package_id": "pkg/a",
-        "host_binding": "mcp/bash",
+        "runtime_id": "runtime/a",
+        "tool_surface": "mcp/bash",
         "runtime_profile": "local",
         "backend_id": "backend/a",
     }
@@ -214,8 +214,8 @@ def test_manager_lease_requires_matching_runtime_identity() -> None:
     assert ok_manager.handle(matching)["ok"]
 
     cases = {
-        "package_id": "pkg/b",
-        "host_binding": "pi/native-tools",
+        "runtime_id": "runtime/b",
+        "tool_surface": "native/read",
         "runtime_profile": "other-profile",
         "backend_id": "backend/b",
         "version": "v2",
@@ -241,14 +241,14 @@ def test_manager_lease_requires_matching_runtime_identity() -> None:
 def test_mismatched_lease_returns_stale_while_prune_is_blocked() -> None:
     tmp = Path(tempfile.mkdtemp()) / "manager.sock"
     identity_a = {
-        "package_id": "pkg/a",
-        "host_binding": "mcp/bash",
+        "runtime_id": "runtime/a",
+        "tool_surface": "mcp/bash",
         "runtime_profile": "local",
         "backend_id": "backend/a",
     }
     identity_b = {
-        "package_id": "pkg/b",
-        "host_binding": "mcp/bash",
+        "runtime_id": "runtime/b",
+        "tool_surface": "mcp/bash",
         "runtime_profile": "local",
         "backend_id": "backend/a",
     }
@@ -303,24 +303,20 @@ def test_code_version_changes_for_backend_affecting_files() -> None:
         root = Path(td) / "needle"
         (root / "runtime").mkdir(parents=True)
         (root / "backends").mkdir()
-        (root / "registry_data/backends/e24z").mkdir(parents=True)
-        (root / "registry_data/packages/e24z").mkdir(parents=True)
+        (root / "hosts/mcp").mkdir(parents=True)
         (root / "runtime/manager.py").write_text("runtime = 1\n", encoding="utf-8")
         (root / "backends/fake.py").write_text("backend = 1\n", encoding="utf-8")
-        (root / "registry.py").write_text("registry = 1\n", encoding="utf-8")
-        package_path = root / "registry_data/packages/e24z/pkg.yaml"
-        backend_path = root / "registry_data/backends/e24z/backend.yaml"
-        package_path.write_text('{"id":"pkg"}\n', encoding="utf-8")
-        backend_path.write_text('{"id":"backend","launcher":{"command":["needle"]}}\n', encoding="utf-8")
+        mcp_path = root / "hosts/mcp/server.py"
+        mcp_path.write_text("mcp = 1\n", encoding="utf-8")
 
         before = naming.code_version(root)
-        backend_path.write_text('{"id":"backend","launcher":{"command":["needle","runtime"]}}\n', encoding="utf-8")
-        after_backend = naming.code_version(root)
+        mcp_path.write_text("mcp = 2\n", encoding="utf-8")
+        after_mcp = naming.code_version(root)
         (root / "backends/fake.py").write_text("backend = 2\n", encoding="utf-8")
         after_source = naming.code_version(root)
 
-    assert before != after_backend
-    assert after_backend != after_source
+    assert before != after_mcp
+    assert after_mcp != after_source
 
 
 def test_stopped_manager_leaves_dead_socket_for_next_startup() -> None:

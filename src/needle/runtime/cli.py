@@ -11,73 +11,42 @@ from __future__ import annotations
 
 import argparse
 import datetime
-import os
 import sys
 
 from . import client, events, naming
+from .config import DEFAULT_RUNTIME, apply_runtime_env, runtime_identity
 from .manager import serve_manager
 from .session import run_session
 
 
-def _apply_runtime_launch_env(
-    *,
-    package_id: str = "",
-    host_binding: str = "",
-    raw: bool = False,
-):
-    """Apply package-derived runtime env for manager startup.
-
-    Raw/debug starts deliberately skip the package graph; all normal starts use
-    the same launch plan shape as host adapters.
-    """
+def _apply_runtime_launch_env(*, raw: bool = False):
+    """Apply the built-in MLX Soft-LaMR runtime env for manager startup."""
     if raw:
         return None
-    from needle.registry import runtime_launch_plan
-
-    plan = runtime_launch_plan(
-        package_id=package_id or None,
-        host_binding=host_binding or None,
-    )
-    os.environ.update(plan.env)
-    return plan
+    return apply_runtime_env()
 
 
 def _manage(args: argparse.Namespace) -> int:
-    try:
-        plan = _apply_runtime_launch_env(
-            package_id=args.package,
-            host_binding=args.host_binding,
-            raw=args.raw,
-        )
-    except ValueError as exc:
-        print(f"{naming.APP_NAME}: could not resolve runtime package: {exc}", file=sys.stderr)
-        return 1
+    config = _apply_runtime_launch_env(raw=args.raw)
 
     def ready(path) -> None:
         # stderr only: a monitor surfaces STDOUT lines to the agent as
         # notifications, and we don't want it narrating routine startup.
         profile = (
-            f", package={plan.package_id}, profile={plan.runtime_profile}"
-            if plan is not None
+            f", runtime={config.runtime_id}, profile={config.runtime_profile}"
+            if config is not None
             else ", raw runtime env"
         )
         print(
             f"{naming.APP_NAME}: manager listening on {path} "
-            f"(backend={os.environ.get('NEEDLE_BACKEND') or os.environ.get('HAY_BACKEND', 'fake')}, "
+            f"(backend={DEFAULT_RUNTIME.backend_id}, "
             f"lazy-load on first prune{profile})",
             file=sys.stderr,
             flush=True,
         )
 
     try:
-        identity = None
-        if plan is not None:
-            identity = {
-                "package_id": plan.package_id,
-                "host_binding": plan.host_binding,
-                "runtime_profile": plan.runtime_profile,
-                "backend_id": plan.backend_id,
-            }
+        identity = runtime_identity(config) if config is not None else None
         serve_manager(ready_cb=ready, runtime_identity=identity)
     except (OSError, RuntimeError) as exc:
         print(f"{naming.APP_NAME}: manager failed to start: {exc}", file=sys.stderr)
@@ -88,11 +57,7 @@ def _manage(args: argparse.Namespace) -> int:
 
 
 def _session(args: argparse.Namespace) -> int:
-    return run_session(
-        session_id=args.session or None,
-        package_id=args.package or None,
-        host_binding=args.host_binding or None,
-    )
+    return run_session(session_id=args.session or None)
 
 
 def _prune(args: argparse.Namespace) -> int:
@@ -228,15 +193,15 @@ def _render_status(stats: dict | None, recent: list[dict]) -> str:
             f"  ·  pressure {_PRESSURE.get(stats.get('pressure'), '?')}"
             f"  ·  free {free}"
         )
-        package_bits = [
-            f"package {stats.get('package_id')}" if stats.get("package_id") else None,
-            f"host {stats.get('host_binding')}" if stats.get("host_binding") else None,
+        identity_bits = [
+            f"runtime {stats.get('runtime_id')}" if stats.get("runtime_id") else None,
+            f"surface {stats.get('tool_surface')}" if stats.get("tool_surface") else None,
             f"profile {stats.get('runtime_profile')}" if stats.get("runtime_profile") else None,
             f"backend-id {stats.get('backend_id')}" if stats.get("backend_id") else None,
         ]
-        package_line = "  " + "  ·  ".join(bit for bit in package_bits if bit)
-        if package_line.strip():
-            lines.append(package_line)
+        identity_line = "  " + "  ·  ".join(bit for bit in identity_bits if bit)
+        if identity_line.strip():
+            lines.append(identity_line)
         last_prune = stats.get("last_prune")
         detail = _render_prune_summary(last_prune)
         if detail:
@@ -282,12 +247,10 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     mp = sub.add_parser("manage", help="run the machine-wide model residency manager")
-    mp.add_argument("--package", default="", help="package id used to derive runtime env")
-    mp.add_argument("--host-binding", default="", help="host binding used for package selection")
     mp.add_argument(
         "--raw",
         action="store_true",
-        help="debug mode: start from the inherited environment instead of the package graph",
+        help="debug mode: start from the inherited environment instead of the built-in runtime config",
     )
     mp.set_defaults(func=_manage)
 
@@ -296,8 +259,6 @@ def main(argv: list[str] | None = None) -> int:
         "--session", default="",
         help="host session id to lease under (an adapter passes its agent's id)",
     )
-    ssp.add_argument("--package", default="", help="package id used to derive manager runtime env")
-    ssp.add_argument("--host-binding", default="", help="host binding used for manager package selection")
     ssp.set_defaults(func=_session)
 
     pp = sub.add_parser("prune", help="send stdin to the manager, print the result")

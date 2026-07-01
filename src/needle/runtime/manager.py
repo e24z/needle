@@ -138,7 +138,7 @@ _EVENT_STATS_KEYS = (
     "chunked",
     "batched",
 )
-_IDENTITY_FIELDS = ("package_id", "host_binding", "backend_id", "runtime_profile")
+_IDENTITY_FIELDS = ("runtime_id", "tool_surface", "backend_id", "runtime_profile")
 
 
 def _identity_value(value: object) -> str:

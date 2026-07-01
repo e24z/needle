@@ -1,9 +1,4 @@
-"""Needle's public CLI.
-
-Needle owns package selection, setup, and runtime control because a package
-composes protocol, capability, backend, host binding, privacy, accounting, and
-evidence.
-"""
+"""Needle's public CLI for the thin-spine runtime."""
 
 from __future__ import annotations
 
@@ -11,49 +6,36 @@ import argparse
 import datetime
 import json
 import os
+from pathlib import Path
 import shutil
 import socket
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 import click
 import typer
 
 from . import __version__
-from .registry import (
-    BUILTIN_REGISTRY_ROOT,
-    LoadedPackage,
-    PackageConfigError,
-    active_package_selection,
-    load_active_package,
-    package_config_path,
-    package_summaries,
-    runtime_launch_plan,
-    set_configured_package_id,
-)
 from .runtime import client, events, naming
+from .runtime.config import DEFAULT_RUNTIME, runtime_manage_command
+
 
 app = typer.Typer(
     name="needle",
-    help="Needle package and runtime control plane.",
+    help="Needle runtime and MCP control plane.",
     no_args_is_help=True,
     invoke_without_command=True,
 )
-package_app = typer.Typer(help="Inspect and select Needle packages.", no_args_is_help=True)
-evidence_app = typer.Typer(help="Inspect package evidence fixtures.", no_args_is_help=True)
 model_app = typer.Typer(help="Inspect, download, or remove local model files.", no_args_is_help=True)
-runtime_app = typer.Typer(help="Low-level runtime commands used by agent connections.", no_args_is_help=True)
+runtime_app = typer.Typer(help="Low-level runtime commands used by MCP connections.", no_args_is_help=True)
 mcp_app = typer.Typer(help="Run Needle MCP servers used by Claude Code, Codex, and other MCP clients.", no_args_is_help=True)
 setup_app = typer.Typer(
-    help="Connect Needle to supported coding agents.",
+    help="Connect Needle's MCP server to supported coding agents.",
     invoke_without_command=True,
 )
 statusline_app = typer.Typer(help="Render compact Needle statusline output.", no_args_is_help=True)
 
-app.add_typer(package_app, name="package")
-app.add_typer(evidence_app, name="evidence")
 app.add_typer(model_app, name="model")
 app.add_typer(runtime_app, name="runtime")
 app.add_typer(mcp_app, name="mcp")
@@ -70,7 +52,7 @@ def _root(
         is_eager=True,
     ),
 ) -> None:
-    """Needle package and runtime control plane."""
+    """Needle runtime and MCP control plane."""
     if version:
         print(f"needle {__version__}")
         raise typer.Exit()
@@ -87,211 +69,6 @@ def _exit_with(code: int) -> None:
 
 def _ns(**kwargs: object) -> argparse.Namespace:
     return argparse.Namespace(**kwargs)
-
-
-_HOST_LABELS = {
-    "pi/native-tools": "Pi native tools",
-    "mcp/bash": "MCP bash",
-}
-
-_CAPABILITY_LABELS = {
-    "e24z/soft-lamr": "Soft LAMR (SWE-Pruner plus Python AST repair)",
-    "swe-pruner/reference": "SWE-Pruner reference (no AST repair)",
-}
-
-_BACKEND_LABELS = {
-    "e24z/code-pruner-mlx": "local MLX backend",
-    "e24z/code-pruner-http": "HTTP contract (future/declarative)",
-}
-
-
-def _package_label(value: object, labels: dict[str, str]) -> str:
-    text = str(value or "?")
-    return labels.get(text, text)
-
-
-def _package_list(args: argparse.Namespace) -> int:
-    try:
-        summaries = package_summaries(host_binding=args.host_binding)
-    except PackageConfigError as exc:
-        _print_error(exc)
-        return 1
-    if not summaries:
-        print("no packages found")
-        return 0
-    for item in summaries:
-        marker = "*" if item.get("active") else "-"
-        if not item.get("valid"):
-            print(f"{marker} {item['id']}  INVALID  {item.get('error', '')}")
-            continue
-        capabilities = ",".join(item.get("capabilities", []))
-        if args.verbose:
-            print(
-                f"{marker} {item['id']}  "
-                f"implements={capabilities}  "
-                f"protocol={item.get('protocol', '?')}  "
-                f"uses={item.get('backend', '?')}  "
-                f"host={item.get('host_binding', '?')}  "
-                f"runtime_profile={item.get('runtime_profile') or '?'}"
-            )
-            continue
-        capability_labels = ", ".join(
-            _package_label(capability, _CAPABILITY_LABELS)
-            for capability in item.get("capabilities", [])
-        )
-        print(f"{marker} {item['id']} - {item.get('display_name') or item['id']}")
-        print(f"    host:     {_package_label(item.get('host_binding'), _HOST_LABELS)}")
-        print(f"    behavior: {capability_labels or 'unknown'}")
-        print(f"    backend:  {_package_label(item.get('backend'), _BACKEND_LABELS)}")
-        if item.get("runtime_profile"):
-            print(f"    profile:  {item['runtime_profile']}")
-    if not args.verbose:
-        print("")
-        print("* = active package for this host/config. Use --verbose for registry ids.")
-    return 0
-
-
-def _package_current(args: argparse.Namespace) -> int:
-    package_id, source = active_package_selection(host_binding=args.host_binding or None)
-    print(package_id)
-    print(f"source: {source}")
-    if args.host_binding:
-        print(f"host binding: {args.host_binding}")
-    return 0
-
-
-def _package_use(args: argparse.Namespace) -> int:
-    try:
-        loaded = set_configured_package_id(args.package_id, host_binding=args.host_binding or None)
-    except PackageConfigError as exc:
-        _print_error(exc)
-        return 1
-    print(f"selected package: {loaded.package_id}")
-    print(f"config: {package_config_path()}")
-    print(f"host binding: {args.host_binding or loaded.binding_id}")
-    print(f"implements: {', '.join(loaded.capability_ids)}")
-    print(f"protocol: {loaded.protocol['id']}")
-    print(f"uses backend: {loaded.backend_id}")
-    plan = runtime_launch_plan(package_id=loaded.package_id, host_binding=args.host_binding or None)
-    print(f"runtime profile: {plan.runtime_profile or 'none'}")
-    print(
-        "runtime command: "
-        f"{_runtime_command_for_display(plan.command, package_id=loaded.package_id, host_binding=args.host_binding or '')}"
-    )
-    print("restart the resident runtime for running sessions: needle stop")
-    return 0
-
-
-def _backend_readiness_notes(loaded: object) -> list[str]:
-    backend = getattr(loaded, "backend", {}) or {}
-    compute = backend.get("compute") if isinstance(backend, dict) else {}
-    requires = compute.get("requires", []) if isinstance(compute, dict) else []
-    requirements = ", ".join(str(item) for item in requires) if requires else "none declared"
-    notes = [
-        "package graph: ok (registry only; backend is not imported and model is not loaded)",
-        f"backend requirements: {requirements}",
-    ]
-    if "mlx" in requires:
-        notes.append(
-            "backend readiness: install the MLX backend dependencies and model before expecting real pruning"
-        )
-    elif "explicit_endpoint" in requires:
-        notes.append("backend readiness: set the endpoint env var before expecting remote pruning")
-    else:
-        notes.append("backend readiness: not checked by package doctor")
-    return notes
-
-
-def _package_field_audit() -> list[str]:
-    return [
-        "field audit:",
-        f"  full audit: {BUILTIN_REGISTRY_ROOT / 'FIELD-AUDIT.md'}",
-        "  uses.backend: drives the runtime launcher and backend env",
-        "  host_binding: constrains host-scoped package selection",
-        "  runtime_profile.env: applied to the resident manager process",
-        "  focus_contract: adapter/tool contract; manager does not enforce goal hints",
-        "  compute/privacy/accounting/evidence: public contract metadata, not runtime switches",
-        "  http_pruner: not advertised as a usable runtime alternative in built-in packages",
-    ]
-
-
-def _runtime_command_for_display(
-    command: list[str],
-    *,
-    package_id: str = "",
-    host_binding: str = "",
-) -> str:
-    display = list(command)
-    if package_id and "--package" not in display:
-        display.extend(["--package", package_id])
-    if host_binding and "--host-binding" not in display:
-        display.extend(["--host-binding", host_binding])
-    return " ".join(display)
-
-
-def _package_doctor(args: argparse.Namespace) -> int:
-    try:
-        loaded = load_active_package(
-            package_id=args.package_id or None,
-            host_binding=args.host_binding or None,
-        )
-    except PackageConfigError as exc:
-        _print_error(exc)
-        return 1
-    selected, source = active_package_selection(host_binding=args.host_binding or None)
-    plan = runtime_launch_plan(package_id=loaded.package_id, host_binding=args.host_binding or None)
-    lines = [
-        f"package: {loaded.package_id}",
-        f"active selection: {selected} ({source})",
-        f"protocol: {loaded.protocol['id']}",
-        f"implements: {', '.join(loaded.capability_ids)}",
-        f"uses backend: {loaded.backend_id}",
-        f"runtime launcher: {plan.kind}",
-        f"runtime profile: {plan.runtime_profile or 'none'}",
-        "runtime command: "
-        f"{_runtime_command_for_display(plan.command, package_id=loaded.package_id, host_binding=args.host_binding or '')}",
-        *_package_field_audit(),
-        *_backend_readiness_notes(loaded),
-        f"host binding: {loaded.binding_id}",
-        f"claim card: {loaded.claim_card['id']}",
-        f"package card: {loaded.package_card_path}",
-    ]
-    for ref, path in loaded.evidence_paths.items():
-        lines.append(f"evidence: {ref} -> {path}")
-    print("\n".join(lines))
-    return 0
-
-
-def _evidence_check(args: argparse.Namespace) -> int:
-    try:
-        loaded = load_active_package(
-            package_id=args.package_id or None,
-            host_binding=args.host_binding or None,
-        )
-    except PackageConfigError as exc:
-        _print_error(exc)
-        return 1
-
-    print(f"package: {loaded.package_id}")
-    print(f"claim card: {loaded.claim_card['id']}")
-    print("evidence: ok (fixture manifests only)")
-    print(
-        "proof level: local fixtures; does not prove MLX model quality, "
-        "SWE-bench acceptance, token savings, or dollar savings"
-    )
-    for ref, path in loaded.evidence_paths.items():
-        print(f"- {ref}")
-        print(f"  manifest: {path}")
-        with path.open("r", encoding="utf-8") as fh:
-            manifest = json.load(fh)
-        for case in manifest.get("cases", []):
-            print(
-                f"  case: {case['id']}  "
-                f"tool={case['tool']}  "
-                f"behavior={case['expected_behavior']}  "
-                f"file={path.parent / case['file']}"
-            )
-    return 0
 
 
 _PRESSURE = {1: "normal", 2: "warning", 4: "critical"}
@@ -327,15 +104,15 @@ def _render_status(stats: dict | None, recent: list[dict]) -> str:
             f"  ·  pressure {_PRESSURE.get(stats.get('pressure'), '?')}"
             f"  ·  free {free}"
         )
-        package_bits = [
-            f"package {stats.get('package_id')}" if stats.get("package_id") else None,
-            f"host {stats.get('host_binding')}" if stats.get("host_binding") else None,
+        identity_bits = [
+            f"runtime {stats.get('runtime_id')}" if stats.get("runtime_id") else None,
+            f"surface {stats.get('tool_surface')}" if stats.get("tool_surface") else None,
             f"profile {stats.get('runtime_profile')}" if stats.get("runtime_profile") else None,
             f"backend-id {stats.get('backend_id')}" if stats.get("backend_id") else None,
         ]
-        package_line = "  " + "  ·  ".join(bit for bit in package_bits if bit)
-        if package_line.strip():
-            lines.append(package_line)
+        identity_line = "  " + "  ·  ".join(bit for bit in identity_bits if bit)
+        if identity_line.strip():
+            lines.append(identity_line)
         last_prune = stats.get("last_prune")
         detail = _render_prune_summary(last_prune)
         if detail:
@@ -358,7 +135,7 @@ def _render_status(stats: dict | None, recent: list[dict]) -> str:
 def _status(args: argparse.Namespace) -> int:
     try:
         stats = client.stats(timeout=0.5)
-    except OSError:
+    except (OSError, RuntimeError):
         stats = None
     print(_render_status(stats, events.tail(args.events)))
     return 0
@@ -422,14 +199,14 @@ def _statusline_indicator(state: str, *, plain: bool = False) -> str:
             "active": "*",
         }.get(state, "?")
     frame = int(time.time())
-    if state == "loading" or state == "active":
+    if state in {"loading", "active"}:
         glyph = _SPIN_FRAMES[frame % len(_SPIN_FRAMES)]
     elif state == "ready":
         glyph = _PULSE_FRAMES[frame % len(_PULSE_FRAMES)]
     elif state == "cold":
         glyph = "·"
     elif state == "degraded":
-        glyph = "✗"
+        glyph = "x"
     else:
         glyph = "-"
     return _ansi(_STATUSLINE_COLORS.get(state, _STATUSLINE_COLORS["down"]), glyph)
@@ -444,7 +221,7 @@ def _statusline_query() -> object:
         return None
 
 
-def _statusline_claude_code(args: argparse.Namespace) -> int:
+def _statusline(args: argparse.Namespace) -> int:
     stats = _statusline_query()
     recent = _recent_runtime_activity(events.tail(6))
     state = _statusline_decide(stats, recent)
@@ -455,7 +232,7 @@ def _statusline_claude_code(args: argparse.Namespace) -> int:
 def _stop(args: argparse.Namespace) -> int:
     try:
         resp = client.stop(timeout=0.5)
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
         print(f"Needle: runtime already stopped ({exc})", file=sys.stderr)
         return 0
     if not resp.get("ok"):
@@ -483,12 +260,9 @@ def _remove_path(path: Path) -> None:
 def _uninstall(args: argparse.Namespace) -> int:
     home = naming.app_home()
     model_root = naming.model_root()
-    config_path = package_config_path()
     paths = [home]
     if not _is_relative_to(model_root, home):
         paths.append(model_root)
-    if not _is_relative_to(config_path, home):
-        paths.append(config_path)
 
     existing = [path for path in paths if path.exists()]
     if not args.yes:
@@ -499,8 +273,7 @@ def _uninstall(args: argparse.Namespace) -> int:
         else:
             print("  nothing found")
         print("")
-        print("Agent cleanup uses each agent's own setup command:")
-        print("  Pi:     needle setup pi --uninstall")
+        print("Agent cleanup uses each agent's own MCP command:")
         print("  Claude: needle setup claude-code --uninstall")
         print("  Codex:  needle setup codex --uninstall")
         print("")
@@ -510,7 +283,7 @@ def _uninstall(args: argparse.Namespace) -> int:
     try:
         client.stop(timeout=0.5)
         print("Needle: runtime stopping", file=sys.stderr)
-    except OSError:
+    except (OSError, RuntimeError):
         pass
 
     removed: list[Path] = []
@@ -529,7 +302,6 @@ def _uninstall(args: argparse.Namespace) -> int:
         print("no Needle-owned local state found")
     print("")
     print("Remove agent connections with their setup commands:")
-    print("  Pi:     needle setup pi --uninstall")
     print("  Claude: needle setup claude-code --uninstall")
     print("  Codex:  needle setup codex --uninstall")
     print("Remove the CLI entrypoint with your package manager, for example:")
@@ -537,10 +309,6 @@ def _uninstall(args: argparse.Namespace) -> int:
     print("  pipx uninstall needle")
     print("  uv tool uninstall needle")
     return 0
-
-
-def _pi_package_dir() -> Path:
-    return Path(__file__).resolve().parent / "hosts" / "pi"
 
 
 def _format_command(command: list[str]) -> str:
@@ -559,29 +327,16 @@ def _run_visible(command: list[str]) -> int:
 
 
 _SETUP_HOSTS = {
-    "pi": {
-        "label": "Pi",
-        "summary": "native read/bash tools, visible through /needle doctor",
-        "binding": "pi/native-tools",
-        "package": naming.DEFAULT_PACKAGE_ID,
-        "setup": "needle setup pi",
-        "verify": "Open Pi and run `/needle doctor`.",
-        "uninstall": "needle setup pi --uninstall",
-    },
     "claude-code": {
         "label": "Claude Code",
         "summary": "MCP tool named needle_bash",
-        "binding": "mcp/bash",
-        "package": "e24z/mlx-mcp-bash-reference",
         "setup": "needle setup claude-code",
         "verify": "Open Claude Code and run `/mcp`.",
         "uninstall": "needle setup claude-code --uninstall",
     },
     "codex": {
         "label": "Codex CLI",
-        "summary": "experimental MCP tool named needle_bash",
-        "binding": "mcp/bash",
-        "package": "e24z/mlx-mcp-bash-reference",
+        "summary": "MCP tool named needle_bash",
         "setup": "needle setup codex",
         "verify": "Open Codex and run `/mcp`.",
         "uninstall": "needle setup codex --uninstall",
@@ -603,6 +358,7 @@ def _record_setup_pending(source: str) -> None:
         "source": source,
         "created_at": datetime.datetime.now(datetime.UTC).isoformat(),
         "resume": "needle setup",
+        "runtime": DEFAULT_RUNTIME.runtime_id,
         "hosts": {
             host: {
                 "setup": meta["setup"],
@@ -633,14 +389,13 @@ def _setup_host(value: str | None) -> str | None:
     }
     normalized = aliases.get(normalized, normalized)
     if normalized not in _SETUP_HOSTS:
-        raise ValueError("host must be one of: pi, claude-code, codex")
+        raise ValueError("host must be one of: claude-code, codex")
     return normalized
 
 
 def _print_setup_checklist(
     *,
     host: str | None,
-    package_id: str | None,
     from_homebrew: bool,
     dry_run: bool,
 ) -> None:
@@ -652,17 +407,18 @@ def _print_setup_checklist(
     else:
         print("This shell is not interactive, so Needle is showing the setup checklist.")
     print("")
+    print(f"Runtime: {DEFAULT_RUNTIME.runtime_id} ({DEFAULT_RUNTIME.backend_id}, {DEFAULT_RUNTIME.runtime_profile})")
+    print("Tool surface: needle_bash through MCP")
+    print("")
     print("Available agents:")
     for key, meta in _SETUP_HOSTS.items():
-        marker = "*" if key == (host or "pi") else "-"
+        marker = "*" if key == (host or "claude-code") else "-"
         print(f"  {marker} {key}: {meta['label']} ({meta['summary']})")
-        print(f"      package: {package_id if key == host and package_id else meta['package']}")
         print(f"      setup:   {meta['setup']}")
         print(f"      command: {_format_command(_setup_native_command(key, 'local'))}")
         print(f"      verify:  {meta['verify']}")
-        print("      model:   run `needle model dir`; use `needle model download` after installing backend deps")
     print("")
-    print("Needle will not change Pi, Claude Code, or Codex until you confirm setup.")
+    print("Needle will not change Claude Code or Codex until you confirm setup.")
     if dry_run:
         print("dry run: no changes made")
     else:
@@ -670,59 +426,7 @@ def _print_setup_checklist(
     print("next: run `needle setup` in an interactive terminal, or run one of the setup commands above.")
 
 
-def _select_setup_package(
-    host: str, package_id: str | None, *, dry_run: bool
-) -> tuple[int, LoadedPackage | None]:
-    meta = _SETUP_HOSTS[host]
-    selected = package_id or str(meta["package"])
-    binding = str(meta["binding"])
-    try:
-        loaded = load_active_package(package_id=selected, host_binding=binding)
-    except PackageConfigError as exc:
-        _print_error(exc)
-        return 1, None
-
-    print(f"Using Needle package: {loaded.package_id}")
-    if dry_run:
-        return 0, loaded
-
-    try:
-        configured = set_configured_package_id(loaded.package_id, host_binding=binding)
-    except PackageConfigError as exc:
-        _print_error(exc)
-        return 1, None
-    print(f"Selected Needle package: {configured.package_id}")
-    return 0, loaded
-
-
-def _run_setup_host(
-    *,
-    host: str,
-    package_id: str | None,
-    dry_run: bool,
-    skip_canary: bool,
-    scope: str,
-) -> int:
-    if host == "claude-code":
-        try:
-            _claude_scope(scope)
-        except ValueError as exc:
-            _print_error(exc)
-            return 1
-    code, loaded = _select_setup_package(host, package_id, dry_run=dry_run)
-    if code:
-        return code
-    print("")
-    if host == "pi":
-        return _setup_pi(_ns(dry_run=dry_run, uninstall=False, skip_canary=skip_canary))
-    if host == "codex":
-        return _setup_codex(_ns(dry_run=dry_run, uninstall=False), loaded)
-    return _setup_claude_code(_ns(dry_run=dry_run, uninstall=False, scope=scope), loaded)
-
-
 def _setup_native_command(host: str, scope: str) -> list[str]:
-    if host == "pi":
-        return ["pi", "install", str(_pi_package_dir())]
     if host == "codex":
         return _codex_add_command()
     return _claude_code_add_command(scope)
@@ -772,38 +476,30 @@ def _prompt_setup_hosts(default: str = "1") -> list[str]:
     return hosts
 
 
-def _print_setup_plan(hosts: list[str], package_id: str | None, scope: str) -> None:
+def _print_setup_plan(hosts: list[str], scope: str) -> None:
     print("Needle will connect:")
     for host in hosts:
         meta = _SETUP_HOSTS[host]
-        selected_package = package_id or str(meta["package"])
         print(f"  - {meta['label']}: {meta['summary']}")
-        print(f"    package: {selected_package}")
+        print(f"    runtime: {DEFAULT_RUNTIME.runtime_id}")
+        print(f"    command: {_format_command(_setup_native_command(host, scope))}")
         print(f"    verify:  {meta['verify']}")
-        if host != "pi":
-            print("    note:    use needle_bash for large read-only observations")
+        print("    note:    use needle_bash for large read-only observations")
     print("")
 
 
-def _run_setup_hosts(
-    *,
-    hosts: list[str],
-    package_id: str | None,
-    dry_run: bool,
-    skip_canary: bool,
-    scope: str,
-) -> int:
+def _run_setup_host(*, host: str, dry_run: bool, scope: str) -> int:
+    if host == "codex":
+        return _setup_codex(_ns(dry_run=dry_run, uninstall=False))
+    return _setup_claude_code(_ns(dry_run=dry_run, uninstall=False, scope=scope))
+
+
+def _run_setup_hosts(*, hosts: list[str], dry_run: bool, scope: str) -> int:
     for index, host in enumerate(hosts, start=1):
         if len(hosts) > 1:
             print("")
             print(f"[{index}/{len(hosts)}] {_SETUP_HOSTS[host]['label']}")
-        code = _run_setup_host(
-            host=host,
-            package_id=package_id,
-            dry_run=dry_run,
-            skip_canary=skip_canary,
-            scope=scope,
-        )
+        code = _run_setup_host(host=host, dry_run=dry_run, scope=scope)
         if code:
             return code
     return 0
@@ -812,37 +508,22 @@ def _run_setup_hosts(
 def _setup_wizard(args: argparse.Namespace) -> int:
     try:
         host = _setup_host(args.host)
+        _claude_scope(args.scope)
     except ValueError as exc:
         _print_error(exc)
         return 1
 
     if args.from_homebrew and not _is_interactive() and not args.yes and not args.dry_run:
         _record_setup_pending("homebrew")
-        _print_setup_checklist(
-            host=host,
-            package_id=args.package_id,
-            from_homebrew=True,
-            dry_run=False,
-        )
+        _print_setup_checklist(host=host, from_homebrew=True, dry_run=False)
         return 0
 
     if args.dry_run or (not _is_interactive() and not args.yes):
-        _print_setup_checklist(
-            host=host,
-            package_id=args.package_id,
-            from_homebrew=args.from_homebrew,
-            dry_run=args.dry_run,
-        )
+        _print_setup_checklist(host=host, from_homebrew=args.from_homebrew, dry_run=args.dry_run)
         return 0
 
     if args.yes:
-        return _run_setup_host(
-            host=host or "pi",
-            package_id=args.package_id,
-            dry_run=False,
-            skip_canary=args.skip_canary,
-            scope=args.scope,
-        )
+        return _run_setup_host(host=host or "claude-code", dry_run=False, scope=args.scope)
 
     print("Needle setup")
     if args.from_homebrew:
@@ -851,7 +532,7 @@ def _setup_wizard(args: argparse.Namespace) -> int:
         print("Connect Needle to your coding agent.")
     print("")
     chosen_hosts = [host] if host else _prompt_setup_hosts()
-    _print_setup_plan(chosen_hosts, args.package_id, args.scope)
+    _print_setup_plan(chosen_hosts, args.scope)
     if not typer.confirm("Connect selected agent(s) now?", default=True):
         _record_setup_pending("user-deferred")
         print("No changes made.")
@@ -860,71 +541,13 @@ def _setup_wizard(args: argparse.Namespace) -> int:
         else:
             print("resume: needle setup")
         return 0
-    return _run_setup_hosts(
-        hosts=chosen_hosts,
-        package_id=args.package_id,
-        dry_run=False,
-        skip_canary=args.skip_canary,
-        scope=args.scope,
-    )
-
-
-def _setup_pi(args: argparse.Namespace) -> int:
-    package_dir = _pi_package_dir()
-    manifest = package_dir / "package.json"
-    canary = package_dir / "demo-canary.mjs"
-    if not manifest.exists():
-        _print_error(f"Needle Pi package manifest is missing at {manifest}")
-        return 1
-
-    pi_command = ["pi", "uninstall" if args.uninstall else "install", str(package_dir)]
-    print(f"Pi package: {package_dir}")
-    print(f"Pi command: {_format_command(pi_command)}")
-
-    if args.dry_run:
-        if not args.uninstall and not args.skip_canary:
-            print(f"Canary command: node {canary}")
-        print("dry run: no changes made")
-        if args.uninstall:
-            print("next: run `needle setup pi --uninstall` without `--dry-run` to remove the Pi adapter.")
-        else:
-            print("next: run `needle setup pi`, then open Pi and run `/needle doctor`.")
-        return 0
-
-    if shutil.which("pi") is None:
-        _print_error("Pi CLI was not found on PATH; install or open Pi before running setup.")
-        print("tip: `pi --help` should work before Needle can install its Pi adapter.", file=sys.stderr)
-        return 1
-
-    code = _run_visible(pi_command)
-    if code:
-        return code
-
-    if args.uninstall:
-        print("Needle Pi adapter removed through Pi's native package command.")
-        return 0
-
-    if not args.skip_canary:
-        if shutil.which("node") is None:
-            _print_error("Node.js was not found on PATH; Pi adapter installed, but the canary could not run.")
-            return 1
-        proc = subprocess.run(["node", str(canary)], text=True, capture_output=True, check=False)
-        if proc.returncode:
-            if proc.stdout:
-                print(proc.stdout, end="")
-            if proc.stderr:
-                print(proc.stderr, end="", file=sys.stderr)
-            _print_error(f"Pi canary failed ({proc.returncode})")
-            return int(proc.returncode)
-        print("Pi canary passed.")
-
-    print("Needle Pi adapter installed. Open Pi and run `/needle doctor`.")
-    return 0
+    return _run_setup_hosts(hosts=chosen_hosts, dry_run=False, scope=args.scope)
 
 
 def _mcp_serve(args: argparse.Namespace) -> int:
     try:
         from .hosts.mcp.server import main as serve
+
         serve()
     except RuntimeError as exc:
         _print_error(exc)
@@ -990,22 +613,7 @@ def _codex_config_toml() -> str:
     )
 
 
-def _runtime_manage_command(loaded: LoadedPackage) -> list[str]:
-    return [
-        "needle",
-        "runtime",
-        "manage",
-        "--package",
-        loaded.package_id,
-        "--host-binding",
-        loaded.binding_id,
-    ]
-
-
-def _setup_claude_code(
-    args: argparse.Namespace,
-    loaded_package: LoadedPackage | None = None,
-) -> int:
+def _setup_claude_code(args: argparse.Namespace) -> int:
     try:
         scope = _claude_scope(args.scope)
     except ValueError as exc:
@@ -1030,18 +638,11 @@ def _setup_claude_code(
         return 0
 
     command = _claude_code_add_command(scope)
-    loaded = loaded_package
-    if loaded is None:
-        try:
-            loaded = load_active_package(host_binding="mcp/bash")
-        except PackageConfigError as exc:
-            _print_error(exc)
-            return 1
-
     print("Needle for Claude Code")
     print("Tool name: needle_bash")
     print("Tool command: needle mcp serve")
-    print(f"Runtime command: {_format_command(_runtime_manage_command(loaded))}")
+    print(f"Runtime command: {_format_command(runtime_manage_command())}")
+    print(f"Runtime: {DEFAULT_RUNTIME.runtime_id} ({DEFAULT_RUNTIME.backend_id}, {DEFAULT_RUNTIME.runtime_profile})")
     print(f"Claude scope: {scope}")
     print(f"Claude command: {_format_command(command)}")
     print("Statusline: needle statusline claude-code")
@@ -1068,10 +669,7 @@ def _setup_claude_code(
     return 0
 
 
-def _setup_codex(
-    args: argparse.Namespace,
-    loaded_package: LoadedPackage | None = None,
-) -> int:
+def _setup_codex(args: argparse.Namespace) -> int:
     if args.uninstall:
         command = _codex_remove_command()
         print("Needle Codex CLI MCP server: needle-bash")
@@ -1089,19 +687,12 @@ def _setup_codex(
         print("Needle Codex CLI MCP server removed through Codex's native MCP command.")
         return 0
 
-    loaded = loaded_package
-    if loaded is None:
-        try:
-            loaded = load_active_package(host_binding="mcp/bash")
-        except PackageConfigError as exc:
-            _print_error(exc)
-            return 1
-
     command = _codex_add_command()
     print("Needle for Codex CLI")
     print("Tool name: needle_bash")
     print("Tool command: needle mcp serve")
-    print(f"Runtime command: {_format_command(_runtime_manage_command(loaded))}")
+    print(f"Runtime command: {_format_command(runtime_manage_command())}")
+    print(f"Runtime: {DEFAULT_RUNTIME.runtime_id} ({DEFAULT_RUNTIME.backend_id}, {DEFAULT_RUNTIME.runtime_profile})")
     print(f"Codex command: {_format_command(command)}")
     print("Statusline: needle statusline codex")
     print("Status: needle status --events 20")
@@ -1147,7 +738,7 @@ def _model_download(args: argparse.Namespace) -> int:
         from .model_download import download_model_snapshot
     except ImportError:
         print(
-            "error: this Needle install can set up host adapters, but it does not include "
+            "error: this Needle install can set up MCP, but it does not include "
             "the MLX backend/model download dependencies needed for real pruning.",
             file=sys.stderr,
         )
@@ -1166,7 +757,7 @@ def _model_download(args: argparse.Namespace) -> int:
         )
     except ImportError:
         print(
-            "error: this Needle install can set up host adapters, but it does not include "
+            "error: this Needle install can set up MCP, but it does not include "
             "the MLX backend/model download dependencies needed for real pruning.",
             file=sys.stderr,
         )
@@ -1218,75 +809,6 @@ def _model_clean(args: argparse.Namespace) -> int:
     return 0
 
 
-@package_app.command("list")
-def package_list(
-    host_binding: str = typer.Option(
-        "",
-        "--host-binding",
-        help="Optional host binding filter, for example pi/native-tools.",
-    ),
-    verbose: bool = typer.Option(
-        False,
-        "--verbose",
-        "-v",
-        help="Show raw registry protocol, capability, backend, and host ids.",
-    ),
-) -> None:
-    """List registry packages."""
-    _exit_with(_package_list(_ns(host_binding=host_binding, verbose=verbose)))
-
-
-@package_app.command("current")
-def package_current(
-    host_binding: str = typer.Option(
-        "",
-        "--host-binding",
-        help="Optional host binding scope, for example pi/native-tools.",
-    ),
-) -> None:
-    """Show the active package id."""
-    _exit_with(_package_current(_ns(host_binding=host_binding)))
-
-
-@package_app.command("use")
-def package_use(
-    package_id: str = typer.Argument(..., help="Package id, for example e24z/mlx-pi-soft-lamr."),
-    host_binding: str = typer.Option(
-        "",
-        "--host-binding",
-        help="Optional required host binding; defaults to the selected package's binding.",
-    ),
-) -> None:
-    """Persist a package selection."""
-    _exit_with(_package_use(_ns(package_id=package_id, host_binding=host_binding)))
-
-
-@package_app.command("doctor")
-def package_doctor(
-    package_id: str = typer.Argument("", help="Package id to inspect; defaults to active."),
-    host_binding: str = typer.Option(
-        "",
-        "--host-binding",
-        help="Optional host binding scope, for example pi/native-tools.",
-    ),
-) -> None:
-    """Validate and explain a package."""
-    _exit_with(_package_doctor(_ns(package_id=package_id, host_binding=host_binding)))
-
-
-@evidence_app.command("check")
-def evidence_check(
-    package_id: str = typer.Argument("", help="Package id to inspect; defaults to active."),
-    host_binding: str = typer.Option(
-        "",
-        "--host-binding",
-        help="Optional host binding scope, for example pi/native-tools.",
-    ),
-) -> None:
-    """Validate and list package evidence."""
-    _exit_with(_evidence_check(_ns(package_id=package_id, host_binding=host_binding)))
-
-
 @app.command("status")
 def status(
     events_count: int = typer.Option(
@@ -1311,14 +833,10 @@ def uninstall(
     yes: bool = typer.Option(
         False,
         "--yes",
-        help="Actually remove local runtime/config/model files.",
+        help="Actually remove local runtime/model files.",
     ),
 ) -> None:
-    """Stop Needle and remove Needle-owned local state.
-
-    Host adapters stay host-native: preview with `needle uninstall`, then run
-    `needle setup pi --uninstall` or `needle setup claude-code --uninstall`.
-    """
+    """Stop Needle and remove Needle-owned local state."""
     _exit_with(_uninstall(_ns(yes=yes)))
 
 
@@ -1365,30 +883,16 @@ def model_clean(
 
 @runtime_app.command("manage")
 def runtime_manage(
-    package_id: str | None = typer.Option(
-        None,
-        "--package",
-        help="Package id used to derive runtime environment.",
-    ),
-    host_binding: str | None = typer.Option(
-        None,
-        "--host-binding",
-        help="Host binding used for default package selection.",
-    ),
     raw: bool = typer.Option(
         False,
         "--raw",
-        help="Debug mode: start from inherited environment instead of package graph.",
+        help="Debug mode: start from inherited environment instead of the built-in runtime config.",
     ),
 ) -> None:
     """Run the machine-wide model residency manager."""
     from .runtime import cli as runtime_cli
 
     argv = ["manage"]
-    if package_id:
-        argv.extend(["--package", package_id])
-    if host_binding:
-        argv.extend(["--host-binding", host_binding])
     if raw:
         argv.append("--raw")
     _exit_with(runtime_cli.main(argv))
@@ -1401,16 +905,6 @@ def runtime_session(
         "--session",
         help="Optional host session id to lease under.",
     ),
-    package_id: str | None = typer.Option(
-        None,
-        "--package",
-        help="Package id used to derive manager runtime environment.",
-    ),
-    host_binding: str | None = typer.Option(
-        None,
-        "--host-binding",
-        help="Host binding used for manager package selection.",
-    ),
 ) -> None:
     """Hold a session lease against the manager."""
     from .runtime import cli as runtime_cli
@@ -1418,10 +912,6 @@ def runtime_session(
     argv = ["session"]
     if session:
         argv.extend(["--session", session])
-    if package_id:
-        argv.extend(["--package", package_id])
-    if host_binding:
-        argv.extend(["--host-binding", host_binding])
     _exit_with(runtime_cli.main(argv))
 
 
@@ -1478,7 +968,7 @@ def setup(
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="Show the guided setup plan without changing Pi, Claude Code, or Codex.",
+        help="Show the guided setup plan without changing Claude Code or Codex.",
     ),
     yes: bool = typer.Option(
         False,
@@ -1488,22 +978,12 @@ def setup(
     host: str | None = typer.Option(
         None,
         "--host",
-        help="Agent to connect: pi, claude-code, or codex.",
-    ),
-    package_id: str | None = typer.Option(
-        None,
-        "--package",
-        help="Needle package id to use for the selected agent.",
+        help="Agent to connect: claude-code or codex.",
     ),
     from_homebrew: bool = typer.Option(
         False,
         "--from-homebrew",
         help="Entry point used by the Homebrew post-install hook.",
-    ),
-    skip_canary: bool = typer.Option(
-        False,
-        "--skip-canary",
-        help="Skip the Pi canary if the wizard installs Pi.",
     ),
     scope: str = typer.Option(
         "local",
@@ -1511,7 +991,7 @@ def setup(
         help="Claude MCP scope if the wizard installs Claude Code.",
     ),
 ) -> None:
-    """Run Needle's guided setup wizard."""
+    """Run Needle's guided MCP setup wizard."""
     if ctx.invoked_subcommand is not None:
         return
     _exit_with(
@@ -1520,48 +1000,9 @@ def setup(
                 dry_run=dry_run,
                 yes=yes,
                 host=host,
-                package_id=package_id,
                 from_homebrew=from_homebrew,
-                skip_canary=skip_canary,
                 scope=scope,
             )
-        )
-    )
-
-
-@setup_app.command("pi")
-def setup_pi(
-    dry_run: bool = typer.Option(
-        False,
-        "--dry-run",
-        help="Print the Pi package command without changing Pi.",
-    ),
-    uninstall_adapter: bool = typer.Option(
-        False,
-        "--uninstall",
-        help="Remove the Pi adapter through Pi's native package command.",
-    ),
-    skip_canary: bool = typer.Option(
-        False,
-        "--skip-canary",
-        help="Skip the local Pi adapter canary after install.",
-    ),
-    package_id: str | None = typer.Option(
-        None,
-        "--package",
-        help="Package id to select before installing the Pi adapter.",
-    ),
-) -> None:
-    """Install or remove Needle's Pi adapter using Pi's native package flow."""
-    if uninstall_adapter:
-        _exit_with(_setup_pi(_ns(dry_run=dry_run, uninstall=True, skip_canary=skip_canary)))
-    _exit_with(
-        _run_setup_host(
-            host="pi",
-            package_id=package_id,
-            dry_run=dry_run,
-            skip_canary=skip_canary,
-            scope="local",
         )
     )
 
@@ -1583,24 +1024,11 @@ def setup_claude_code(
         "--scope",
         help="Claude MCP scope: local, project, or user.",
     ),
-    package_id: str | None = typer.Option(
-        None,
-        "--package",
-        help="Package id to select before installing the Claude Code MCP server.",
-    ),
 ) -> None:
     """Install or remove Needle's Claude Code MCP server."""
     if uninstall_adapter:
         _exit_with(_setup_claude_code(_ns(dry_run=dry_run, uninstall=True, scope=scope)))
-    _exit_with(
-        _run_setup_host(
-            host="claude-code",
-            package_id=package_id,
-            dry_run=dry_run,
-            skip_canary=False,
-            scope=scope,
-        )
-    )
+    _exit_with(_setup_claude_code(_ns(dry_run=dry_run, uninstall=False, scope=scope)))
 
 
 @setup_app.command("codex")
@@ -1615,24 +1043,11 @@ def setup_codex(
         "--uninstall",
         help="Remove Needle's experimental Codex MCP server through Codex's native MCP command.",
     ),
-    package_id: str | None = typer.Option(
-        None,
-        "--package",
-        help="Package id to select before installing the Codex MCP server.",
-    ),
 ) -> None:
     """Install or remove Needle's experimental Codex MCP server."""
     if uninstall_adapter:
         _exit_with(_setup_codex(_ns(dry_run=dry_run, uninstall=True)))
-    _exit_with(
-        _run_setup_host(
-            host="codex",
-            package_id=package_id,
-            dry_run=dry_run,
-            skip_canary=False,
-            scope="local",
-        )
-    )
+    _exit_with(_setup_codex(_ns(dry_run=dry_run, uninstall=False)))
 
 
 @statusline_app.command("claude-code")
@@ -1644,7 +1059,7 @@ def statusline_claude_code(
     ),
 ) -> None:
     """Render a compact Claude Code statusline from Needle runtime health."""
-    _exit_with(_statusline_claude_code(_ns(plain=plain)))
+    _exit_with(_statusline(_ns(plain=plain)))
 
 
 @statusline_app.command("codex")
@@ -1656,7 +1071,7 @@ def statusline_codex(
     ),
 ) -> None:
     """Render a compact Codex CLI statusline from Needle runtime health."""
-    _exit_with(_statusline_claude_code(_ns(plain=plain)))
+    _exit_with(_statusline(_ns(plain=plain)))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1677,9 +1092,6 @@ def main(argv: list[str] | None = None) -> int:
         print("Aborted!", file=sys.stderr)
         return 1
     except Exception as exc:
-        # Typer 0.26 uses a vendored Click implementation for console scripts.
-        # Catch those CLI-usage exceptions structurally so user mistakes do not
-        # render as Python tracebacks from installed artifacts.
         show = getattr(exc, "show", None)
         exit_code = getattr(exc, "exit_code", None)
         if callable(show) and isinstance(exit_code, int):

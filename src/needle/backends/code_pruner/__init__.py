@@ -1,8 +1,8 @@
 """The code-pruner backend: the real SWE-pruner / code-pruner relevance model.
 
-Self-contained package — the model (model.py), package-aware runtime config
-(config.py), its line-mask helpers (lines.py), and the OPTIONAL structural repair
-layer (repair/). The rest of Needle only ever sees
+Self-contained package — the model (model.py), runtime config helpers
+(config.py), its line-mask helpers (lines.py), and the structural repair layer
+(repair/). The rest of Needle only ever sees
 `CodePrunerBackend.prune(text, query) -> str`; how the mask is rendered (plain vs
 AST-repaired) is this package's private business.
 
