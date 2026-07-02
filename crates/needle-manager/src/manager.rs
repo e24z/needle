@@ -3,15 +3,19 @@ use std::collections::HashMap;
 
 pub struct Manager {
     leases: HashMap<String, Lease>,
-    worker_state: WorkerState,
+    backend: BackendStatus,
 }
 
 impl Manager {
     pub fn new() -> Self {
         Self {
             leases: HashMap::new(),
-            worker_state: WorkerState::Cold,
+            backend: BackendStatus::Cold,
         }
+    }
+
+    pub fn backend_status(&self) -> BackendStatus {
+        self.backend
     }
 
     pub fn has_leases(&self) -> bool {
@@ -36,7 +40,10 @@ impl Manager {
     }
 }
 
-enum WorkerState {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BackendStatus {
     Cold,
-    Running,
+    Loading,
+    Resident,
+    Failed,
 }
