@@ -29,6 +29,8 @@ enum Command {
     Daemon(DaemonArgs),
     /// Report daemon mode and backend status.
     Status(StatusArgs),
+    /// Remove Pi integration and Needle-owned runtime state.
+    Uninstall(UninstallArgs),
 }
 
 #[derive(Args)]
@@ -36,6 +38,16 @@ struct SetupArgs {
     /// Print intended changes without touching anything.
     #[arg(long)]
     dry_run: bool,
+    /// Answer yes to every prompt.
+    #[arg(long)]
+    yes: bool,
+}
+
+#[derive(Args)]
+struct UninstallArgs {
+    /// Also remove the private worker venv, models, and logs under NEEDLE_HOME.
+    #[arg(long)]
+    purge: bool,
     /// Answer yes to every prompt.
     #[arg(long)]
     yes: bool,
@@ -79,6 +91,7 @@ pub fn run() -> ExitCode {
         Some(Command::Prune(args)) => run_prune(args),
         Some(Command::Daemon(args)) => run_daemon(args),
         Some(Command::Status(args)) => run_status(args),
+        Some(Command::Uninstall(args)) => run_uninstall(args),
         None => run_bare(),
     }
 }
@@ -109,6 +122,20 @@ fn run_setup(args: SetupArgs) -> ExitCode {
         Ok(false) => ExitCode::FAILURE,
         Err(error) => {
             eprintln!("needle: setup failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_uninstall(args: UninstallArgs) -> ExitCode {
+    let options = crate::uninstall::UninstallOptions {
+        purge: args.purge,
+        assume_yes: args.yes,
+    };
+    match crate::uninstall::run(&options) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("needle: uninstall failed: {error}");
             ExitCode::FAILURE
         }
     }

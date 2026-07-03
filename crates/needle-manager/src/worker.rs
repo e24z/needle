@@ -35,15 +35,13 @@ impl WorkerCommand {
         let config = crate::config::load().unwrap_or_default();
         // Env overrides beat the installed config; the dev checkout fallback
         // only applies when neither names a provisioned interpreter.
-        let configured_python = std::env::var_os("NEEDLE_PYTHON")
-            .or_else(|| std::env::var_os("PYTHON"))
-            .or_else(|| {
-                config
-                    .worker_python
-                    .as_ref()
-                    .filter(|path| path.exists())
-                    .map(|path| path.as_os_str().to_os_string())
-            });
+        let configured_python = std::env::var_os("NEEDLE_PYTHON").or_else(|| {
+            config
+                .worker_python
+                .as_ref()
+                .filter(|path| path.exists())
+                .map(|path| path.as_os_str().to_os_string())
+        });
         let dev_fallback = configured_python.is_none();
         let python = configured_python.unwrap_or_else(|| OsString::from("python3"));
         let mut command = Self::new(python).arg("-m").arg("needle_worker");
@@ -351,12 +349,8 @@ for line in sys.stdin:
         std::process::id()
     ));
     std::fs::write(&path, script).expect("write fake worker script");
-    WorkerCommand::new(
-        std::env::var_os("PYTHON")
-            .or_else(|| std::env::var_os("NEEDLE_PYTHON"))
-            .unwrap_or_else(|| "python3".into()),
-    )
-    .arg(path.into_os_string())
+    WorkerCommand::new(std::env::var_os("NEEDLE_PYTHON").unwrap_or_else(|| "python3".into()))
+        .arg(path.into_os_string())
 }
 
 #[cfg(test)]

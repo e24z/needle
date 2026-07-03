@@ -215,6 +215,7 @@ enum Request {
     Original {
         session: String,
     },
+    Shutdown,
 }
 
 fn dispatch(line: &str, runtime: &Runtime) -> (Value, bool) {
@@ -312,6 +313,7 @@ fn dispatch(line: &str, runtime: &Runtime) -> (Value, bool) {
                 false,
             ),
         },
+        Request::Shutdown => (json!({"ok": true, "shutdown": true}), true),
     }
 }
 

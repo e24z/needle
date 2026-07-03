@@ -46,8 +46,7 @@ from .config import (
 from .lines import aggregate_token_scores_to_lines, prune_code_lines
 
 # The optional C++ Viterbi extension is not part of current Needle; the numpy
-# decoder below is the only active path. (Historical source lives in
-# ~/repos/needle if ever worth porting.)
+# decoder below is the only active path.
 viterbi_cpp = None
 
 _PROMPT_PREFIX = '<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n'

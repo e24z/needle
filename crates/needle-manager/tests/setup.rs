@@ -1,7 +1,7 @@
 //! Setup wizard scenarios against a throwaway NEEDLE_HOME.
 //!
 //! Hermetic: the worker source is a tiny dependency-free package, the model
-//! dir is pre-seeded, and NEEDLE_PI_BIN points nowhere so the wizard can
+//! dir is pre-seeded, and NEEDLE_DEV_PI_BIN points nowhere so the wizard can
 //! never touch a real Pi config from tests.
 
 use std::path::{Path, PathBuf};
@@ -50,9 +50,9 @@ fn needle_setup(home: &Path, dir: &Path, args: &[&str]) -> std::process::Output 
         .arg("setup")
         .args(args)
         .env("NEEDLE_HOME", home)
-        .env("NEEDLE_WORKER_SOURCE", fake_worker_source(dir))
+        .env("NEEDLE_DEV_WORKER_SOURCE", fake_worker_source(dir))
         .env("NEEDLE_MODEL_DIR", fake_model_dir(dir))
-        .env("NEEDLE_PI_BIN", "/nonexistent/pi")
+        .env("NEEDLE_DEV_PI_BIN", "/nonexistent/pi")
         .output()
         .expect("run needle setup")
 }
@@ -128,9 +128,9 @@ fn bare_needle_runs_wizard_when_unconfigured() {
     // wizard banner is what we are asserting.
     let output = Command::new(env!("CARGO_BIN_EXE_needle"))
         .env("NEEDLE_HOME", &home)
-        .env("NEEDLE_WORKER_SOURCE", fake_worker_source(&dir))
+        .env("NEEDLE_DEV_WORKER_SOURCE", fake_worker_source(&dir))
         .env("NEEDLE_MODEL_DIR", fake_model_dir(&dir))
-        .env("NEEDLE_PI_BIN", "/nonexistent/pi")
+        .env("NEEDLE_DEV_PI_BIN", "/nonexistent/pi")
         .stdin(std::process::Stdio::null())
         .output()
         .expect("run bare needle");

@@ -48,3 +48,6 @@ jobs:
         run: |
           node tests/test_pi_extension.mjs
           NEEDLE_BIN=target/debug/needle node tests/test_pi_client_daemon.mjs
+
+      - name: Build release artifact
+        run: bash scripts/package-release.sh --dist /tmp/needle-dist --python python

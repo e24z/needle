@@ -1,6 +1,6 @@
 # Needle
 
-Needle is being rebuilt as a Pi-first local pruning runtime.
+Needle is a Pi-first local pruning runtime.
 
 The product is the Rust `needle` binary. Python is private worker machinery for
 the MLX Soft-LaMR model path.
@@ -90,9 +90,34 @@ status. Everything lands under `NEEDLE_HOME` (default:
 Writing to your Pi settings happens in exactly one step, behind an explicit
 confirmation (`pi install <NEEDLE_HOME>/pi`).
 
-Useful overrides: `NEEDLE_HOME`, `NEEDLE_MODEL_DIR` (reuse an existing model
-snapshot instead of downloading), `NEEDLE_WORKER_SOURCE`, `NEEDLE_PI_PACKAGE`,
-`NEEDLE_PYTHON`, `NEEDLE_SOCKET`.
+Most users should not need env overrides. The installed runtime honors
+`NEEDLE_HOME` for sandboxing, `NEEDLE_MODEL_DIR` to reuse an existing model
+snapshot, and `NEEDLE_SOCKET` for explicit daemon clients. Development and
+test-only hooks use `NEEDLE_DEV_*` names and are intentionally not part of the
+install contract.
+
+## Uninstall
+
+```bash
+needle uninstall
+needle uninstall --purge
+```
+
+Default uninstall stops a running daemon, removes the Pi package registration,
+and deletes config/runtime state while keeping the private venv, model snapshot,
+and logs under `NEEDLE_HOME`. `--purge` removes the whole `NEEDLE_HOME` tree.
+
+## Build Artifact
+
+```bash
+bash scripts/package-release.sh
+```
+
+The release tarball contains `bin/needle`, the Pi package under
+`share/needle/pi`, and a built `needle_worker` wheel under
+`share/needle/wheels`. The setup wizard prefers that shipped wheel when running
+from an installed artifact, and falls back to the source checkout in
+development.
 
 ## Pi Extension (development)
 
@@ -111,7 +136,7 @@ pruning and reattached verbatim; error results (non-zero exits) are never
 pruned. The statusline shows off/loading/busy/resident/failed plus session
 savings; `/needle status|on|off` controls it.
 
-## Direction
+## Ownership
 
 Rust owns:
 
@@ -127,6 +152,3 @@ Python owns:
 - model download/load
 - inference
 - model-local cleanup
-
-The next product milestone is a Rust `Worker` that owns the long-running
-`python -m needle_worker` child process.

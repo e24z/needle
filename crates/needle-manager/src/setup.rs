@@ -96,7 +96,7 @@ fn step_worker_env(home: &Path, config: &mut Config, options: &SetupOptions) -> 
 
     let Some(source) = worker_source() else {
         println!(
-            "  error: no worker source found (set NEEDLE_WORKER_SOURCE, or run from a checkout)"
+            "  error: no worker source found (set NEEDLE_DEV_WORKER_SOURCE, or run from a checkout)"
         );
         println!();
         return Ok(false);
@@ -227,7 +227,7 @@ fn step_pi_integration(
 
     let Some(source) = pi_package_source() else {
         println!(
-            "  error: pi package source not found (set NEEDLE_PI_PACKAGE, or run from a checkout)"
+            "  error: pi package source not found (set NEEDLE_DEV_PI_PACKAGE, or run from a checkout)"
         );
         println!();
         return Ok(false);
@@ -301,8 +301,11 @@ fn worker_env_ready(venv_python: &Path) -> bool {
 /// The worker package to install: an explicit override, a wheel/source dir
 /// shipped next to the binary, or the repo checkout during development.
 fn worker_source() -> Option<PathBuf> {
-    if let Some(source) = std::env::var_os("NEEDLE_WORKER_SOURCE").map(PathBuf::from) {
+    if let Some(source) = std::env::var_os("NEEDLE_DEV_WORKER_SOURCE").map(PathBuf::from) {
         return source.exists().then_some(source);
+    }
+    if let Some(wheel) = shipped_worker_wheel() {
+        return Some(wheel);
     }
     if let Some(shipped) = sibling("share/needle/python") {
         return Some(shipped);
@@ -310,8 +313,24 @@ fn worker_source() -> Option<PathBuf> {
     dev_path("python")
 }
 
+fn shipped_worker_wheel() -> Option<PathBuf> {
+    let wheel_dir = sibling("share/needle/wheels")?;
+    let mut wheels = std::fs::read_dir(wheel_dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("needle_worker-") && name.ends_with(".whl"))
+        })
+        .collect::<Vec<_>>();
+    wheels.sort();
+    wheels.pop()
+}
+
 fn pi_package_source() -> Option<PathBuf> {
-    if let Some(source) = std::env::var_os("NEEDLE_PI_PACKAGE").map(PathBuf::from) {
+    if let Some(source) = std::env::var_os("NEEDLE_DEV_PI_PACKAGE").map(PathBuf::from) {
         return source.exists().then_some(source);
     }
     if let Some(shipped) = sibling("share/needle/pi") {
@@ -350,11 +369,42 @@ fn probe(command: &std::ffi::OsStr, args: &[&str]) -> Option<String> {
 }
 
 fn python3() -> std::ffi::OsString {
-    std::env::var_os("NEEDLE_SETUP_PYTHON").unwrap_or_else(|| "python3".into())
+    if let Some(python) = std::env::var_os("NEEDLE_DEV_SETUP_PYTHON") {
+        return python;
+    }
+    for candidate in ["python3.13", "python3"] {
+        let command = std::ffi::OsStr::new(candidate);
+        if python_is_at_least(command, 3, 13) {
+            return candidate.into();
+        }
+    }
+    "python3".into()
+}
+
+fn python_is_at_least(command: &std::ffi::OsStr, major: u32, minor: u32) -> bool {
+    let Some(version) = probe(
+        command,
+        &[
+            "-c",
+            "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')",
+        ],
+    ) else {
+        return false;
+    };
+    let Some((found_major, found_minor)) = version.split_once('.') else {
+        return false;
+    };
+    let Ok(found_major) = found_major.parse::<u32>() else {
+        return false;
+    };
+    let Ok(found_minor) = found_minor.parse::<u32>() else {
+        return false;
+    };
+    (found_major, found_minor) >= (major, minor)
 }
 
 fn pi_binary() -> std::ffi::OsString {
-    std::env::var_os("NEEDLE_PI_BIN").unwrap_or_else(|| "pi".into())
+    std::env::var_os("NEEDLE_DEV_PI_BIN").unwrap_or_else(|| "pi".into())
 }
 
 fn confirm(prompt: &str, options: &SetupOptions) -> bool {
