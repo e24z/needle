@@ -1,7 +1,8 @@
 pub mod backend;
 pub mod cli;
-pub mod manager;
+pub mod daemon;
 pub mod protocol;
+pub mod runtime;
 
 mod lease;
 mod worker;

@@ -60,6 +60,21 @@ failures exit non-zero and loudly — there is no silent raw-text fallback.
 `NEEDLE_PYTHON` selects the worker Python; `NEEDLE_MODEL_DIR` points at a local
 model directory.
 
+## Daemon
+
+```bash
+./target/debug/needle daemon          # foreground; socket under NEEDLE_HOME/runtime
+./target/debug/needle status          # mode · backend status · sessions
+```
+
+The daemon serves NDJSON over a unix socket: `enable`, `disable`, `heartbeat`,
+`prune`, `mode`, `backend_status`, `status`, and `original` (the pre-prune text
+of a session's last prune, for over-pruned non-idempotent commands). Campfire
+lifecycle: the first `enable` lights it and blocks until the model is resident;
+the last `disable` — or a lease missing its heartbeats — unloads the worker,
+removes the socket, and exits the process. Control ops never queue behind model
+work. The socket is same-UID only, mode 0600, with 16 MiB bounded frames.
+
 ## Direction
 
 Rust owns:

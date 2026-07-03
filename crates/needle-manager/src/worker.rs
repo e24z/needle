@@ -191,6 +191,17 @@ impl Worker {
         }
     }
 
+    /// Exit the child protocol-first, then reap it. For shutdown paths that
+    /// bypass Drop (e.g. the daemon calling std::process::exit).
+    pub(crate) fn stop(&mut self) {
+        let _ = self.shutdown();
+        if let Some(mut process) = self.process.take() {
+            let _ = process.child.kill();
+            let _ = process.child.wait();
+        }
+        self.status = BackendStatus::Cold;
+    }
+
     fn shutdown(&mut self) -> Result<(), WorkerError> {
         if self.process.is_none() {
             self.status = BackendStatus::Cold;
@@ -222,7 +233,17 @@ impl Worker {
         Ok(self.process.as_mut().expect("process exists after spawn"))
     }
 
+    /// Any transport failure — spawn, I/O, malformed or mismatched response —
+    /// leaves the backend visibly Failed, never stuck at Loading.
     fn send(&mut self, request: WorkerRequest) -> Result<WorkerResponse, WorkerError> {
+        let result = self.send_inner(request);
+        if result.is_err() {
+            self.status = BackendStatus::Failed;
+        }
+        result
+    }
+
+    fn send_inner(&mut self, request: WorkerRequest) -> Result<WorkerResponse, WorkerError> {
         let expected_id = request.id();
         let process = self.process()?;
         serde_json::to_writer(&mut process.stdin, &request).map_err(WorkerError::Json)?;
@@ -235,7 +256,6 @@ impl Worker {
             .read_line(&mut line)
             .map_err(WorkerError::Io)?;
         if bytes == 0 {
-            self.status = BackendStatus::Failed;
             return Err(WorkerError::Protocol(
                 "worker exited before sending a response".to_string(),
             ));
@@ -243,7 +263,6 @@ impl Worker {
 
         let response: WorkerResponse = serde_json::from_str(&line).map_err(WorkerError::Json)?;
         if response.id != Some(expected_id) {
-            self.status = BackendStatus::Failed;
             return Err(WorkerError::Protocol(format!(
                 "response id {:?} did not match request id {expected_id}",
                 response.id
@@ -271,18 +290,14 @@ impl Drop for Worker {
     }
 }
 
+/// A protocol-faithful fake worker for tests: prunes by dropping " drop",
+/// sleeps when the text contains "SLOW" so tests can hold the worker busy.
 #[cfg(test)]
-mod tests {
-    use super::{Worker, WorkerCommand};
-    use crate::backend::BackendStatus;
-    use crate::protocol::PruneDecision;
-    use std::fs;
-    use std::path::PathBuf;
-
-    fn fake_worker_command() -> WorkerCommand {
-        let script = r#"
+pub(crate) fn fake_worker_command(label: &str) -> WorkerCommand {
+    let script = r#"
 import json
 import sys
+import time
 
 loaded = False
 
@@ -299,6 +314,8 @@ for line in sys.stdin:
     elif op == "prune":
         loaded = True
         text = request["text"]
+        if "SLOW" in text:
+            time.sleep(1.5)
         pruned = text.replace(" drop", "")
         response = {
             "id": request_id,
@@ -306,6 +323,7 @@ for line in sys.stdin:
             "status": "resident",
             "backend": "fake",
             "decision": "pruned" if pruned != text else "unchanged",
+            "reason": "model" if pruned != text else "no-lines-removed",
             "text": pruned,
             "stats": {"saved_chars": len(text) - len(pruned)},
         }
@@ -321,27 +339,28 @@ for line in sys.stdin:
         response = {"id": request_id, "ok": False, "status": "failed", "error": "bad op"}
     print(json.dumps(response, separators=(",", ":")), flush=True)
 "#;
-        let path = fake_worker_script_path();
-        fs::write(&path, script).expect("write fake worker script");
-        WorkerCommand::new(
-            std::env::var_os("PYTHON")
-                .or_else(|| std::env::var_os("NEEDLE_PYTHON"))
-                .unwrap_or_else(|| "python3".into()),
-        )
-        .arg(path.into_os_string())
-    }
+    let path = std::env::temp_dir().join(format!(
+        "needle-fake-worker-{}-{label}.py",
+        std::process::id()
+    ));
+    std::fs::write(&path, script).expect("write fake worker script");
+    WorkerCommand::new(
+        std::env::var_os("PYTHON")
+            .or_else(|| std::env::var_os("NEEDLE_PYTHON"))
+            .unwrap_or_else(|| "python3".into()),
+    )
+    .arg(path.into_os_string())
+}
 
-    fn fake_worker_script_path() -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "needle-fake-worker-{}-{}.py",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
-        ))
-    }
+#[cfg(test)]
+mod tests {
+    use super::{Worker, fake_worker_command};
+    use crate::backend::BackendStatus;
+    use crate::protocol::PruneDecision;
 
     #[test]
     fn prune_starts_worker_and_returns_result() {
-        let mut worker = Worker::with_command(fake_worker_command());
+        let mut worker = Worker::with_command(fake_worker_command("worker-prune"));
 
         let result = worker
             .prune("keep drop", "keep relevant code")
@@ -362,7 +381,7 @@ for line in sys.stdin:
 
     #[test]
     fn unload_moves_worker_back_to_cold() {
-        let mut worker = Worker::with_command(fake_worker_command());
+        let mut worker = Worker::with_command(fake_worker_command("worker-unload"));
 
         worker.load().expect("load succeeds");
         assert_eq!(worker.status(), BackendStatus::Resident);
