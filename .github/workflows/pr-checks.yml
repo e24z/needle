@@ -32,6 +32,7 @@ jobs:
 
       - name: Run worker tests
         run: |
+          PYTHONPATH=python python tests/test_worker.py
           PYTHONPATH=python python tests/test_backends.py
           PYTHONPATH=python python tests/test_code_pruner_batching.py
           PYTHONPATH=python python tests/test_code_pruner_chunking.py

@@ -27,6 +27,7 @@ product story and should not be treated as live architecture.
 
 ```bash
 PYTHONPATH=python python3 -m needle_worker --help
+PYTHONPATH=python python3 tests/test_worker.py
 PYTHONPATH=python python3 tests/test_backends.py
 PYTHONPATH=python python3 tests/test_code_pruner_batching.py
 PYTHONPATH=python python3 tests/test_code_pruner_chunking.py
@@ -59,5 +60,5 @@ Python owns:
 - inference
 - model-local cleanup
 
-The next product milestone is a real long-running `python -m needle_worker`
-NDJSON protocol, followed by a Rust `Worker` that owns that child process.
+The next product milestone is a Rust `Worker` that owns the long-running
+`python -m needle_worker` child process.
