@@ -1,5 +1,6 @@
 use crate::backend::BackendStatus;
 use crate::lease::Lease;
+use crate::protocol::{PruneResult, WorkerError};
 use crate::worker::Worker;
 use std::collections::HashMap;
 
@@ -18,6 +19,22 @@ impl Manager {
 
     pub fn backend_status(&self) -> BackendStatus {
         self.worker.status()
+    }
+
+    pub fn refresh_backend_status(&mut self) -> Result<BackendStatus, WorkerError> {
+        self.worker.refresh_status()
+    }
+
+    pub fn load_backend(&mut self) -> Result<(), WorkerError> {
+        self.worker.load()
+    }
+
+    pub fn prune(&mut self, text: &str, query: &str) -> Result<PruneResult, WorkerError> {
+        self.worker.prune(text, query)
+    }
+
+    pub fn unload_backend(&mut self) -> Result<(), WorkerError> {
+        self.worker.unload()
     }
 
     pub fn has_leases(&self) -> bool {

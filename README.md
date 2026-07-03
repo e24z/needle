@@ -39,8 +39,8 @@ PYTHONPATH=python python3 tests/test_model_download.py
 ## Rust Checks
 
 ```bash
-cd crates/needle-manager
 cargo check
+cargo test
 ```
 
 ## Direction

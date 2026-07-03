@@ -25,7 +25,9 @@ jobs:
           python-version: "3.13"
 
       - name: Check Rust workspace
-        run: cargo check
+        run: |
+          cargo check
+          cargo test
 
       - name: Compile Python sources
         run: PYTHONPATH=python python -m compileall python tests
