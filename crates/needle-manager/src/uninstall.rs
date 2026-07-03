@@ -6,8 +6,9 @@
 
 use crate::config::{self, Config};
 use crate::daemon::{self, needle_home};
+use crate::ui;
 use serde_json::json;
-use std::io::{self, BufRead, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -18,20 +19,19 @@ pub struct UninstallOptions {
 
 pub fn run(options: &UninstallOptions) -> io::Result<()> {
     let home = needle_home();
-    println!("needle uninstall");
-    println!("  home: {}", home.display());
+    ui::intro("needle uninstall");
+    ui::info(format!("home: {}", home.display()));
     if options.purge {
-        println!("  purge: yes");
+        ui::warning("purge: yes");
     }
-    println!();
 
     if !home.exists() && !config::is_configured() {
-        println!("nothing to uninstall.");
+        ui::outro("nothing to uninstall.");
         return Ok(());
     }
 
-    if !confirm("  remove Needle from this machine?", options) {
-        println!("cancelled.");
+    if !ui::confirm("Remove Needle from this machine?", options.assume_yes) {
+        ui::outro_cancel("cancelled.");
         return Ok(());
     }
 
@@ -40,24 +40,26 @@ pub fn run(options: &UninstallOptions) -> io::Result<()> {
     remove_pi_integration(&home, &config)?;
     remove_runtime_state(&home, options.purge)?;
 
-    println!("needle uninstalled.");
+    let mut note = String::new();
     if !options.purge {
-        println!("  kept models/venv/logs under {}", home.display());
-        println!("  run `needle uninstall --purge` to remove them too");
+        note.push_str(&format!("kept models/venv/logs under {}", home.display()));
+        note.push_str("\nrun `needle uninstall --purge` to remove them too");
+        ui::note("Retained data", note);
     }
+    ui::outro("needle uninstalled.");
     Ok(())
 }
 
 fn stop_daemon(home: &Path) {
     let socket = daemon::default_socket_path();
     match daemon::query(&socket, &json!({"op": "shutdown"})) {
-        Ok(_) => println!("  daemon: stopped"),
+        Ok(_) => ui::success("daemon: stopped"),
         Err(_) => {
             let fallback = home.join("runtime").join("needle.sock");
             if fallback.exists() {
                 let _ = std::fs::remove_file(fallback);
             }
-            println!("  daemon: not running");
+            ui::info("daemon: not running");
         }
     }
 }
@@ -69,13 +71,13 @@ fn remove_pi_integration(home: &Path, config: &Config) -> io::Result<()> {
             Command::new(pi_binary()).arg("uninstall").arg(&package),
             "pi uninstall",
         )?;
-        println!("  pi: removed registration");
+        ui::success("pi: removed registration");
     } else {
-        println!("  pi: no registered package recorded");
+        ui::info("pi: no registered package recorded");
     }
     if package.exists() {
         std::fs::remove_dir_all(&package)?;
-        println!("  pi package: removed {}", package.display());
+        ui::success(format!("pi package: removed {}", package.display()));
     }
     Ok(())
 }
@@ -91,7 +93,7 @@ fn remove_runtime_state(home: &Path, purge: bool) -> io::Result<()> {
         if home.exists() {
             std::fs::remove_dir_all(home)?;
         }
-        println!("  state: purged {}", home.display());
+        ui::success(format!("state: purged {}", home.display()));
         return Ok(());
     }
 
@@ -110,7 +112,7 @@ fn safe_to_remove_home(home: &Path) -> bool {
 fn remove_file(path: PathBuf) -> io::Result<()> {
     match std::fs::remove_file(&path) {
         Ok(()) => {
-            println!("  removed: {}", path.display());
+            ui::success(format!("removed: {}", path.display()));
             Ok(())
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -121,7 +123,7 @@ fn remove_file(path: PathBuf) -> io::Result<()> {
 fn remove_dir(path: PathBuf) -> io::Result<()> {
     match std::fs::remove_dir_all(&path) {
         Ok(()) => {
-            println!("  removed: {}", path.display());
+            ui::success(format!("removed: {}", path.display()));
             Ok(())
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -133,22 +135,8 @@ fn pi_binary() -> std::ffi::OsString {
     std::env::var_os("NEEDLE_DEV_PI_BIN").unwrap_or_else(|| "pi".into())
 }
 
-fn confirm(prompt: &str, options: &UninstallOptions) -> bool {
-    if options.assume_yes {
-        println!("{prompt} yes (--yes)");
-        return true;
-    }
-    print!("{prompt} [y/N] ");
-    let _ = io::stdout().flush();
-    let mut answer = String::new();
-    if io::stdin().lock().read_line(&mut answer).is_err() {
-        return false;
-    }
-    matches!(answer.trim().to_lowercase().as_str(), "y" | "yes")
-}
-
 fn run_logged(command: &mut Command, what: &str) -> io::Result<()> {
-    let status = command.status()?;
+    let status = ui::spin(what, format!("{what}: done"), || command.status())?;
     if !status.success() {
         return Err(io::Error::other(format!("{what} failed with {status}")));
     }

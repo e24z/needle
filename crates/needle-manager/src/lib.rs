@@ -8,4 +8,5 @@ pub mod setup;
 pub mod uninstall;
 
 mod lease;
+mod ui;
 mod worker;

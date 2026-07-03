@@ -12,8 +12,9 @@
 
 use crate::config::{self, Config};
 use crate::daemon::needle_home;
+use crate::ui;
 use std::ffi::{OsStr, OsString};
-use std::io::{self, BufRead, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::OnceLock;
@@ -29,12 +30,11 @@ pub fn run(options: &SetupOptions) -> io::Result<bool> {
     let mut config = config::load().unwrap_or_default();
     let mut ok = true;
 
-    println!("needle setup");
-    println!("  home: {}", home.display());
+    ui::intro("needle setup");
+    ui::info(format!("home: {}", home.display()));
     if options.dry_run {
-        println!("  dry run: no changes will be made");
+        ui::warning("dry run: no changes will be made");
     }
-    println!();
 
     step_system_check();
     let pi = step_pi_check();
@@ -49,7 +49,6 @@ pub fn run(options: &SetupOptions) -> io::Result<bool> {
         std::fs::create_dir_all(home.join("logs"))?;
     }
 
-    println!();
     step_final_status(&home, &config, options, ok);
     Ok(ok)
 }
@@ -57,63 +56,58 @@ pub fn run(options: &SetupOptions) -> io::Result<bool> {
 // --- steps -------------------------------------------------------------------
 
 fn step_system_check() {
-    println!("[1/5] system check");
+    ui::step(1, 5, "system check");
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
-    println!("  os/arch: {os}/{arch}");
+    ui::info(format!("os/arch: {os}/{arch}"));
     if os != "macos" || arch != "aarch64" {
-        println!(
-            "  warning: the MLX backend needs Apple Silicon macOS; other platforms are untested"
-        );
+        ui::warning("the MLX backend needs Apple Silicon macOS; other platforms are untested");
     }
     let python = python3();
     match probe(&python, &["--version"]) {
-        Some(version) => println!("  python3: {version} ({})", python.to_string_lossy()),
-        None => println!("  warning: python3 not found — the worker venv step will fail"),
+        Some(version) => ui::info(format!("python3: {version} ({})", python.to_string_lossy())),
+        None => ui::warning("python3 not found — the worker venv step will fail"),
     }
-    println!();
 }
 
 fn step_pi_check() -> Option<String> {
-    println!("[2/5] pi check");
+    ui::step(2, 5, "pi check");
     let version = probe(&pi_binary(), &["--version"]);
     match &version {
-        Some(version) => println!("  pi: {version}"),
-        None => println!("  pi not found on PATH — Pi integration will be skipped"),
+        Some(version) => ui::info(format!("pi: {version}")),
+        None => ui::warning("pi not found on PATH — Pi integration will be skipped"),
     }
-    println!();
     version
 }
 
 fn step_worker_env(home: &Path, config: &mut Config, options: &SetupOptions) -> io::Result<bool> {
-    println!("[3/5] private worker environment");
+    ui::step(3, 5, "private worker environment");
     let venv = home.join("python").join("venv");
     let venv_python = venv.join("bin").join("python");
 
     if worker_env_ready(&venv_python) {
-        println!("  already provisioned: {}", venv_python.display());
+        ui::success(format!("already provisioned: {}", venv_python.display()));
         config.worker_python = Some(venv_python);
-        println!();
         return Ok(true);
     }
 
     let Some(source) = worker_source() else {
-        println!(
-            "  error: no worker source found (set NEEDLE_DEV_WORKER_SOURCE, or run from a checkout)"
+        ui::error(
+            "error: no worker source found (set NEEDLE_DEV_WORKER_SOURCE, or run from a checkout)",
         );
-        println!();
         return Ok(false);
     };
-    println!("  worker source: {}", source.display());
-    println!("  will create venv: {}", venv.display());
+    ui::info(format!("worker source: {}", source.display()));
+    ui::info(format!("will create venv: {}", venv.display()));
     if options.dry_run {
-        println!("  dry run: would run `python3 -m venv` and `pip install`");
-        println!();
+        ui::info("dry run: would run `python3 -m venv` and `pip install`");
         return Ok(true);
     }
-    if !confirm("  create the venv and install the worker?", options) {
-        println!("  skipped");
-        println!();
+    if !ui::confirm(
+        "Create the venv and install the worker?",
+        options.assume_yes,
+    ) {
+        ui::warning("skipped");
         return Ok(false);
     }
 
@@ -128,85 +122,81 @@ fn step_worker_env(home: &Path, config: &mut Config, options: &SetupOptions) -> 
         "install worker package",
     )?;
     if !worker_env_ready(&venv_python) {
-        println!("  error: venv exists but needle_worker did not import cleanly");
-        println!();
+        ui::error("error: venv exists but needle_worker did not import cleanly");
         return Ok(false);
     }
-    println!("  provisioned: {}", venv_python.display());
+    ui::success(format!("provisioned: {}", venv_python.display()));
     config.worker_python = Some(venv_python);
-    println!();
     Ok(true)
 }
 
 fn step_model(home: &Path, config: &mut Config, options: &SetupOptions) -> io::Result<bool> {
-    println!("[4/5] model");
+    ui::step(4, 5, "model");
 
     // An explicit NEEDLE_MODEL_DIR (an already-downloaded snapshot) is
     // recorded and reused — model downloads are expensive.
     if let Some(dir) = std::env::var_os("NEEDLE_MODEL_DIR").map(PathBuf::from) {
         if dir.is_dir() {
-            println!("  using NEEDLE_MODEL_DIR: {}", dir.display());
+            ui::success(format!("using NEEDLE_MODEL_DIR: {}", dir.display()));
             config.model_dir = Some(dir);
-            println!();
             return Ok(true);
         }
-        println!("  warning: NEEDLE_MODEL_DIR is set but not a directory; ignoring");
+        ui::warning("NEEDLE_MODEL_DIR is set but not a directory; ignoring");
     }
 
     if let Some(dir) = &config.model_dir {
         if dir.join("needle-model.json").exists() || dir.join("config.json").exists() {
-            println!("  already present: {}", dir.display());
-            println!();
+            ui::success(format!("already present: {}", dir.display()));
             return Ok(true);
         }
     }
 
     let Some(worker_python) = config.worker_python.clone() else {
-        println!("  skipped: worker environment is not provisioned");
-        println!();
+        ui::warning("skipped: worker environment is not provisioned");
         return Ok(false);
     };
 
-    println!(
-        "  will download the model (~1.5 GB) into {}",
+    ui::info(format!(
+        "will download the model (~1.5 GB) into {}",
         home.join("models").display()
-    );
+    ));
     if options.dry_run {
-        println!("  dry run: would run `python -m needle_worker.model_download_cli`");
-        println!();
+        ui::info("dry run: would run `python -m needle_worker.model_download_cli`");
         return Ok(true);
     }
-    if !confirm("  download now?", options) {
-        println!("  skipped");
-        println!();
+    if !ui::confirm("Download the model now?", options.assume_yes) {
+        ui::warning("skipped");
         return Ok(false);
     }
 
-    let output = Command::new(&worker_python)
-        .args(["-m", "needle_worker.model_download_cli"])
-        .env("NEEDLE_HOME", home)
-        .output()?;
+    let output = ui::spin("downloading model", "model download finished", || {
+        Command::new(&worker_python)
+            .args(["-m", "needle_worker.model_download_cli"])
+            .env("NEEDLE_HOME", home)
+            .output()
+    })?;
     let stdout = String::from_utf8_lossy(&output.stdout);
     let response: serde_json::Value =
         serde_json::from_str(stdout.trim().lines().last().unwrap_or(""))
             .unwrap_or_else(|_| serde_json::json!({"ok": false, "error": stdout.trim()}));
     if response["ok"] != true {
-        println!("  error: model download failed: {}", response["error"]);
-        println!();
+        ui::error(format!(
+            "error: model download failed: {}",
+            response["error"]
+        ));
         return Ok(false);
     }
     let path = PathBuf::from(response["path"].as_str().unwrap_or_default());
-    println!(
-        "  {}: {}",
+    ui::success(format!(
+        "{}: {}",
         if response["downloaded"] == true {
             "downloaded"
         } else {
             "already present"
         },
         path.display()
-    );
+    ));
     config.model_dir = Some(path);
-    println!();
     Ok(true)
 }
 
@@ -216,41 +206,36 @@ fn step_pi_integration(
     options: &SetupOptions,
     pi: Option<&str>,
 ) -> io::Result<bool> {
-    println!("[5/5] pi integration");
+    ui::step(5, 5, "pi integration");
     if pi.is_none() {
-        println!("  skipped: pi is not installed");
-        println!();
+        ui::warning("skipped: pi is not installed");
         return Ok(true);
     }
     if config.pi_integrated {
-        println!("  already registered with pi");
-        println!();
+        ui::success("already registered with pi");
         return Ok(true);
     }
 
     let Some(source) = pi_package_source() else {
-        println!(
-            "  error: pi package source not found (set NEEDLE_DEV_PI_PACKAGE, or run from a checkout)"
+        ui::error(
+            "error: pi package source not found (set NEEDLE_DEV_PI_PACKAGE, or run from a checkout)",
         );
-        println!();
         return Ok(false);
     };
     let target = home.join("pi");
-    println!("  package source: {}", source.display());
-    println!(
-        "  will copy to {} and run `pi install {}`",
+    ui::info(format!("package source: {}", source.display()));
+    ui::info(format!(
+        "will copy to {} and run `pi install {}`",
         target.display(),
         target.display()
-    );
-    println!("  note: `pi install` modifies your Pi settings (~/.pi)");
+    ));
+    ui::warning("`pi install` modifies your Pi settings (~/.pi)");
     if options.dry_run {
-        println!("  dry run: would copy the package and run `pi install`");
-        println!();
+        ui::info("dry run: would copy the package and run `pi install`");
         return Ok(true);
     }
-    if !confirm("  register Needle with Pi?", options) {
-        println!("  skipped — run `needle setup` again when ready");
-        println!();
+    if !ui::confirm("Register Needle with Pi?", options.assume_yes) {
+        ui::warning("skipped — run `needle setup` again when ready");
         return Ok(true);
     }
 
@@ -260,34 +245,32 @@ fn step_pi_integration(
         "pi install",
     )?;
     config.pi_integrated = true;
-    println!("  registered: {}", target.display());
-    println!();
+    ui::success(format!("registered: {}", target.display()));
     Ok(true)
 }
 
 fn step_final_status(home: &Path, config: &Config, options: &SetupOptions, ok: bool) {
     if options.dry_run {
-        println!("dry run complete: no changes made");
+        ui::outro("dry run complete: no changes made");
         return;
     }
-    if ok {
-        println!("needle is set up.");
-    } else {
-        println!("setup finished with skipped or failed steps — run `needle setup` again.");
-    }
-    println!("  config: {}", config::config_path().display());
+    let mut details = format!("config: {}", config::config_path().display());
     if let Some(python) = &config.worker_python {
-        println!("  worker: {}", python.display());
+        details.push_str(&format!("\nworker: {}", python.display()));
     }
     if let Some(model) = &config.model_dir {
-        println!("  model:  {}", model.display());
+        details.push_str(&format!("\nmodel:  {}", model.display()));
     }
-    println!(
-        "  socket: {}",
+    details.push_str(&format!(
+        "\nsocket: {}",
         home.join("runtime").join("needle.sock").display()
-    );
-    println!();
-    println!("Open a Pi session to use Needle, or check `needle status`.");
+    ));
+    ui::note("Configured paths", details);
+    if ok {
+        ui::outro("needle is set up. Open a Pi session to use Needle, or check `needle status`.");
+    } else {
+        ui::outro_cancel("setup finished with skipped or failed steps — run `needle setup` again.");
+    }
 }
 
 // --- helpers -----------------------------------------------------------------
@@ -470,22 +453,8 @@ fn pi_binary() -> OsString {
     std::env::var_os("NEEDLE_DEV_PI_BIN").unwrap_or_else(|| "pi".into())
 }
 
-fn confirm(prompt: &str, options: &SetupOptions) -> bool {
-    if options.assume_yes {
-        println!("{prompt} yes (--yes)");
-        return true;
-    }
-    print!("{prompt} [y/N] ");
-    let _ = io::stdout().flush();
-    let mut answer = String::new();
-    if io::stdin().lock().read_line(&mut answer).is_err() {
-        return false;
-    }
-    matches!(answer.trim().to_lowercase().as_str(), "y" | "yes")
-}
-
 fn run_logged(command: &mut Command, what: &str) -> io::Result<()> {
-    let output = command.output()?;
+    let output = ui::spin(what, format!("{what}: done"), || command.output())?;
     if !output.status.success() {
         return Err(io::Error::other(format_command_failure(what, &output)));
     }

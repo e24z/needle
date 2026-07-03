@@ -1,6 +1,7 @@
 use crate::daemon::{self, DaemonConfig};
 use crate::protocol::{PruneDecision, PruneResult};
 use crate::runtime::Runtime;
+use crate::ui;
 use clap::{Args, Parser, Subcommand};
 use serde_json::json;
 use std::io::Read;
@@ -103,7 +104,11 @@ fn run_bare() -> ExitCode {
             socket: None,
             json: false,
         });
-        println!("(`needle setup` re-runs setup; `needle --help` lists commands)");
+        if ui::fancy() {
+            ui::info("`needle setup` re-runs setup; `needle --help` lists commands");
+        } else {
+            println!("(`needle setup` re-runs setup; `needle --help` lists commands)");
+        }
         return status;
     }
     run_setup(SetupArgs {
@@ -121,7 +126,7 @@ fn run_setup(args: SetupArgs) -> ExitCode {
         Ok(true) => ExitCode::SUCCESS,
         Ok(false) => ExitCode::FAILURE,
         Err(error) => {
-            eprintln!("needle: setup failed: {error}");
+            ui::error(format!("needle: setup failed: {error}"));
             ExitCode::FAILURE
         }
     }
@@ -135,7 +140,7 @@ fn run_uninstall(args: UninstallArgs) -> ExitCode {
     match crate::uninstall::run(&options) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("needle: uninstall failed: {error}");
+            ui::error(format!("needle: uninstall failed: {error}"));
             ExitCode::FAILURE
         }
     }
@@ -149,7 +154,7 @@ fn run_daemon(args: DaemonArgs) -> ExitCode {
     match daemon::run(config) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("needle: daemon failed: {error}");
+            ui::error(format!("needle: daemon failed: {error}"));
             ExitCode::FAILURE
         }
     }
@@ -165,8 +170,7 @@ fn run_status(args: StatusArgs) -> ExitCode {
                 let mode = status["mode"].as_str().unwrap_or("unknown");
                 let backend = status["backend_status"].as_str().unwrap_or("unknown");
                 let sessions = status["sessions"].as_u64().unwrap_or(0);
-                let plural = if sessions == 1 { "" } else { "s" };
-                println!("needle: {mode} · backend {backend} · {sessions} session{plural}");
+                print_status_running(mode, backend, sessions);
             }
             ExitCode::SUCCESS
         }
@@ -176,7 +180,7 @@ fn run_status(args: StatusArgs) -> ExitCode {
                     r#"{{"ok":true,"mode":"off","backend_status":"cold","sessions":0,"daemon":"not running"}}"#
                 );
             } else {
-                println!("needle: off (no daemon running)");
+                print_status_off();
             }
             ExitCode::SUCCESS
         }
@@ -187,7 +191,7 @@ fn run_prune(args: PruneArgs) -> ExitCode {
     let text = match read_input(args.file.as_deref()) {
         Ok(text) => text,
         Err(error) => {
-            eprintln!("needle: failed to read input: {error}");
+            ui::error(format!("needle: failed to read input: {error}"));
             return ExitCode::FAILURE;
         }
     };
@@ -197,7 +201,7 @@ fn run_prune(args: PruneArgs) -> ExitCode {
     let runtime = Runtime::new();
     let session = "needle-cli";
     if let Err(error) = runtime.enable(session) {
-        eprintln!("needle: prune failed: {error}");
+        ui::error(format!("needle: prune failed: {error}"));
         return ExitCode::FAILURE;
     }
     match runtime.prune(session, &text, &args.query) {
@@ -206,7 +210,7 @@ fn run_prune(args: PruneArgs) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(error) => {
-            eprintln!("needle: prune failed: {error}");
+            ui::error(format!("needle: prune failed: {error}"));
             ExitCode::FAILURE
         }
     }
@@ -240,7 +244,35 @@ fn print_result(result: &PruneResult, as_json: bool) {
     if !result.text.ends_with('\n') {
         println!();
     }
-    eprintln!("needle: {}", summary(result));
+    let summary = summary(result);
+    if ui::fancy() {
+        ui::info(format!("prune: {summary}"));
+    } else {
+        eprintln!("needle: {summary}");
+    }
+}
+
+fn print_status_running(mode: &str, backend: &str, sessions: u64) {
+    let plural = if sessions == 1 { "" } else { "s" };
+    if ui::fancy() {
+        ui::intro("needle status");
+        ui::success(format!(
+            "{mode} · backend {backend} · {sessions} session{plural}"
+        ));
+        ui::outro("daemon is reachable");
+    } else {
+        println!("needle: {mode} · backend {backend} · {sessions} session{plural}");
+    }
+}
+
+fn print_status_off() {
+    if ui::fancy() {
+        ui::intro("needle status");
+        ui::warning("off (no daemon running)");
+        ui::outro("start a Pi session to load Needle");
+    } else {
+        println!("needle: off (no daemon running)");
+    }
 }
 
 fn decision_str(decision: PruneDecision) -> &'static str {
