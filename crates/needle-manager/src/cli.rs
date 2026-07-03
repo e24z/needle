@@ -16,17 +16,29 @@ use std::time::Duration;
 )]
 pub struct Cli {
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
 enum Command {
+    /// Run the setup wizard (also runs on a bare `needle` when unconfigured).
+    Setup(SetupArgs),
     /// Prune text against a focus question using the local model.
     Prune(PruneArgs),
     /// Run the Needle daemon in the foreground.
     Daemon(DaemonArgs),
     /// Report daemon mode and backend status.
     Status(StatusArgs),
+}
+
+#[derive(Args)]
+struct SetupArgs {
+    /// Print intended changes without touching anything.
+    #[arg(long)]
+    dry_run: bool,
+    /// Answer yes to every prompt.
+    #[arg(long)]
+    yes: bool,
 }
 
 #[derive(Args)]
@@ -63,9 +75,42 @@ struct PruneArgs {
 
 pub fn run() -> ExitCode {
     match Cli::parse().command {
-        Command::Prune(args) => run_prune(args),
-        Command::Daemon(args) => run_daemon(args),
-        Command::Status(args) => run_status(args),
+        Some(Command::Setup(args)) => run_setup(args),
+        Some(Command::Prune(args)) => run_prune(args),
+        Some(Command::Daemon(args)) => run_daemon(args),
+        Some(Command::Status(args)) => run_status(args),
+        None => run_bare(),
+    }
+}
+
+/// Bare `needle`: the wizard on an unconfigured machine, status otherwise.
+fn run_bare() -> ExitCode {
+    if crate::config::is_configured() {
+        let status = run_status(StatusArgs {
+            socket: None,
+            json: false,
+        });
+        println!("(`needle setup` re-runs setup; `needle --help` lists commands)");
+        return status;
+    }
+    run_setup(SetupArgs {
+        dry_run: false,
+        yes: false,
+    })
+}
+
+fn run_setup(args: SetupArgs) -> ExitCode {
+    let options = crate::setup::SetupOptions {
+        dry_run: args.dry_run,
+        assume_yes: args.yes,
+    };
+    match crate::setup::run(&options) {
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::FAILURE,
+        Err(error) => {
+            eprintln!("needle: setup failed: {error}");
+            ExitCode::FAILURE
+        }
     }
 }
 

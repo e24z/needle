@@ -52,7 +52,9 @@ struct DaemonUnderTest {
 impl DaemonUnderTest {
     fn start(label: &str, lease_ttl_secs: u64) -> Self {
         let dir =
-            std::env::temp_dir().join(format!("needle-daemon-test-{}-{label}", std::process::id()));
+            // Short prefix: socket paths must stay under the ~104-byte macOS
+            // sun_path limit even with runtime/needle.sock appended.
+            std::env::temp_dir().join(format!("nd-{}-{label}", std::process::id()));
         let package = dir.join("pythonpath").join("needle_worker");
         std::fs::create_dir_all(&package).expect("create fake package");
         std::fs::write(package.join("__init__.py"), "").expect("write __init__");

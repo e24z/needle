@@ -161,14 +161,14 @@ fn handle_connection(stream: UnixStream, runtime: Arc<Runtime>, socket_path: Pat
                 );
                 return;
             }
-            Err(FrameError::Io(_)) => return,
+            Err(FrameError::Io) => return,
         }
     }
 }
 
 enum FrameError {
     TooLarge,
-    Io(io::Error),
+    Io,
 }
 
 fn read_frame(reader: &mut BufReader<UnixStream>) -> Result<Option<String>, FrameError> {
@@ -176,7 +176,7 @@ fn read_frame(reader: &mut BufReader<UnixStream>) -> Result<Option<String>, Fram
     let bytes = reader
         .take(MAX_FRAME_BYTES + 1)
         .read_until(b'\n', &mut buf)
-        .map_err(FrameError::Io)?;
+        .map_err(|_| FrameError::Io)?;
     if bytes == 0 {
         return Ok(None);
     }

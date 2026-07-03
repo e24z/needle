@@ -75,12 +75,11 @@ impl Error for WorkerError {
     }
 }
 
+/// Ops Rust actually sends. The Python worker also answers a `status` op,
+/// kept for humans poking the protocol by hand; Rust reads its own cache.
 #[derive(Debug, Serialize)]
 #[serde(tag = "op", rename_all = "lowercase")]
 pub(crate) enum WorkerRequest {
-    Status {
-        id: u64,
-    },
     Load {
         id: u64,
     },
@@ -100,8 +99,7 @@ pub(crate) enum WorkerRequest {
 impl WorkerRequest {
     pub(crate) fn id(&self) -> u64 {
         match self {
-            WorkerRequest::Status { id }
-            | WorkerRequest::Load { id }
+            WorkerRequest::Load { id }
             | WorkerRequest::Prune { id, .. }
             | WorkerRequest::Unload { id }
             | WorkerRequest::Exit { id } => *id,

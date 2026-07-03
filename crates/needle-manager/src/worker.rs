@@ -32,12 +32,30 @@ impl WorkerCommand {
     }
 
     fn needle_worker() -> Self {
-        let python = std::env::var_os("NEEDLE_PYTHON")
+        let config = crate::config::load().unwrap_or_default();
+        // Env overrides beat the installed config; the dev checkout fallback
+        // only applies when neither names a provisioned interpreter.
+        let configured_python = std::env::var_os("NEEDLE_PYTHON")
             .or_else(|| std::env::var_os("PYTHON"))
-            .unwrap_or_else(|| OsString::from("python3"));
+            .or_else(|| {
+                config
+                    .worker_python
+                    .as_ref()
+                    .filter(|path| path.exists())
+                    .map(|path| path.as_os_str().to_os_string())
+            });
+        let dev_fallback = configured_python.is_none();
+        let python = configured_python.unwrap_or_else(|| OsString::from("python3"));
         let mut command = Self::new(python).arg("-m").arg("needle_worker");
-        if let Some(python_path) = dev_python_path() {
-            command = command.env("PYTHONPATH", python_path);
+        if dev_fallback {
+            if let Some(python_path) = dev_python_path() {
+                command = command.env("PYTHONPATH", python_path);
+            }
+        }
+        if std::env::var_os("NEEDLE_MODEL_DIR").is_none() {
+            if let Some(model_dir) = &config.model_dir {
+                command = command.env("NEEDLE_MODEL_DIR", model_dir.as_os_str());
+            }
         }
         command
     }
@@ -116,17 +134,6 @@ impl Worker {
 
     pub(crate) fn status(&self) -> BackendStatus {
         self.status
-    }
-
-    pub(crate) fn refresh_status(&mut self) -> Result<BackendStatus, WorkerError> {
-        let id = self.next_request_id();
-        let response = self.send(WorkerRequest::Status { id })?;
-        self.apply_status(&response);
-        if response.ok {
-            Ok(self.status)
-        } else {
-            Err(response.worker_error())
-        }
     }
 
     pub(crate) fn load(&mut self) -> Result<(), WorkerError> {

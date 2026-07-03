@@ -80,6 +80,20 @@ the last `disable` — or a lease missing its heartbeats — unloads the worker,
 removes the socket, and exits the process. Control ops never queue behind model
 work. The socket is same-UID only, mode 0600, with 16 MiB bounded frames.
 
+## Setup
+
+A bare `needle` on an unconfigured machine enters the setup wizard: system
+check, Pi check, private worker venv, model download, Pi integration, final
+status. Everything lands under `NEEDLE_HOME` (default:
+`~/Library/Application Support/Needle`), every step is idempotent, and
+`needle setup --dry-run` prints intended changes without touching anything.
+Writing to your Pi settings happens in exactly one step, behind an explicit
+confirmation (`pi install <NEEDLE_HOME>/pi`).
+
+Useful overrides: `NEEDLE_HOME`, `NEEDLE_MODEL_DIR` (reuse an existing model
+snapshot instead of downloading), `NEEDLE_WORKER_SOURCE`, `NEEDLE_PI_PACKAGE`,
+`NEEDLE_PYTHON`, `NEEDLE_SOCKET`.
+
 ## Pi Extension (development)
 
 ```bash
