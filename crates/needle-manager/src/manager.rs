@@ -1,21 +1,23 @@
+use crate::backend::BackendStatus;
 use crate::lease::Lease;
+use crate::worker::Worker;
 use std::collections::HashMap;
 
 pub struct Manager {
     leases: HashMap<String, Lease>,
-    backend: BackendStatus,
+    worker: Worker,
 }
 
 impl Manager {
     pub fn new() -> Self {
         Self {
             leases: HashMap::new(),
-            backend: BackendStatus::Cold,
+            worker: Worker::new(),
         }
     }
 
     pub fn backend_status(&self) -> BackendStatus {
-        self.backend
+        self.worker.status()
     }
 
     pub fn has_leases(&self) -> bool {
@@ -38,12 +40,4 @@ impl Manager {
             false
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BackendStatus {
-    Cold,
-    Loading,
-    Resident,
-    Failed,
 }
