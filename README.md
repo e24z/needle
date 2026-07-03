@@ -44,6 +44,22 @@ cargo check
 cargo test
 ```
 
+## Prune From The CLI (development)
+
+The `needle` binary drives the Python worker end to end:
+
+```bash
+cargo build
+./target/debug/needle prune --query "what does the merge step do?" path/to/file.py
+./target/debug/needle prune --query "..." --json < input.txt
+```
+
+Pruned text goes to stdout; a `decision (reason) · chars · backend` summary goes
+to stderr (`--json` emits one envelope on stdout instead). Worker or model
+failures exit non-zero and loudly — there is no silent raw-text fallback.
+`NEEDLE_PYTHON` selects the worker Python; `NEEDLE_MODEL_DIR` points at a local
+model directory.
+
 ## Direction
 
 Rust owns:

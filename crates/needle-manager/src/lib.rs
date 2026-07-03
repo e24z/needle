@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod cli;
 pub mod manager;
 pub mod protocol;
 

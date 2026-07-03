@@ -37,6 +37,7 @@ pub enum PruneDecision {
 pub struct PruneResult {
     pub text: String,
     pub decision: PruneDecision,
+    pub reason: Option<String>,
     pub backend: Option<String>,
     pub stats: BTreeMap<String, Value>,
 }
@@ -115,6 +116,7 @@ pub(crate) struct WorkerResponse {
     pub(crate) status: Option<WorkerStatus>,
     pub(crate) backend: Option<String>,
     pub(crate) decision: Option<PruneDecision>,
+    pub(crate) reason: Option<String>,
     pub(crate) text: Option<String>,
     #[serde(default)]
     pub(crate) stats: BTreeMap<String, Value>,

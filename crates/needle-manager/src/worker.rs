@@ -77,10 +77,13 @@ fn dev_python_path() -> Option<OsString> {
         return None;
     }
 
-    let mut paths = vec![repo_python];
+    // Caller-provided PYTHONPATH takes precedence; the repo checkout is only
+    // the development fallback for finding `needle_worker`.
+    let mut paths = Vec::new();
     if let Some(existing) = std::env::var_os("PYTHONPATH") {
         paths.extend(std::env::split_paths(&existing));
     }
+    paths.push(repo_python);
     std::env::join_paths(paths).ok()
 }
 
@@ -167,6 +170,7 @@ impl Worker {
         Ok(PruneResult {
             text: pruned_text,
             decision,
+            reason: response.reason,
             backend: response.backend,
             stats: response.stats,
         })
