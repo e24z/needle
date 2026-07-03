@@ -1,0 +1,21 @@
+{
+  "name": "needle",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Needle: local observation pruning for Pi.",
+  "keywords": [
+    "pi-package"
+  ],
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./extension.js"
+    ],
+    "skills": [
+      "./skills/needle-goal-hints/SKILL.md"
+    ]
+  }
+}

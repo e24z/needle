@@ -100,8 +100,14 @@ pub fn query(socket: &Path, request: &Value) -> io::Result<Value> {
 
 fn bind(socket_path: &Path) -> io::Result<UnixListener> {
     if let Some(dir) = socket_path.parent() {
-        std::fs::create_dir_all(dir)?;
-        std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        // Lock down directories we create (the default NEEDLE_HOME/runtime),
+        // but never chmod a pre-existing dir: an explicit --socket may point
+        // into /tmp or another shared location we do not own. The socket
+        // file's own 0600 mode and the peer-UID check still apply there.
+        if !dir.exists() {
+            std::fs::create_dir_all(dir)?;
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        }
     }
     if socket_path.exists() {
         // Only replace the socket if nothing answers on it: a live daemon's

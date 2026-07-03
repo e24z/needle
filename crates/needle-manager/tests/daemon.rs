@@ -57,7 +57,9 @@ impl DaemonUnderTest {
         std::fs::create_dir_all(&package).expect("create fake package");
         std::fs::write(package.join("__init__.py"), "").expect("write __init__");
         std::fs::write(package.join("__main__.py"), FAKE_WORKER).expect("write __main__");
-        let socket = dir.join("needle.sock");
+        // A subdir the daemon must create itself, mirroring the default
+        // NEEDLE_HOME/runtime layout (created dirs get locked to 0700).
+        let socket = dir.join("runtime").join("needle.sock");
 
         let child = Command::new(env!("CARGO_BIN_EXE_needle"))
             .args([

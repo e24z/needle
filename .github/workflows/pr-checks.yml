@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - "codex/**"
+      - "push-1.0"
 
 permissions:
   contents: read
@@ -42,3 +43,8 @@ jobs:
           PYTHONPATH=python python tests/test_code_pruner_profiling.py
           PYTHONPATH=python python tests/test_code_pruner_backbone.py
           PYTHONPATH=python python tests/test_model_download.py
+
+      - name: Run Pi extension tests
+        run: |
+          node tests/test_pi_extension.mjs
+          NEEDLE_BIN=target/debug/needle node tests/test_pi_client_daemon.mjs

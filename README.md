@@ -9,14 +9,19 @@ the MLX Soft-LaMR model path.
 
 ```text
 crates/
-  needle-manager/        # Rust runtime skeleton
+  needle-manager/        # Rust runtime: CLI, daemon, worker lifecycle
+
+pi/                      # Pi package: extension + goal-hints skill
+  extension.js           # overrides read/bash, requires context_focus_question
+  client.mjs             # NDJSON socket client
+  skills/needle-goal-hints/
 
 python/
   needle_worker/         # private Python worker package
     worker.py            # worker entrypoint
     soft_lamr/           # MLX model implementation
 
-tests/                   # worker/model tests
+tests/                   # worker/model/extension tests
 ```
 
 The old Python CLI, MCP host, backend registry, Homebrew formula, and runtime
@@ -74,6 +79,23 @@ lifecycle: the first `enable` lights it and blocks until the model is resident;
 the last `disable` — or a lease missing its heartbeats — unloads the worker,
 removes the socket, and exits the process. Control ops never queue behind model
 work. The socket is same-UID only, mode 0600, with 16 MiB bounded frames.
+
+## Pi Extension (development)
+
+```bash
+cargo build
+NEEDLE_BIN=$PWD/target/debug/needle pi --no-extensions -e pi/extension.js --skill pi/skills/needle-goal-hints
+```
+
+The extension overrides Pi's native `read` and `bash` tools with
+`context_focus_question` required in the schema, spawns the daemon on demand,
+and routes observations through it. Blocking semantics: the first tool call
+waits for daemon startup and model residency. Missing focus questions and
+runtime failures produce a visible banner in the observation — never a silent
+pass-through. Host envelope lines (truncation notices) are split off before
+pruning and reattached verbatim; error results (non-zero exits) are never
+pruned. The statusline shows off/loading/busy/resident/failed plus session
+savings; `/needle status|on|off` controls it.
 
 ## Direction
 
