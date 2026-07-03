@@ -43,17 +43,19 @@ if [[ -z "$python_bin" ]]; then
 fi
 
 package="needle-${version}-${host}"
+asset="needle-${host}.tar.gz"
 stage="${dist}/${package}"
 
 rm -rf "$stage"
 mkdir -p "$stage/bin" "$stage/share/needle/wheels" "$stage/share/needle/pi"
 
 cargo build --release --locked
+rm -rf "$root/python/build" "$root/python/needle_worker.egg-info"
 "$python_bin" -m pip wheel --no-deps --wheel-dir "$stage/share/needle/wheels" "$root/python"
 
 cp target/release/needle "$stage/bin/"
 cp -R pi/. "$stage/share/needle/pi/"
 cp README.md "$stage/"
 
-tar -C "$dist" -czf "${dist}/${package}.tar.gz" "$package"
-echo "${dist}/${package}.tar.gz"
+tar -C "$dist" -czf "${dist}/${asset}" "$package"
+echo "${dist}/${asset}"

@@ -82,6 +82,12 @@ work. The socket is same-UID only, mode 0600, with 16 MiB bounded frames.
 
 ## Setup
 
+When a release artifact is published, install with:
+
+```bash
+curl -fsSL https://e24z.github.io/needle/install.sh | bash
+```
+
 A bare `needle` on an unconfigured machine enters the setup wizard: system
 check, Pi check, private worker venv, model download, Pi integration, final
 status. Everything lands under `NEEDLE_HOME` (default:
@@ -117,7 +123,8 @@ The release tarball contains `bin/needle`, the Pi package under
 `share/needle/pi`, and a built `needle_worker` wheel under
 `share/needle/wheels`. The setup wizard prefers that shipped wheel when running
 from an installed artifact, and falls back to the source checkout in
-development.
+development. The stable asset filename is `needle-aarch64-apple-darwin.tar.gz`
+so the install script can target GitHub Releases' `latest/download` URL.
 
 ## Pi Extension (development)
 
