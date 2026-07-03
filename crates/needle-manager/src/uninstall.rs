@@ -136,7 +136,7 @@ fn pi_binary() -> std::ffi::OsString {
 }
 
 fn run_logged(command: &mut Command, what: &str) -> io::Result<()> {
-    let status = ui::spin(what, format!("{what}: done"), || command.status())?;
+    let status = ui::activity(what, format!("{what}: done"), || command.status())?;
     if !status.success() {
         return Err(io::Error::other(format!("{what} failed with {status}")));
     }

@@ -111,25 +111,22 @@ pub(crate) fn confirm(prompt: &str, assume_yes: bool) -> bool {
     matches!(answer.trim().to_lowercase().as_str(), "y" | "yes")
 }
 
-pub(crate) fn spin<T, F>(start: impl Display, done: impl Display, f: F) -> io::Result<T>
+pub(crate) fn activity<T, F>(start: impl Display, done: impl Display, f: F) -> io::Result<T>
 where
     F: FnOnce() -> io::Result<T>,
 {
-    if !fancy() {
-        return f();
-    }
-
     let start = start.to_string();
     let done = done.to_string();
-    let spinner = cliclack::spinner();
-    spinner.start(&start);
+    if fancy() {
+        info(&start);
+    }
     match f() {
         Ok(value) => {
-            spinner.stop(done);
+            success(done);
             Ok(value)
         }
         Err(error) => {
-            spinner.error(format!("{start}: failed"));
+            self::error(format!("{start}: failed"));
             Err(error)
         }
     }

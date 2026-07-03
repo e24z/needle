@@ -169,7 +169,7 @@ fn step_model(home: &Path, config: &mut Config, options: &SetupOptions) -> io::R
         return Ok(false);
     }
 
-    let output = ui::spin("downloading model", "model download finished", || {
+    let output = ui::activity("downloading model", "model download finished", || {
         Command::new(&worker_python)
             .args(["-m", "needle_worker.model_download_cli"])
             .env("NEEDLE_HOME", home)
@@ -454,7 +454,7 @@ fn pi_binary() -> OsString {
 }
 
 fn run_logged(command: &mut Command, what: &str) -> io::Result<()> {
-    let output = ui::spin(what, format!("{what}: done"), || command.output())?;
+    let output = ui::activity(what, format!("{what}: done"), || command.output())?;
     if !output.status.success() {
         return Err(io::Error::other(format_command_failure(what, &output)));
     }
