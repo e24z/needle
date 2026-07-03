@@ -71,6 +71,7 @@ def test_worker_prune_loads_backend_and_returns_result() -> None:
     assert responses[1]["status"] == "resident"
     assert responses[1]["backend"] == "fake-soft-lamr"
     assert responses[1]["decision"] == "pruned"
+    assert responses[1]["reason"] == "model"
     assert responses[1]["text"] == "keep"
     assert responses[1]["stats"] == {
         "input_chars": 9,
@@ -87,6 +88,27 @@ def test_worker_prune_loads_backend_and_returns_result() -> None:
     assert responses[4] == {"id": 5, "ok": True, "status": "cold"}
     assert len(loaded) == 1
     assert loaded[0].evicted
+
+
+def test_worker_reports_explicit_unchanged_reason() -> None:
+    class PassthroughBackend(FakeBackend):
+        def prune(self, *, text: str, query: str) -> str:
+            del query
+            self.last_stats = {"passthrough_reason": "query-too-long"}
+            return text
+
+    input_stream = io.StringIO(
+        '{"id":1,"op":"prune","text":"same","query":"very long question"}\n'
+        '{"id":2,"op":"exit"}\n'
+    )
+    output_stream = io.StringIO()
+
+    assert run_loop(input_stream, output_stream, load=PassthroughBackend) == 0
+
+    responses = _responses(output_stream)
+    assert responses[0]["decision"] == "unchanged"
+    assert responses[0]["reason"] == "query-too-long"
+    assert responses[0]["text"] == "same"
 
 
 def test_worker_rejects_prune_without_query_before_loading() -> None:
@@ -147,6 +169,7 @@ def test_worker_reports_load_failure() -> None:
 
 def main() -> int:
     test_worker_prune_loads_backend_and_returns_result()
+    test_worker_reports_explicit_unchanged_reason()
     test_worker_rejects_prune_without_query_before_loading()
     test_worker_reports_load_failure()
     print("test_worker OK")

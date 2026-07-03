@@ -1137,17 +1137,25 @@ class MLXSwePrunerBackend:
 
         # Optional AST structural repair: an alternative render
         # of the kept-line mask that pulls in enclosing scopes/imports so the
-        # output still parses. Gated via the backend's `repair` flag.
+        # output still parses. Gated via the backend's `repair` flag. Repair's
+        # output is only trusted when its own parse check passed.
         result = pruned
+        repair_outcome: str | None = None
         if self.repair and _looks_like_python(text):
             try:
                 from .repair import repair_python_mask
 
-                result = repair_python_mask(text, kept_lines).repaired_code
+                repaired = repair_python_mask(text, kept_lines)
             except SyntaxError:
-                result = pruned
+                repair_outcome = "input-parse-failed"
+            else:
+                if repaired.parses:
+                    result = repaired.repaired_code
+                    repair_outcome = "applied"
+                else:
+                    repair_outcome = "repair-parse-failed"
 
-        result = _apply_floor(text, result)
+        result, floor_reason = _apply_floor(text, result)
         real_tokens = sum(int(stats.get("real_tokens", 0)) for stats in batch_stats)
         padded_tokens = sum(int(stats.get("padded_tokens", 0)) for stats in batch_stats)
         pad_tokens = padded_tokens - real_tokens
@@ -1237,6 +1245,13 @@ class MLXSwePrunerBackend:
             if mlx_cache_end_values
             else None,
             "mlx_peak_mb_max": max(mlx_peak_values) if mlx_peak_values else None,
+            "repair": repair_outcome,
+            "floor": floor_reason,
+            **(
+                {"passthrough_reason": "floor-original"}
+                if floor_reason == "floor-original"
+                else {}
+            ),
             "input_chars": len(text),
             "output_chars": len(result),
             "saved_chars": max(0, len(text) - len(result)),
@@ -1285,17 +1300,20 @@ def _python_skeleton(text: str) -> str:
     return "\n".join(out)
 
 
-def _apply_floor(text: str, pruned: str) -> str:
+def _apply_floor(text: str, pruned: str) -> tuple[str, str | None]:
     """Don't return near-nothing. If pruning collapsed the file (<5% real content
     kept), fall back to a signatures skeleton (Python) or pass the original
-    through, so a deliberate read never comes back empty."""
+    through, so a deliberate read never comes back empty. Returns the text plus
+    an explicit reason when the floor engaged, so callers never mistake a floor
+    fallback for the model's own decision."""
     if _real_content_chars(pruned) >= 0.05 * len(text):
-        return pruned
+        return pruned, None
     if _looks_like_python(text):
         skeleton = _python_skeleton(text)
         if _real_content_chars(skeleton) > _real_content_chars(pruned):
-            return skeleton
-    return text  # non-Python or no useful skeleton: pass through, never empty
+            return skeleton, "floor-python-skeleton"
+    # Non-Python or no useful skeleton: pass through, never empty.
+    return text, "floor-original"
 
 
 def _without_filter_markers(text: str) -> str:

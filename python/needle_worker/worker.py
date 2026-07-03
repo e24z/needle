@@ -126,7 +126,14 @@ def handle_request(
         except Exception as exc:  # noqa: BLE001 - model errors must cross the process boundary.
             state.last_error = str(exc)
             return _failed(request, str(exc)), False
-        decision = "pruned" if pruned != text else "unchanged"
+        stats = _backend_stats(state.backend)
+        passthrough_reason = stats.get("passthrough_reason")
+        if passthrough_reason:
+            decision, reason = "unchanged", str(passthrough_reason)
+        elif pruned == text:
+            decision, reason = "unchanged", "no-lines-removed"
+        else:
+            decision, reason = "pruned", "model"
         return (
             _with_id(
                 request,
@@ -135,8 +142,9 @@ def handle_request(
                     "status": "resident",
                     "backend": _backend_name(state.backend),
                     "decision": decision,
+                    "reason": reason,
                     "text": pruned,
-                    "stats": _backend_stats(state.backend),
+                    "stats": stats,
                 },
             ),
             False,
