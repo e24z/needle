@@ -12,9 +12,11 @@
 
 use crate::config::{self, Config};
 use crate::daemon::needle_home;
+use std::ffi::{OsStr, OsString};
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
+use std::sync::OnceLock;
 
 pub struct SetupOptions {
     pub dry_run: bool,
@@ -64,8 +66,9 @@ fn step_system_check() {
             "  warning: the MLX backend needs Apple Silicon macOS; other platforms are untested"
         );
     }
-    match probe(&python3(), &["--version"]) {
-        Some(version) => println!("  python3: {version}"),
+    let python = python3();
+    match probe(&python, &["--version"]) {
+        Some(version) => println!("  python3: {version} ({})", python.to_string_lossy()),
         None => println!("  warning: python3 not found — the worker venv step will fail"),
     }
     println!();
@@ -355,7 +358,7 @@ fn dev_path(relative: &str) -> Option<PathBuf> {
 }
 
 /// First output line of `command args`, or None if it cannot run.
-fn probe(command: &std::ffi::OsStr, args: &[&str]) -> Option<String> {
+fn probe(command: &OsStr, args: &[&str]) -> Option<String> {
     let output = Command::new(command).args(args).output().ok()?;
     if !output.status.success() {
         return None;
@@ -368,20 +371,80 @@ fn probe(command: &std::ffi::OsStr, args: &[&str]) -> Option<String> {
     text.lines().next().map(|line| line.trim().to_string())
 }
 
-fn python3() -> std::ffi::OsString {
+fn python3() -> OsString {
+    static PYTHON3: OnceLock<OsString> = OnceLock::new();
+    PYTHON3.get_or_init(select_python3).clone()
+}
+
+fn select_python3() -> OsString {
     if let Some(python) = std::env::var_os("NEEDLE_DEV_SETUP_PYTHON") {
         return python;
     }
-    for candidate in ["python3.13", "python3"] {
-        let command = std::ffi::OsStr::new(candidate);
-        if python_is_at_least(command, 3, 13) {
-            return candidate.into();
+
+    for candidate in setup_python_candidates() {
+        if python_can_create_venv_with_pip(&candidate) {
+            return candidate;
         }
     }
     "python3".into()
 }
 
-fn python_is_at_least(command: &std::ffi::OsStr, major: u32, minor: u32) -> bool {
+fn setup_python_candidates() -> Vec<OsString> {
+    let mut candidates = Vec::new();
+    push_candidate(&mut candidates, "python3.13");
+    push_candidate(&mut candidates, "/opt/homebrew/bin/python3.13");
+    push_candidate(
+        &mut candidates,
+        "/opt/homebrew/opt/python@3.13/bin/python3.13",
+    );
+    push_candidate(&mut candidates, "/usr/local/bin/python3.13");
+    push_candidate(&mut candidates, "python3");
+    candidates
+}
+
+fn push_candidate(candidates: &mut Vec<OsString>, candidate: impl Into<OsString>) {
+    let candidate = candidate.into();
+    if !candidates.iter().any(|existing| existing == &candidate) {
+        candidates.push(candidate);
+    }
+}
+
+fn python_can_create_venv_with_pip(command: &OsStr) -> bool {
+    if !python_is_at_least(command, 3, 13) {
+        return false;
+    }
+
+    let probe_root = std::env::temp_dir().join(format!(
+        "needle-python-probe-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0)
+    ));
+    if std::fs::create_dir_all(&probe_root).is_err() {
+        return false;
+    }
+
+    let venv = probe_root.join("venv");
+    let created = Command::new(command)
+        .args(["-m", "venv"])
+        .arg(&venv)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    let pip_ready = created
+        && Command::new(venv.join("bin").join("python"))
+            .args(["-m", "pip", "--version"])
+            .output()
+            .map(|output| output.status.success())
+            .unwrap_or(false);
+
+    let _ = std::fs::remove_dir_all(probe_root);
+    pip_ready
+}
+
+fn python_is_at_least(command: &OsStr, major: u32, minor: u32) -> bool {
     let Some(version) = probe(
         command,
         &[
@@ -403,7 +466,7 @@ fn python_is_at_least(command: &std::ffi::OsStr, major: u32, minor: u32) -> bool
     (found_major, found_minor) >= (major, minor)
 }
 
-fn pi_binary() -> std::ffi::OsString {
+fn pi_binary() -> OsString {
     std::env::var_os("NEEDLE_DEV_PI_BIN").unwrap_or_else(|| "pi".into())
 }
 
@@ -422,11 +485,26 @@ fn confirm(prompt: &str, options: &SetupOptions) -> bool {
 }
 
 fn run_logged(command: &mut Command, what: &str) -> io::Result<()> {
-    let status = command.status()?;
-    if !status.success() {
-        return Err(io::Error::other(format!("{what} failed with {status}")));
+    let output = command.output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format_command_failure(what, &output)));
     }
     Ok(())
+}
+
+fn format_command_failure(what: &str, output: &Output) -> String {
+    let mut message = format!("{what} failed with {}", output.status);
+    append_output_section(&mut message, "stdout", &output.stdout);
+    append_output_section(&mut message, "stderr", &output.stderr);
+    message
+}
+
+fn append_output_section(message: &mut String, label: &str, bytes: &[u8]) {
+    let text = String::from_utf8_lossy(bytes);
+    let text = text.trim();
+    if !text.is_empty() {
+        message.push_str(&format!("\n{label}:\n{text}"));
+    }
 }
 
 fn copy_dir(source: &Path, target: &Path) -> io::Result<()> {
