@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   test:
-    name: Python and Pi adapter tests
+    name: Rust and worker tests
     runs-on: macos-latest
 
     steps:
@@ -24,22 +24,17 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
+      - name: Check Rust workspace
+        run: cargo check
 
       - name: Compile Python sources
-        run: uv run python -m compileall src tests
+        run: PYTHONPATH=python python -m compileall python tests
 
-      - name: Run Python tests
-        run: uv run --with pytest python -m pytest tests -q
-
-      - name: Run Pi adapter tests
-        run: node --test tests/test_pi_client.mjs
-
-      - name: Run Pi canary demo
-        run: npm run demo:pi-canary
+      - name: Run worker tests
+        run: |
+          PYTHONPATH=python python tests/test_backends.py
+          PYTHONPATH=python python tests/test_code_pruner_batching.py
+          PYTHONPATH=python python tests/test_code_pruner_chunking.py
+          PYTHONPATH=python python tests/test_code_pruner_profiling.py
+          PYTHONPATH=python python tests/test_code_pruner_backbone.py
+          PYTHONPATH=python python tests/test_model_download.py

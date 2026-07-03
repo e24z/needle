@@ -9,15 +9,15 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
-from needle.model_download import (  # noqa: E402
+from needle_worker.model_download import (  # noqa: E402
     download_model_snapshot,
     model_snapshot_dir,
     read_model_provenance,
     write_model_provenance,
 )
-from needle.runtime import naming  # noqa: E402
+from needle_worker import paths as naming  # noqa: E402
 
 
 class _Info:
@@ -46,9 +46,8 @@ def _snapshot_recorder(calls: list[dict[str, str | None]]):
 
 
 def _with_model_root(root: Path):
-    old = {name: os.environ.get(name) for name in ("NEEDLE_MODEL_ROOT", "HAY_MODEL_ROOT")}
+    old = {name: os.environ.get(name) for name in ("NEEDLE_MODEL_ROOT",)}
     os.environ["NEEDLE_MODEL_ROOT"] = str(root)
-    os.environ.pop("HAY_MODEL_ROOT", None)
     return old
 
 
@@ -61,10 +60,10 @@ def _restore_env(old: dict[str, str | None]) -> None:
 
 
 def _with_default_home(home: Path):
-    names = ("NEEDLE_HOME", "HAY_HOME", "NEEDLE_MODEL_ROOT", "HAY_MODEL_ROOT")
+    names = ("NEEDLE_HOME", "NEEDLE_MODEL_ROOT")
     old = {name: os.environ.get(name) for name in names}
     os.environ["NEEDLE_HOME"] = str(home)
-    for name in ("HAY_HOME", "NEEDLE_MODEL_ROOT", "HAY_MODEL_ROOT"):
+    for name in ("NEEDLE_MODEL_ROOT",):
         os.environ.pop(name, None)
     return old
 
@@ -448,8 +447,8 @@ def test_revision_specific_snapshot_path_keeps_stale_files_out_of_new_revisions(
 def test_code_pruner_backend_uses_resolved_backbone_snapshot_for_network_loads() -> None:
     root = Path(__file__).resolve().parent.parent
     source_paths = [
-        root / "src/needle/backends/code_pruner/model.py",
-        root / "src/needle/backends/code_pruner/backbone.py",
+        root / "python/needle_worker/soft_lamr/model.py",
+        root / "python/needle_worker/soft_lamr/backbone.py",
     ]
     source = "\n".join(path.read_text(encoding="utf-8") for path in source_paths)
     tree = ast.parse(source)

@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "needle-worker"
+version = "0.1.0"
+description = "Private MLX model worker for Needle."
+requires-python = ">=3.13"
+dependencies = [
+    "huggingface-hub>=1,<2",
+    "mlx>=0.31,<0.32",
+    "mlx-lm>=0.31,<0.32",
+    "numpy>=2.4,<3",
+    "transformers>=5,<6",
+]
+
+[tool.setuptools]
+packages = ["needle_worker", "needle_worker.soft_lamr", "needle_worker.soft_lamr.repair"]
