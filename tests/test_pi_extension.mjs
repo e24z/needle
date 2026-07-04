@@ -641,8 +641,14 @@ function testStatuslineStates() {
 	assert.ok(line.includes("3.1k chars trimmed"), `counters shown: ${line}`);
 	assert.ok(line.includes("2 prunes"), `prune count shown: ${line}`);
 
+	const off = formatStatus({ ...base, needleOn: false }, { columns: 80, nowMs: 0 });
+	assert.ok(off.includes("3.1k chars trimmed"), `off keeps counter text stable: ${off}`);
+	assert.ok(off.includes("2 prunes"), `off keeps prune count stable: ${off}`);
+	assert.ok(!off.includes("needle off"), `off state uses glyph rather than text churn: ${off}`);
+
 	const failed = formatStatus({ ...base, backendStatus: "failed" }, { columns: 80, nowMs: 0 });
-	assert.ok(failed.includes("/needle off"), `failed state offers the off-ramp: ${failed}`);
+	assert.ok(failed.includes("3.1k chars trimmed"), `failed keeps counter text stable: ${failed}`);
+	assert.ok(!failed.includes("/needle off"), `failed state uses status message for off-ramp: ${failed}`);
 }
 
 function testSchemaHelperIdempotent() {

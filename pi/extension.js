@@ -25,6 +25,7 @@ const CUSTOM_STATE = "needle-state";
 const SEP = " · ";
 const SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const PULSE_FRAMES = ["⠤", "⠶", "⠿", "⠶"];
+const INTENSITY_CODES = ["2", "", "1", ""];
 const STATE_CODES = {
 	off: "38;5;240",
 	loading: "38;5;179",
@@ -429,7 +430,7 @@ function registerNeedleCommand(pi, state) {
 
 async function buildOnMessage(state, ok) {
 	const status = await buildStatusMessage(state);
-	return `${ok ? "needle: on" : "needle: on failed"}\n${status}`;
+	return ok ? status : `needle: on failed\n${status}`;
 }
 
 async function buildStatusMessage(state) {
@@ -500,10 +501,6 @@ export function formatStatus(state, options = {}) {
 	const now = options.nowMs ?? Date.now();
 	const tick = Math.floor(now / ANIMATION_MS);
 	const indicator = formatIndicator(visual, tick);
-	if (visual === "off") return `${indicator} needle off`;
-	if (visual === "failed") {
-		return `${indicator} needle failed${SEP}/needle off to disable`;
-	}
 	const calls = Number(state.counters.calls || 0);
 	const saved = Number(state.counters.savedChars || 0);
 	const plural = calls === 1 ? "" : "s";
@@ -527,7 +524,7 @@ function formatIndicator(visual, tick) {
 		return ansi(STATE_CODES.resident, PULSE_FRAMES[tick % PULSE_FRAMES.length]);
 	}
 	if (visual === "failed") return ansi(STATE_CODES.failed, "✗");
-	return ansi(STATE_CODES.off, "·");
+	return breathe(STATE_CODES.off, "·", tick);
 }
 
 // --- helpers -----------------------------------------------------------------
@@ -606,6 +603,11 @@ function envSecs(name, fallback) {
 
 function ansi(code, text) {
 	return `\x1b[${code}m${text}\x1b[0m`;
+}
+
+function breathe(code, glyph, tick) {
+	const intensity = INTENSITY_CODES[tick % INTENSITY_CODES.length];
+	return ansi(intensity ? `${code};${intensity}` : code, glyph);
 }
 
 function formatCount(n) {
