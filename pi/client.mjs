@@ -5,6 +5,8 @@
 // per-op connections cannot leak wedged state between calls.
 
 import { execFileSync, spawn } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
 import net from "node:net";
 
 let cachedPaths = null;
@@ -24,11 +26,17 @@ export function needleBinary() {
 
 export function needlePaths() {
 	if (cachedPaths) return cachedPaths;
-	const output = execFileSync(needleBinary(), ["paths", "--json"], {
-		encoding: "utf8",
-		timeout: 5000,
-	});
-	const paths = JSON.parse(output);
+	let paths;
+	try {
+		const output = execFileSync(needleBinary(), ["paths", "--json"], {
+			encoding: "utf8",
+			timeout: 5000,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		paths = JSON.parse(output);
+	} catch {
+		paths = fallbackPaths();
+	}
 	if (
 		!paths ||
 		typeof paths.home !== "string" ||
@@ -39,6 +47,24 @@ export function needlePaths() {
 	}
 	cachedPaths = paths;
 	return cachedPaths;
+}
+
+function fallbackPaths() {
+	const home = process.env.NEEDLE_HOME || defaultNeedleHome();
+	const socket = process.env.NEEDLE_SOCKET || path.join(home, "runtime", "needle.sock");
+	return {
+		home,
+		socket,
+		config: path.join(home, "config.json"),
+	};
+}
+
+function defaultNeedleHome() {
+	const userHome = os.homedir() || ".";
+	if (process.platform === "darwin") {
+		return path.join(userHome, "Library", "Application Support", "Needle");
+	}
+	return path.join(userHome, ".local", "share", "needle");
 }
 
 export function request(op, fields = {}, { timeoutMs = 5000 } = {}) {

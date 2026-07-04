@@ -21,10 +21,17 @@ const PRUNE_TIMEOUT_MS = envSecs("NEEDLE_PRUNE_TIMEOUT_SECS", 300) * 1000;
 const HEARTBEAT_MS = envSecs("NEEDLE_HEARTBEAT_INTERVAL", 30) * 1000;
 const STATUS_POLL_MS = envSecs("NEEDLE_STATUS_POLL_SECS", 5) * 1000;
 const ANIMATION_MS = envSecs("NEEDLE_ANIMATION_INTERVAL_SECS", 0.4) * 1000;
+const EST_CHARS_PER_TOKEN = envPositiveFloat("NEEDLE_EST_CHARS_PER_TOKEN", 4);
+const INPUT_COST_PER_MILLION = envPositiveFloat("NEEDLE_INPUT_COST_PER_MILLION", NaN);
+const CACHE_READ_COST_PER_MILLION = envNonNegativeFloat("NEEDLE_CACHE_READ_COST_PER_MILLION", NaN);
 const CUSTOM_STATE = "needle-state";
 const SEP = " · ";
 const SPIN_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const PULSE_FRAMES = ["⠤", "⠶", "⠿", "⠶"];
+const STATUS_MODES = ["chars", "tokens", "cost", "compact"];
+const DEFAULT_STATUS_MODE = parseStatusMode(process.env.NEEDLE_STATUSLINE_MODE) || "chars";
+const TOGGLE_SHORTCUTS = envList("NEEDLE_TOGGLE_SHORTCUTS", ["ctrl+shift+n", "f8"]);
+const STATUSLINE_SHORTCUTS = envList("NEEDLE_STATUSLINE_SHORTCUTS", ["ctrl+shift+.", "f9"]);
 const INTENSITY_CODES = ["2", "", "1", ""];
 const STATE_CODES = {
 	off: "38;5;240",
@@ -52,6 +59,13 @@ export function installNeedlePiExtension(pi, options = {}) {
 		lastError: null,
 		busyPrunes: 0,
 		counters: emptyCounters(),
+		statusMode: DEFAULT_STATUS_MODE,
+		inputCostPerToken: Number.isFinite(INPUT_COST_PER_MILLION)
+			? INPUT_COST_PER_MILLION / 1_000_000
+			: null,
+		cacheReadCostPerToken: Number.isFinite(CACHE_READ_COST_PER_MILLION)
+			? CACHE_READ_COST_PER_MILLION / 1_000_000
+			: null,
 		requestFn: options.requestFn || request,
 		ensureDaemonFn: options.ensureDaemonFn || ensureDaemon,
 		nowFn: options.nowFn || (() => Date.now()),
@@ -64,12 +78,16 @@ export function installNeedlePiExtension(pi, options = {}) {
 	let animationTimer;
 
 	registerNeedleCommand(pi, state);
+	registerNeedleShortcuts(pi, state);
 	registerOverride(pi, state, options.createReadTool, READ_TOOL);
 	registerOverride(pi, state, options.createBashTool, BASH_TOOL);
 
 	pi.on("session_start", async (_event, ctx) => {
 		state.sessionId = ctx.sessionManager?.getSessionId?.() || `pi-${Date.now()}`;
-		Object.assign(state.counters, restoreCounters(ctx.sessionManager?.getEntries?.() || []));
+		const restored = restoreState(ctx.sessionManager?.getEntries?.() || []);
+		Object.assign(state.counters, restored.counters);
+		if (restored.statusMode) state.statusMode = restored.statusMode;
+		updatePricingFromContext(state, ctx);
 		// Kick enablement off in the background: the session UI comes up
 		// immediately and the statusline shows loading. Tool calls await the
 		// same promise, so the first observation blocks until the daemon is
@@ -86,6 +104,11 @@ export function installNeedlePiExtension(pi, options = {}) {
 		animationTimer = setInterval(() => {
 			renderStatus(ctx, state);
 		}, ANIMATION_MS);
+		renderStatus(ctx, state);
+	});
+
+	pi.on("model_select", async (event, ctx) => {
+		updatePricingFromContext(state, ctx, event);
 		renderStatus(ctx, state);
 	});
 
@@ -195,7 +218,7 @@ function registerOverride(pi, state, createTool, toolName) {
 			try {
 				const patch = await buildToolResultPatch(toolName, result, params, state);
 				if (!patch) return result;
-				pi.appendEntry?.(CUSTOM_STATE, state.counters);
+				persistState(pi, state);
 				return {
 					...result,
 					...patch,
@@ -312,7 +335,7 @@ export async function buildToolResultPatch(toolName, result, params, state) {
 		};
 	}
 	const pruned = String(response.text ?? "") + envelope;
-	record(state.counters, original.length, pruned.length, toolName);
+	record(state.counters, original, pruned, toolName, state);
 	return {
 		content: [{ type: "text", text: pruned }],
 		details: {
@@ -383,30 +406,34 @@ function registerNeedleCommand(pi, state) {
 	pi.registerCommand?.("needle", {
 		description: "Needle status, recovery, and on/off",
 		getArgumentCompletions: (prefix) => {
-			const items = ["status", "original", "on", "off"].filter((item) => item.startsWith(prefix));
+			const items = [
+				"status",
+				"original",
+				"on",
+				"off",
+				"statusline",
+				...STATUS_MODES.map((mode) => `statusline ${mode}`),
+			].filter((item) => item.startsWith(prefix));
 			return items.length ? items.map((value) => ({ value, label: value })) : null;
 		},
 		handler: async (args, ctx) => {
-			const sub = String(args || "").trim() || "status";
+			const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
+			const sub = parts[0] || "status";
 			if (sub === "off") {
-				state.needleOn = false;
-				if (state.sessionId) {
-					await state.requestFn("disable", { session: state.sessionId }).catch(() => undefined);
-				}
-				state.backendStatus = "cold";
-				ctx.ui?.notify?.("needle off: tool output passes through untouched", "info");
+				await setNeedleEnabled(state, ctx, false);
 				return;
 			}
 			if (sub === "on") {
-				state.needleOn = true;
-				state.enablePromise = null;
-				const ok = await ensureEnabled(state);
-				const content = await buildOnMessage(state, ok);
-				if (typeof pi.sendMessage === "function") {
-					pi.sendMessage({ customType: "needle-status", content, display: true });
-				} else {
-					ctx.ui?.notify?.(content, ok ? "info" : "error");
-				}
+				await setNeedleEnabled(state, ctx, true, pi);
+				return;
+			}
+			if (sub === "statusline") {
+				const mode = parseStatusMode(parts[1]) || cycleStatusMode(state);
+				state.statusMode = mode;
+				updatePricingFromContext(state, ctx);
+				persistState(pi, state);
+				renderStatus(ctx, state);
+				ctx.ui?.notify?.(`needle statusline: ${statusModeLabel(mode)}`, "info");
 				return;
 			}
 			if (sub === "original") {
@@ -426,6 +453,53 @@ function registerNeedleCommand(pi, state) {
 			}
 		},
 	});
+}
+
+function registerNeedleShortcuts(pi, state) {
+	for (const shortcut of TOGGLE_SHORTCUTS) {
+		pi.registerShortcut?.(shortcut, {
+			description: "Toggle Needle pruning",
+			handler: async (ctx) => {
+				await setNeedleEnabled(state, ctx, !state.needleOn, pi);
+			},
+		});
+	}
+	for (const shortcut of STATUSLINE_SHORTCUTS) {
+		pi.registerShortcut?.(shortcut, {
+			description: "Cycle Needle statusline",
+			handler: async (ctx) => {
+				const mode = cycleStatusMode(state);
+				updatePricingFromContext(state, ctx);
+				persistState(pi, state);
+				renderStatus(ctx, state);
+				ctx.ui?.notify?.(`needle statusline: ${statusModeLabel(mode)}`, "info");
+			},
+		});
+	}
+}
+
+async function setNeedleEnabled(state, ctx, enabled, pi) {
+	if (!enabled) {
+		state.needleOn = false;
+		if (state.sessionId) {
+			await state.requestFn("disable", { session: state.sessionId }).catch(() => undefined);
+		}
+		state.backendStatus = "cold";
+		renderStatus(ctx, state);
+		ctx.ui?.notify?.("needle off: tool output passes through untouched", "info");
+		return true;
+	}
+	state.needleOn = true;
+	state.enablePromise = null;
+	const ok = await ensureEnabled(state);
+	const content = await buildOnMessage(state, ok);
+	renderStatus(ctx, state);
+	if (typeof pi?.sendMessage === "function") {
+		pi.sendMessage({ customType: "needle-status", content, display: true });
+	} else {
+		ctx.ui?.notify?.(content, ok ? "info" : "error");
+	}
+	return ok;
 }
 
 async function buildOnMessage(state, ok) {
@@ -504,16 +578,65 @@ export function formatStatus(state, options = {}) {
 	const calls = Number(state.counters.calls || 0);
 	const saved = Number(state.counters.savedChars || 0);
 	const plural = calls === 1 ? "" : "s";
-	const forms = [
-		`needle${SEP}${formatCount(saved)} chars trimmed${SEP}${calls} prune${plural}`,
-		`needle${SEP}${formatCount(saved)}c${SEP}${calls}p`,
-		"needle",
-	];
+	const mode = parseStatusMode(options.statusMode) || parseStatusMode(state.statusMode) || "chars";
+	const forms = statusFormsForMode({
+		mode,
+		savedChars: saved,
+		savedTokens: estimatedSavedTokens(state.counters, saved),
+		costLowEstimate: state.counters.costLowEstimate,
+		costHighEstimate: state.counters.costHighEstimate,
+		calls,
+		plural,
+	});
 	const cols = Number(options.columns || process.env.COLUMNS || 80);
 	for (const line of forms) {
 		if (2 + line.length <= cols - 1) return `${indicator} ${line}`;
 	}
 	return `${indicator} needle`;
+}
+
+function statusFormsForMode({
+	mode,
+	savedChars,
+	savedTokens,
+	costLowEstimate,
+	costHighEstimate,
+	calls,
+	plural,
+}) {
+	if (mode === "compact") {
+		return [
+			`needle${SEP}${formatCount(savedChars)}c${SEP}${calls}p`,
+			"needle",
+		];
+	}
+	if (mode === "tokens") {
+		return [
+			`needle${SEP}~${formatCount(savedTokens)} input tokens avoided${SEP}${calls} prune${plural}`,
+			`needle${SEP}~${formatCount(savedTokens)}t${SEP}${calls}p`,
+			"needle",
+		];
+	}
+	if (mode === "cost") {
+		const range = formatStoredCostRange(costLowEstimate, costHighEstimate);
+		if (range) {
+			return [
+				`needle${SEP}${range} est input avoided${SEP}${calls} prune${plural}`,
+				`needle${SEP}${range} est${SEP}${calls}p`,
+				"needle",
+			];
+		}
+		return [
+			`needle${SEP}pricing unavailable${SEP}${calls} prune${plural}`,
+			`needle${SEP}no price${SEP}${calls}p`,
+			"needle",
+		];
+	}
+	return [
+		`needle${SEP}${formatCount(savedChars)} chars trimmed${SEP}${calls} prune${plural}`,
+		`needle${SEP}${formatCount(savedChars)}c${SEP}${calls}p`,
+		"needle",
+	];
 }
 
 function formatIndicator(visual, tick) {
@@ -570,35 +693,92 @@ async function importPiSdkFromCli(cause) {
 }
 
 function emptyCounters() {
-	return { calls: 0, originalChars: 0, prunedChars: 0, savedChars: 0 };
+	return {
+		calls: 0,
+		originalChars: 0,
+		prunedChars: 0,
+		savedChars: 0,
+		originalTokensEstimate: 0,
+		prunedTokensEstimate: 0,
+		savedTokensEstimate: 0,
+		costLowEstimate: null,
+		costHighEstimate: null,
+	};
 }
 
-function restoreCounters(entries) {
+function restoreState(entries) {
 	const counters = emptyCounters();
+	let statusMode = null;
 	try {
 		for (const entry of entries) {
 			if (entry.type === "custom" && entry.customType === CUSTOM_STATE && entry.data) {
-				Object.assign(counters, entry.data);
+				if (entry.data.counters) Object.assign(counters, entry.data.counters);
+				else Object.assign(counters, entry.data);
+				const restoredMode = parseStatusMode(entry.data.statusMode);
+				if (restoredMode) statusMode = restoredMode;
 			}
 		}
 	} catch {
 		// Fresh sessions have nothing to restore.
 	}
-	return counters;
+	return { counters, statusMode };
 }
 
-function record(counters, originalLen, prunedLen, tool) {
+function persistState(pi, state) {
+	pi.appendEntry?.(CUSTOM_STATE, {
+		counters: { ...state.counters },
+		statusMode: state.statusMode,
+	});
+}
+
+function record(counters, originalText, prunedText, tool, state) {
+	const originalLen = originalText.length;
+	const prunedLen = prunedText.length;
+	const originalTokens = estimateInputTokens(originalText);
+	const prunedTokens = estimateInputTokens(prunedText);
+	const savedTokens = Math.max(0, originalTokens - prunedTokens);
 	counters.calls += 1;
 	counters.originalChars += originalLen;
 	counters.prunedChars += prunedLen;
 	counters.savedChars = counters.originalChars - counters.prunedChars;
+	counters.originalTokensEstimate += originalTokens;
+	counters.prunedTokensEstimate += prunedTokens;
+	counters.savedTokensEstimate = Math.max(
+		0,
+		counters.originalTokensEstimate - counters.prunedTokensEstimate,
+	);
+	recordCostEstimate(counters, savedTokens, state);
 	counters.lastTool = tool;
 	counters.updatedAt = Date.now();
+}
+
+function recordCostEstimate(counters, savedTokens, state) {
+	const range = costRangeValues(savedTokens, state.inputCostPerToken, state.cacheReadCostPerToken);
+	if (!range) return;
+	counters.costLowEstimate = Number(counters.costLowEstimate || 0) + range.low;
+	counters.costHighEstimate = Number(counters.costHighEstimate || 0) + range.high;
 }
 
 function envSecs(name, fallback) {
 	const value = Number.parseFloat(process.env[name] ?? "");
 	return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function envPositiveFloat(name, fallback) {
+	const value = Number.parseFloat(process.env[name] ?? "");
+	return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function envNonNegativeFloat(name, fallback) {
+	const value = Number.parseFloat(process.env[name] ?? "");
+	return Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function envList(name, fallback) {
+	const raw = process.env[name];
+	if (!raw) return fallback;
+	const items = raw.split(",").map((item) => item.trim()).filter(Boolean);
+	return items.length ? items : fallback;
 }
 
 function ansi(code, text) {
@@ -615,4 +795,95 @@ function formatCount(n) {
 	if (n >= 10_000) return `${Math.round(n / 1_000)}k`;
 	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
 	return String(n);
+}
+
+function estimateInputTokens(text) {
+	return Math.max(0, Math.ceil(String(text || "").length / EST_CHARS_PER_TOKEN));
+}
+
+function estimatedSavedTokens(counters, savedChars) {
+	const saved = Number(counters?.savedTokensEstimate);
+	if (Number.isFinite(saved) && saved > 0) return saved;
+	return Math.max(0, Math.round(Number(savedChars || 0) / EST_CHARS_PER_TOKEN));
+}
+
+function costRangeValues(savedTokens, inputCostPerToken, cacheReadCostPerToken) {
+	const highRate = Number(inputCostPerToken);
+	if (!Number.isFinite(highRate) || highRate <= 0) return null;
+	const lowRate = Number(cacheReadCostPerToken);
+	const effectiveLowRate = Number.isFinite(lowRate) && lowRate > 0 ? lowRate : highRate;
+	const low = savedTokens * Math.min(effectiveLowRate, highRate);
+	const high = savedTokens * Math.max(effectiveLowRate, highRate);
+	return { low, high };
+}
+
+function formatStoredCostRange(low, high) {
+	const lowNumber = Number(low);
+	const highNumber = Number(high);
+	if (!Number.isFinite(lowNumber) || !Number.isFinite(highNumber) || highNumber <= 0) return null;
+	const lowText = formatDollars(low);
+	const highText = formatDollars(high);
+	if (lowText === highText) return `~${highText}`;
+	return `~${lowText}-${highText}`;
+}
+
+function formatDollars(value) {
+	if (!Number.isFinite(value) || value <= 0) return "$0.00";
+	if (value < 0.01) return `$${value.toFixed(3)}`;
+	if (value < 1) return `$${value.toFixed(2)}`;
+	return `$${value.toFixed(2)}`;
+}
+
+function parseStatusMode(value) {
+	const mode = String(value || "").trim().toLowerCase();
+	return STATUS_MODES.includes(mode) ? mode : null;
+}
+
+function cycleStatusMode(state) {
+	const current = parseStatusMode(state.statusMode) || "chars";
+	const next = STATUS_MODES[(STATUS_MODES.indexOf(current) + 1) % STATUS_MODES.length];
+	state.statusMode = next;
+	return next;
+}
+
+function statusModeLabel(mode) {
+	if (mode === "tokens") return "estimated tokens";
+	if (mode === "cost") return "estimated cost";
+	if (mode === "compact") return "compact";
+	return "chars";
+}
+
+function updatePricingFromContext(state, ctx, event) {
+	if (Number.isFinite(INPUT_COST_PER_MILLION)) {
+		state.inputCostPerToken = INPUT_COST_PER_MILLION / 1_000_000;
+	}
+	if (Number.isFinite(CACHE_READ_COST_PER_MILLION)) {
+		state.cacheReadCostPerToken = CACHE_READ_COST_PER_MILLION / 1_000_000;
+	}
+	const cost = currentModelFromContext(ctx, event)?.cost;
+	if (!Number.isFinite(INPUT_COST_PER_MILLION)) {
+		const raw = Number(cost?.input);
+		if (Number.isFinite(raw) && raw > 0) {
+			state.inputCostPerToken = normalizeCost(raw);
+		}
+	}
+	if (!Number.isFinite(CACHE_READ_COST_PER_MILLION)) {
+		const raw = Number(cost?.cacheRead);
+		if (Number.isFinite(raw) && raw > 0) {
+			state.cacheReadCostPerToken = normalizeCost(raw);
+		}
+	}
+}
+
+function currentModelFromContext(ctx, event) {
+	if (event?.model) return event.model;
+	if (ctx?.model) return ctx.model;
+	if (typeof ctx?.getModel === "function") return ctx.getModel();
+	return null;
+}
+
+function normalizeCost(raw) {
+	// Pi model configs describe cost per token. If a custom provider supplies a
+	// human-style per-million value, keep the statusline estimate sane.
+	return raw > 0.01 ? raw / 1_000_000 : raw;
 }

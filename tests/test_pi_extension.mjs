@@ -39,6 +39,10 @@ function fakePi() {
 		appendEntry(type, data) {
 			this.entries.push({ type, data });
 		},
+		shortcuts: new Map(),
+		registerShortcut(shortcut, definition) {
+			this.shortcuts.set(shortcut, definition);
+		},
 		messages: [],
 		sendMessage(message) {
 			this.messages.push(message);
@@ -205,6 +209,74 @@ async function testReadVisiblePrune() {
 		const prune = requestFn.calls.find((call) => call.op === "prune");
 		assert.equal(prune.session, "s-test");
 		assert.equal(prune.query, "which lines should be kept?");
+	} finally {
+		await stop();
+	}
+}
+
+async function testCostAccountingIsRecordedAtPruneTime() {
+	const requestFn = recordingRequestFn();
+	const { pi, stop } = await installAndStart(BIG_TEXT, requestFn);
+	try {
+		const result = await pi.tools.get("read").execute(
+			"t1",
+			{ path: "x.py", context_focus_question: "which lines should be kept?" },
+			null,
+			null,
+			{},
+		);
+		assert.equal(result.details.needle.decision, "pruned");
+		const first = pi.entries.at(-1).data.counters;
+		assert.ok(first.savedTokensEstimate > 0, "saved token estimate recorded");
+		assert.equal(first.costLowEstimate, null, "no pricing means no cost estimate");
+
+		const ctx = {
+			model: {
+				cost: {
+					input: 0.000010,
+					cacheRead: 0.000001,
+					output: 0,
+					cacheWrite: 0,
+				},
+			},
+			ui: { setStatus() {}, notify() {} },
+		};
+		await pi.handlers.get("model_select")({ model: ctx.model }, ctx);
+		const unchanged = pi.entries.at(-1).data.counters;
+		assert.equal(unchanged.costLowEstimate, null, "switching models does not reprice old prunes");
+		assert.equal(unchanged.costHighEstimate, null, "switching models does not reprice old prunes");
+
+		const pricedResult = await pi.tools.get("read").execute(
+			"t2",
+			{ path: "x.py", context_focus_question: "which lines should be kept?" },
+			null,
+			null,
+			{},
+		);
+		assert.equal(pricedResult.details.needle.decision, "pruned");
+		const priced = pi.entries.at(-1).data.counters;
+		assert.ok(priced.costLowEstimate > 0, "priced prune records low estimate");
+		assert.ok(priced.costHighEstimate > priced.costLowEstimate, "priced prune records high estimate");
+		const costLine = formatStatus(
+			{ needleOn: true, backendStatus: "resident", busyPrunes: 0, counters: priced, statusMode: "cost" },
+			{ columns: 80, nowMs: 0 },
+		);
+		assert.ok(costLine.includes("est input avoided"), `priced cost line: ${costLine}`);
+
+		const recordedLow = priced.costLowEstimate;
+		const recordedHigh = priced.costHighEstimate;
+		const expensiveModel = {
+			cost: {
+				input: 1,
+				cacheRead: 0.5,
+				output: 0,
+				cacheWrite: 0,
+			},
+		};
+		await pi.handlers.get("model_select")({ model: expensiveModel }, { ...ctx, model: expensiveModel });
+		const afterSwitch = pi.entries.at(-1).data.counters;
+		assert.equal(afterSwitch.costLowEstimate, recordedLow, "switching models keeps old low estimate");
+		assert.equal(afterSwitch.costHighEstimate, recordedHigh, "switching models keeps old high estimate");
 	} finally {
 		await stop();
 	}
@@ -651,6 +723,100 @@ function testStatuslineStates() {
 	assert.ok(!failed.includes("/needle off"), `failed state uses status message for off-ramp: ${failed}`);
 }
 
+function testStatuslineModes() {
+	const counters = { calls: 2, savedChars: 4000 };
+	const base = { needleOn: true, backendStatus: "resident", busyPrunes: 0, counters };
+
+	const chars = formatStatus({ ...base, statusMode: "chars" }, { columns: 80, nowMs: 0 });
+	assert.ok(chars.includes("4.0k chars trimmed"), `chars mode: ${chars}`);
+
+	const tokens = formatStatus({ ...base, statusMode: "tokens" }, { columns: 80, nowMs: 0 });
+	assert.ok(tokens.includes("~1.0k input tokens avoided"), `tokens mode: ${tokens}`);
+
+	const costUnavailable = formatStatus({ ...base, statusMode: "cost" }, { columns: 80, nowMs: 0 });
+	assert.ok(costUnavailable.includes("pricing unavailable"), `cost unavailable mode: ${costUnavailable}`);
+	assert.ok(!costUnavailable.includes("input tokens avoided"), `cost unavailable is distinct: ${costUnavailable}`);
+
+	const cost = formatStatus(
+		{
+			...base,
+			statusMode: "cost",
+			counters: {
+				...counters,
+				costLowEstimate: 0.001,
+				costHighEstimate: 0.005,
+			},
+		},
+		{ columns: 80, nowMs: 0 },
+	);
+	assert.ok(cost.includes("~$0.001-$0.005 est input avoided"), `cost mode: ${cost}`);
+
+	const compact = formatStatus({ ...base, statusMode: "compact" }, { columns: 80, nowMs: 0 });
+	assert.ok(compact.includes("4.0kc"), `compact mode: ${compact}`);
+	assert.ok(compact.includes("2p"), `compact mode prunes: ${compact}`);
+}
+
+async function testStatuslineShortcutCyclesMode() {
+	const pi = fakePi();
+	const statuses = [];
+	const notifications = [];
+	const requestFn = recordingRequestFn();
+	installNeedlePiExtension(pi, {
+		createReadTool: fakeToolFactory(BIG_TEXT),
+		createBashTool: fakeToolFactory(BIG_TEXT),
+		requestFn,
+		ensureDaemonFn: async () => true,
+	});
+	const ctx = {
+		model: {
+			cost: {
+				input: 0.000005,
+				cacheRead: 0.000001,
+				output: 0,
+				cacheWrite: 0,
+			},
+		},
+		ui: {
+			setStatus(_key, value) {
+				statuses.push(value);
+			},
+			notify(message, level) {
+				notifications.push({ message, level });
+			},
+		},
+	};
+
+	assert.ok(pi.shortcuts.has("ctrl+shift+n"), "toggle shortcut registered");
+	assert.ok(pi.shortcuts.has("f8"), "toggle fallback shortcut registered");
+	assert.ok(pi.shortcuts.has("ctrl+shift+."), "cycle shortcut registered");
+	assert.ok(pi.shortcuts.has("f9"), "cycle fallback shortcut registered");
+
+	await pi.shortcuts.get("f8").handler(ctx);
+	assert.equal(requestFn.calls.length, 0);
+	assert.ok(statuses.at(-1).includes("needle"), `toggle status updated: ${statuses.at(-1)}`);
+	assert.deepEqual(notifications.at(-1), {
+		message: "needle off: tool output passes through untouched",
+		level: "info",
+	});
+
+	await pi.shortcuts.get("f8").handler(ctx);
+	assert.ok(requestFn.calls.some((call) => call.op === "enable"), "toggle on enables Needle");
+	assert.equal(pi.messages.at(-1).customType, "needle-status");
+
+	await pi.shortcuts.get("f9").handler(ctx);
+
+	assert.ok(statuses.at(-1).includes("input tokens avoided"), `status updated: ${statuses.at(-1)}`);
+	assert.deepEqual(notifications.at(-1), {
+		message: "needle statusline: estimated tokens",
+		level: "info",
+	});
+	assert.equal(pi.entries.at(-1).type, "needle-state");
+	assert.equal(pi.entries.at(-1).data.statusMode, "tokens");
+
+	await pi.shortcuts.get("f9").handler(ctx);
+	assert.ok(statuses.at(-1).includes("pricing unavailable"), `cost mode waits for priced prunes: ${statuses.at(-1)}`);
+}
+
 function testSchemaHelperIdempotent() {
 	const once = withRequiredFocusQuestion({ type: "object", properties: {}, required: [] });
 	const twice = withRequiredFocusQuestion(once);
@@ -719,6 +885,7 @@ async function testClientRequestRejectsClosedConnectionWithoutNewline() {
 async function main() {
 	await testSchemaRequiresFocusQuestion();
 	await testReadVisiblePrune();
+	await testCostAccountingIsRecordedAtPruneTime();
 	await testStatusPollingDecoupledFromAnimationAndThrottled();
 	await testStatusPollingSkipsWhilePruneIsBusy();
 	await testBashEnvelopeSurvivesPruning();
@@ -734,6 +901,8 @@ async function main() {
 	await testNeedleOnPostsTranscriptStatusOnFailure();
 	testSplitEnvelope();
 	testStatuslineStates();
+	testStatuslineModes();
+	await testStatuslineShortcutCyclesMode();
 	testSchemaHelperIdempotent();
 	await testClientRequestSettlesOnFirstLine();
 	await testClientRequestRejectsClosedConnectionWithoutNewline();
