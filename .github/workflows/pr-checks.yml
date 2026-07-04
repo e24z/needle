@@ -51,3 +51,23 @@ jobs:
 
       - name: Build release artifact
         run: bash scripts/package-release.sh --dist /tmp/needle-dist --python python
+
+      - name: Smoke install release artifact
+        run: |
+          host="$(rustc -vV | sed -n 's/^host: //p')"
+          archive="/tmp/needle-dist/needle-${host}.tar.gz"
+          prefix="${RUNNER_TEMP}/needle-install"
+
+          bash site/install.sh \
+            --archive-url "file://${archive}" \
+            --prefix "${prefix}"
+
+          test -x "${prefix}/bin/needle"
+          "${prefix}/bin/needle" --version
+          test -d "${prefix}/share/needle/wheels"
+          test -d "${prefix}/share/needle/pi"
+
+          bash site/install.sh \
+            --archive-url "file://${archive}" \
+            --prefix "${RUNNER_TEMP}/needle-install-dry" \
+            --dry-run
