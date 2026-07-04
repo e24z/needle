@@ -19,7 +19,7 @@ const BASH_TOOL = "bash";
 const MIN_CHARS = Number.parseInt(process.env.NEEDLE_MIN_CHARS ?? "200", 10);
 const PRUNE_TIMEOUT_MS = envSecs("NEEDLE_PRUNE_TIMEOUT_SECS", 300) * 1000;
 const HEARTBEAT_MS = envSecs("NEEDLE_HEARTBEAT_INTERVAL", 30) * 1000;
-const STATUS_POLL_MS = envSecs("NEEDLE_STATUS_POLL_SECS", 1) * 1000;
+const STATUS_POLL_MS = envSecs("NEEDLE_STATUS_POLL_SECS", 5) * 1000;
 const ANIMATION_MS = envSecs("NEEDLE_ANIMATION_INTERVAL_SECS", 0.4) * 1000;
 const CUSTOM_STATE = "needle-state";
 const SEP = " · ";
@@ -53,10 +53,14 @@ export function installNeedlePiExtension(pi, options = {}) {
 		counters: emptyCounters(),
 		requestFn: options.requestFn || request,
 		ensureDaemonFn: options.ensureDaemonFn || ensureDaemon,
+		nowFn: options.nowFn || (() => Date.now()),
 		enablePromise: null,
+		lastStatusPollMs: Number.NEGATIVE_INFINITY,
+		statusPollInFlight: false,
 	};
 	let heartbeatTimer;
-	let statusTimer;
+	let statusPollTimer;
+	let animationTimer;
 
 	registerNeedleCommand(pi, state);
 	registerOverride(pi, state, options.createReadTool, READ_TOOL);
@@ -75,16 +79,19 @@ export function installNeedlePiExtension(pi, options = {}) {
 				state.requestFn("heartbeat", { session: state.sessionId }).catch(() => undefined);
 			}
 		}, HEARTBEAT_MS);
-		statusTimer = setInterval(() => {
+		statusPollTimer = setInterval(() => {
 			pollStatus(state).catch(() => undefined);
+		}, STATUS_POLL_MS);
+		animationTimer = setInterval(() => {
 			renderStatus(ctx, state);
-		}, Math.min(STATUS_POLL_MS, ANIMATION_MS));
+		}, ANIMATION_MS);
 		renderStatus(ctx, state);
 	});
 
 	pi.on("session_shutdown", async () => {
 		if (heartbeatTimer) clearInterval(heartbeatTimer);
-		if (statusTimer) clearInterval(statusTimer);
+		if (statusPollTimer) clearInterval(statusPollTimer);
+		if (animationTimer) clearInterval(animationTimer);
 		if (state.sessionId && state.needleOn) {
 			await state.requestFn("disable", { session: state.sessionId }).catch(() => undefined);
 		}
@@ -131,6 +138,12 @@ async function enableNeedle(state) {
 
 async function pollStatus(state) {
 	if (!state.needleOn) return;
+	if (state.busyPrunes > 0) return;
+	if (state.statusPollInFlight) return;
+	const now = state.nowFn();
+	if (now - state.lastStatusPollMs < STATUS_POLL_MS) return;
+	state.lastStatusPollMs = now;
+	state.statusPollInFlight = true;
 	try {
 		const response = await state.requestFn("status", {}, { timeoutMs: 1000 });
 		if (response?.ok && response.backend_status) {
@@ -141,6 +154,8 @@ async function pollStatus(state) {
 		// Daemon gone (campfire out, crash): visible, not fatal — the next
 		// tool call re-lights it.
 		if (state.backendStatus === "resident") state.backendStatus = "cold";
+	} finally {
+		state.statusPollInFlight = false;
 	}
 }
 

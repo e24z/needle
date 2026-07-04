@@ -4,6 +4,9 @@
 // Run: node tests/test_pi_extension.mjs
 
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import net from "node:net";
+import path from "node:path";
 
 import {
 	decideStatusState,
@@ -13,6 +16,7 @@ import {
 	splitEnvelope,
 	withRequiredFocusQuestion,
 } from "../pi/extension.js";
+import { request as clientRequest } from "../pi/client.mjs";
 
 const BIG_TEXT = "keep drop\n".repeat(40).trim(); // ~400 chars, above MIN_CHARS
 const ENVELOPE = "\n\n[Showing lines 1-40 of 400. Full output: /tmp/pi-bash-x]";
@@ -106,6 +110,46 @@ function recordingRequestFn({
 	return fn;
 }
 
+function deferred() {
+	let resolve;
+	let reject;
+	const promise = new Promise((resolveFn, rejectFn) => {
+		resolve = resolveFn;
+		reject = rejectFn;
+	});
+	return { promise, resolve, reject };
+}
+
+async function flushMicrotasks(count = 5) {
+	for (let i = 0; i < count; i += 1) await Promise.resolve();
+}
+
+async function withFakeIntervals(fn) {
+	const originalSetInterval = globalThis.setInterval;
+	const originalClearInterval = globalThis.clearInterval;
+	const timers = [];
+	globalThis.setInterval = (callback, delay, ...args) => {
+		const timer = { callback, delay, args, cleared: false };
+		timers.push(timer);
+		return timer;
+	};
+	globalThis.clearInterval = (timer) => {
+		if (timer) timer.cleared = true;
+	};
+	try {
+		return await fn(timers);
+	} finally {
+		globalThis.setInterval = originalSetInterval;
+		globalThis.clearInterval = originalClearInterval;
+	}
+}
+
+function findTimer(timers, predicate) {
+	const timer = timers.find((candidate) => !candidate.cleared && predicate(candidate));
+	assert.ok(timer, `expected timer among delays: ${timers.map((item) => item.delay).join(", ")}`);
+	return timer;
+}
+
 async function installAndStart(text, requestFn, options = {}) {
 	const pi = fakePi();
 	installNeedlePiExtension(pi, {
@@ -113,6 +157,7 @@ async function installAndStart(text, requestFn, options = {}) {
 		createBashTool: options.createBashTool || fakeToolFactory(text),
 		requestFn,
 		ensureDaemonFn: async () => true,
+		nowFn: options.nowFn,
 	});
 	const ctx = {
 		sessionManager: { getSessionId: () => "s-test", getEntries: () => [] },
@@ -163,6 +208,114 @@ async function testReadVisiblePrune() {
 	} finally {
 		await stop();
 	}
+}
+
+async function testStatusPollingDecoupledFromAnimationAndThrottled() {
+	await withFakeIntervals(async (timers) => {
+		let now = 0;
+		let statusRequests = 0;
+		const statusGate = deferred();
+		const requestFn = async (op) => {
+			if (op === "enable") return { ok: true, backend_status: "resident" };
+			if (op === "status") {
+				statusRequests += 1;
+				await statusGate.promise;
+				return { ok: true, mode: "on", backend_status: "resident", sessions: 1 };
+			}
+			return { ok: true };
+		};
+		const { stop } = await installAndStart(BIG_TEXT, requestFn, { nowFn: () => now });
+		try {
+			await flushMicrotasks();
+			const animationTimer = findTimer(timers, (timer) => timer.delay < 1000);
+			const statusTimer = findTimer(
+				timers,
+				(timer) => timer.delay > animationTimer.delay && timer.delay < 30_000,
+			);
+			assert.ok(statusTimer.delay > animationTimer.delay, "status polling is slower than repaint");
+
+			for (let i = 0; i < 10; i += 1) {
+				now += animationTimer.delay;
+				animationTimer.callback(...animationTimer.args);
+			}
+			assert.equal(statusRequests, 0, "animation ticks do not hit the daemon");
+
+			statusTimer.callback(...statusTimer.args);
+			statusTimer.callback(...statusTimer.args);
+			statusTimer.callback(...statusTimer.args);
+			await flushMicrotasks();
+			assert.equal(statusRequests, 1, "burst status ticks collapse while one poll is in flight");
+
+			statusGate.resolve();
+			await flushMicrotasks();
+			now += statusTimer.delay - 1;
+			statusTimer.callback(...statusTimer.args);
+			await flushMicrotasks();
+			assert.equal(statusRequests, 1, "status polling is throttled by the last checked time");
+
+			now += 1;
+			statusTimer.callback(...statusTimer.args);
+			await flushMicrotasks();
+			assert.equal(statusRequests, 2, "status polling resumes after the poll interval");
+		} finally {
+			statusGate.resolve();
+			await stop();
+		}
+	});
+}
+
+async function testStatusPollingSkipsWhilePruneIsBusy() {
+	await withFakeIntervals(async (timers) => {
+		let now = 0;
+		let statusRequests = 0;
+		const pruneGate = deferred();
+		const pruneStarted = deferred();
+		const requestFn = async (op, fields = {}) => {
+			if (op === "enable") return { ok: true, backend_status: "resident" };
+			if (op === "status") {
+				statusRequests += 1;
+				return { ok: true, mode: "on", backend_status: "resident", sessions: 1 };
+			}
+			if (op === "prune") {
+				pruneStarted.resolve();
+				await pruneGate.promise;
+				return {
+					ok: true,
+					backend_status: "resident",
+					decision: "pruned",
+					reason: "model",
+					text: fields.text.replaceAll(" drop", ""),
+				};
+			}
+			return { ok: true };
+		};
+		const { pi, stop } = await installAndStart(BIG_TEXT, requestFn, { nowFn: () => now });
+		let toolPromise;
+		try {
+			await flushMicrotasks();
+			const statusTimer = findTimer(timers, (timer) => timer.delay > 1000 && timer.delay < 30_000);
+			toolPromise = pi.tools.get("read").execute(
+				"t1",
+				{ path: "x.py", context_focus_question: "which lines survive?" },
+				null,
+				null,
+				{},
+			);
+			await pruneStarted.promise;
+			now += statusTimer.delay;
+			statusTimer.callback(...statusTimer.args);
+			await flushMicrotasks();
+			assert.equal(statusRequests, 0, "status poll skipped while prune is busy");
+
+			pruneGate.resolve();
+			const result = await toolPromise;
+			assert.equal(result.details.needle.decision, "pruned");
+		} finally {
+			pruneGate.resolve();
+			if (toolPromise) await toolPromise.catch(() => undefined);
+			await stop();
+		}
+	});
 }
 
 async function testBashEnvelopeSurvivesPruning() {
@@ -450,9 +603,66 @@ function testSchemaHelperIdempotent() {
 	);
 }
 
+async function withSocketServer(handler, fn) {
+	const scratch = mkdtempSync("/tmp/needle-client-");
+	const socketPath = path.join(scratch, "needle.sock");
+	const sockets = new Set();
+	const server = net.createServer((socket) => {
+		sockets.add(socket);
+		socket.on("close", () => sockets.delete(socket));
+		handler(socket);
+	});
+	await new Promise((resolve, reject) => {
+		server.once("error", reject);
+		server.listen(socketPath, resolve);
+	});
+	const previousSocket = process.env.NEEDLE_SOCKET;
+	process.env.NEEDLE_SOCKET = socketPath;
+	try {
+		return await fn();
+	} finally {
+		if (previousSocket === undefined) delete process.env.NEEDLE_SOCKET;
+		else process.env.NEEDLE_SOCKET = previousSocket;
+		for (const socket of sockets) socket.destroy();
+		await new Promise((resolve) => server.close(resolve));
+		rmSync(scratch, { recursive: true, force: true });
+	}
+}
+
+async function testClientRequestSettlesOnFirstLine() {
+	await withSocketServer((socket) => {
+		socket.on("error", () => undefined);
+		socket.on("data", () => {
+			socket.write('{"ok":true,"first":true}\n');
+			socket.write('this is not json\n');
+			setImmediate(() => socket.destroy(new Error("late reset")));
+		});
+	}, async () => {
+		const response = await clientRequest("status", {}, { timeoutMs: 1000 });
+		assert.deepEqual(response, { ok: true, first: true });
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	});
+}
+
+async function testClientRequestRejectsClosedConnectionWithoutNewline() {
+	await withSocketServer((socket) => {
+		socket.on("data", () => {
+			socket.write('{"ok":true');
+			socket.end();
+		});
+	}, async () => {
+		await assert.rejects(
+			() => clientRequest("status", {}, { timeoutMs: 1000 }),
+			/connection (ended|closed) before response/,
+		);
+	});
+}
+
 async function main() {
 	await testSchemaRequiresFocusQuestion();
 	await testReadVisiblePrune();
+	await testStatusPollingDecoupledFromAnimationAndThrottled();
+	await testStatusPollingSkipsWhilePruneIsBusy();
 	await testBashEnvelopeSurvivesPruning();
 	await testMissingFocusQuestionIsLoud();
 	await testPruneFailureIsLoud();
@@ -466,6 +676,8 @@ async function main() {
 	testSplitEnvelope();
 	testStatuslineStates();
 	testSchemaHelperIdempotent();
+	await testClientRequestSettlesOnFirstLine();
+	await testClientRequestRejectsClosedConnectionWithoutNewline();
 	console.log("test_pi_extension OK");
 }
 

@@ -44,30 +44,66 @@ export function needlePaths() {
 export function request(op, fields = {}, { timeoutMs = 5000 } = {}) {
 	return new Promise((resolve, reject) => {
 		const socket = net.createConnection(socketPath());
+		let settled = false;
 		const timer = setTimeout(() => {
-			socket.destroy();
-			reject(new Error("timeout"));
+			settle(false, new Error("timeout"), { destroy: true });
 		}, timeoutMs);
 		let buffer = "";
-		socket.on("connect", () => {
+
+		function ignoreLateError() {}
+
+		function cleanup() {
+			clearTimeout(timer);
+			socket.off("connect", onConnect);
+			socket.off("data", onData);
+			socket.off("error", onError);
+			socket.off("end", onEnd);
+			socket.off("close", onClose);
+			socket.on("error", ignoreLateError);
+		}
+
+		function settle(ok, value, { destroy = false } = {}) {
+			if (settled) return;
+			settled = true;
+			cleanup();
+			if (destroy) socket.destroy();
+			else socket.end();
+			if (ok) resolve(value);
+			else reject(value);
+		}
+
+		function onConnect() {
 			socket.write(`${JSON.stringify({ op, ...fields })}\n`);
-		});
-		socket.on("data", (chunk) => {
+		}
+
+		function onData(chunk) {
 			buffer += chunk.toString("utf8");
 			const newline = buffer.indexOf("\n");
 			if (newline === -1) return;
-			clearTimeout(timer);
-			socket.end();
 			try {
-				resolve(JSON.parse(buffer.slice(0, newline)));
+				settle(true, JSON.parse(buffer.slice(0, newline)));
 			} catch (error) {
-				reject(error);
+				settle(false, error);
 			}
-		});
-		socket.on("error", (error) => {
-			clearTimeout(timer);
-			reject(error);
-		});
+		}
+
+		function onError(error) {
+			settle(false, error, { destroy: true });
+		}
+
+		function onEnd() {
+			settle(false, new Error("connection ended before response"));
+		}
+
+		function onClose() {
+			settle(false, new Error("connection closed before response"));
+		}
+
+		socket.on("connect", onConnect);
+		socket.on("data", onData);
+		socket.on("error", onError);
+		socket.on("end", onEnd);
+		socket.on("close", onClose);
 	});
 }
 
