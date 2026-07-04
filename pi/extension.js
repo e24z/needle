@@ -400,10 +400,12 @@ function registerNeedleCommand(pi, state) {
 				state.needleOn = true;
 				state.enablePromise = null;
 				const ok = await ensureEnabled(state);
-				ctx.ui?.notify?.(
-					ok ? "needle on: model resident" : `needle failed: ${state.lastError}`,
-					ok ? "info" : "error",
-				);
+				const content = await buildOnMessage(state, ok);
+				if (typeof pi.sendMessage === "function") {
+					pi.sendMessage({ customType: "needle-status", content, display: true });
+				} else {
+					ctx.ui?.notify?.(content, ok ? "info" : "error");
+				}
 				return;
 			}
 			if (sub === "original") {
@@ -423,6 +425,11 @@ function registerNeedleCommand(pi, state) {
 			}
 		},
 	});
+}
+
+async function buildOnMessage(state, ok) {
+	const status = await buildStatusMessage(state);
+	return `${ok ? "needle: on" : "needle: on failed"}\n${status}`;
 }
 
 async function buildStatusMessage(state) {

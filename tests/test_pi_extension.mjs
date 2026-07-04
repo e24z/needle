@@ -4,7 +4,7 @@
 // Run: node tests/test_pi_extension.mjs
 
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 
@@ -557,6 +557,58 @@ async function testNeedleOriginalCommand() {
 	}
 }
 
+async function testNeedleOnPostsTranscriptStatusOnFailure() {
+	const scratch = mkdtempSync("/tmp/needle-on-command-");
+	const fakeNeedle = path.join(scratch, "needle");
+	writeFileSync(
+		fakeNeedle,
+		"#!/bin/sh\n" +
+			"if [ \"$1\" = paths ] && [ \"$2\" = --json ]; then\n" +
+			"  echo '{\"home\":\"/tmp/needle-test-home\",\"socket\":\"/tmp/needle-test.sock\",\"config\":\"/tmp/needle-test-home/config.json\"}'\n" +
+			"  exit 0\n" +
+			"fi\n" +
+			"exit 1\n",
+	);
+	chmodSync(fakeNeedle, 0o755);
+	const previousNeedleBin = process.env.NEEDLE_BIN;
+	process.env.NEEDLE_BIN = fakeNeedle;
+	const pi = fakePi();
+	const notifications = [];
+	const requestFn = async (op) => {
+		if (op === "status") throw new Error("socket unavailable");
+		return { ok: true };
+	};
+	installNeedlePiExtension(pi, {
+		createReadTool: fakeToolFactory(BIG_TEXT),
+		createBashTool: fakeToolFactory(BIG_TEXT),
+		requestFn,
+		ensureDaemonFn: async () => false,
+	});
+	const ctx = {
+		ui: {
+			setStatus() {},
+			notify(message, level) {
+				notifications.push({ message, level });
+			},
+		},
+	};
+
+	try {
+		await pi.commands.get("needle").handler("on", ctx);
+	} finally {
+		if (previousNeedleBin === undefined) delete process.env.NEEDLE_BIN;
+		else process.env.NEEDLE_BIN = previousNeedleBin;
+		rmSync(scratch, { recursive: true, force: true });
+	}
+
+	const message = pi.messages.at(-1);
+	assert.equal(message.customType, "needle-status");
+	assert.equal(message.display, true);
+	assert.ok(message.content.startsWith("needle: on failed"), message.content);
+	assert.ok(message.content.includes("last error: needle daemon did not start"), message.content);
+	assert.deepEqual(notifications, [], "sendMessage avoids transient-only notifications");
+}
+
 function testSplitEnvelope() {
 	const { payload, envelope } = splitEnvelope(BIG_TEXT + ENVELOPE);
 	assert.equal(payload, BIG_TEXT);
@@ -673,6 +725,7 @@ async function main() {
 	await testSmallObservationsSkipped();
 	await testUnchangedDecisionKeepsOriginal();
 	await testNeedleOriginalCommand();
+	await testNeedleOnPostsTranscriptStatusOnFailure();
 	testSplitEnvelope();
 	testStatuslineStates();
 	testSchemaHelperIdempotent();
