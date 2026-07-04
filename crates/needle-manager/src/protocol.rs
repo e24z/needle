@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::io;
+use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -50,6 +51,7 @@ pub enum WorkerError {
     Io(io::Error),
     Json(serde_json::Error),
     Protocol(String),
+    Timeout(Duration),
     Worker(String),
 }
 
@@ -62,6 +64,13 @@ impl fmt::Display for WorkerError {
             WorkerError::Io(error) => write!(f, "worker I/O failed: {error}"),
             WorkerError::Json(error) => write!(f, "worker JSON failed: {error}"),
             WorkerError::Protocol(message) => write!(f, "worker protocol error: {message}"),
+            WorkerError::Timeout(timeout) => {
+                write!(
+                    f,
+                    "worker response timed out after {} seconds",
+                    timeout.as_secs()
+                )
+            }
             WorkerError::Worker(message) => write!(f, "worker failed: {message}"),
         }
     }
@@ -75,6 +84,7 @@ impl Error for WorkerError {
             WorkerError::MemoryPressure(_)
             | WorkerError::MissingPipe(_)
             | WorkerError::Protocol(_)
+            | WorkerError::Timeout(_)
             | WorkerError::Worker(_) => None,
         }
     }

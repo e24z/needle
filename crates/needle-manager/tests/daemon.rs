@@ -6,7 +6,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 const FAKE_WORKER: &str = r#"
@@ -44,6 +44,44 @@ for line in sys.stdin:
         break
 "#;
 
+const HANGING_WORKER: &str = r#"
+import json
+import sys
+import time
+
+for line in sys.stdin:
+    request = json.loads(line)
+    request_id = request.get("id")
+    op = request.get("op")
+    if op == "load":
+        time.sleep(60)
+    elif op == "exit":
+        response = {"id": request_id, "ok": True, "status": "cold"}
+        print(json.dumps(response, separators=(",", ":")), flush=True)
+        break
+"#;
+
+const SELF_EXITING_WORKER: &str = r#"
+import json
+import sys
+
+for line in sys.stdin:
+    request = json.loads(line)
+    request_id = request.get("id")
+    op = request.get("op")
+    if op == "load":
+        response = {"id": request_id, "ok": True, "status": "resident", "backend": "fake-soft-lamr"}
+        print(json.dumps(response, separators=(",", ":")), flush=True)
+        sys.exit(0)
+    elif op == "exit":
+        response = {"id": request_id, "ok": True, "status": "cold"}
+        print(json.dumps(response, separators=(",", ":")), flush=True)
+        break
+    else:
+        response = {"id": request_id, "ok": False, "status": "failed", "error": "unexpected op"}
+        print(json.dumps(response, separators=(",", ":")), flush=True)
+"#;
+
 struct DaemonUnderTest {
     child: Child,
     socket: PathBuf,
@@ -51,6 +89,15 @@ struct DaemonUnderTest {
 
 impl DaemonUnderTest {
     fn start(label: &str, lease_ttl_secs: u64) -> Self {
+        Self::start_with_worker(label, lease_ttl_secs, FAKE_WORKER, &[])
+    }
+
+    fn start_with_worker(
+        label: &str,
+        lease_ttl_secs: u64,
+        worker_script: &str,
+        extra_env: &[(&str, &str)],
+    ) -> Self {
         let dir =
             // Short prefix: socket paths must stay under the ~104-byte macOS
             // sun_path limit even with runtime/needle.sock appended.
@@ -58,12 +105,13 @@ impl DaemonUnderTest {
         let package = dir.join("pythonpath").join("needle_worker");
         std::fs::create_dir_all(&package).expect("create fake package");
         std::fs::write(package.join("__init__.py"), "").expect("write __init__");
-        std::fs::write(package.join("__main__.py"), FAKE_WORKER).expect("write __main__");
+        std::fs::write(package.join("__main__.py"), worker_script).expect("write __main__");
         // A subdir the daemon must create itself, mirroring the default
         // NEEDLE_HOME/runtime layout (created dirs get locked to 0700).
         let socket = dir.join("runtime").join("needle.sock");
 
-        let child = Command::new(env!("CARGO_BIN_EXE_needle"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_needle"));
+        command
             .args([
                 "daemon",
                 "--socket",
@@ -75,9 +123,11 @@ impl DaemonUnderTest {
             .env("NEEDLE_COLD_LOAD_MIN_AVAILABLE_MB", "0")
             .env_remove("NEEDLE_PYTHON")
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .expect("spawn daemon");
+            .stderr(Stdio::inherit());
+        for (key, value) in extra_env {
+            command.env(key, value);
+        }
+        let child = command.spawn().expect("spawn daemon");
 
         let daemon = Self { child, socket };
         daemon.wait_for_socket();
@@ -96,20 +146,22 @@ impl DaemonUnderTest {
     }
 
     fn connect(&self) -> Connection {
-        Connection {
-            stream: UnixStream::connect(&self.socket).expect("connect to daemon"),
-        }
+        Connection::new(UnixStream::connect(&self.socket).expect("connect to daemon"))
     }
 
     fn wait_for_exit(&mut self, timeout: Duration) -> bool {
+        self.wait_for_status(timeout).is_some()
+    }
+
+    fn wait_for_status(&mut self, timeout: Duration) -> Option<ExitStatus> {
         let deadline = Instant::now() + timeout;
         while Instant::now() < deadline {
-            if let Ok(Some(_)) = self.child.try_wait() {
-                return true;
+            if let Ok(Some(status)) = self.child.try_wait() {
+                return Some(status);
             }
             std::thread::sleep(Duration::from_millis(50));
         }
-        false
+        None
     }
 }
 
@@ -125,6 +177,16 @@ struct Connection {
 }
 
 impl Connection {
+    fn new(stream: UnixStream) -> Self {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(20)))
+            .expect("set read timeout");
+        stream
+            .set_write_timeout(Some(Duration::from_secs(20)))
+            .expect("set write timeout");
+        Self { stream }
+    }
+
     fn request(&mut self, request: Value) -> Value {
         let mut line = request.to_string();
         line.push('\n');
@@ -196,6 +258,61 @@ fn expired_lease_puts_the_campfire_out() {
 }
 
 #[test]
+fn hung_worker_load_times_out_loudly() {
+    let daemon = DaemonUnderTest::start_with_worker(
+        "hung-load",
+        90,
+        HANGING_WORKER,
+        &[("NEEDLE_WORKER_OP_TIMEOUT_SECS", "1")],
+    );
+    let mut conn = daemon.connect();
+
+    let started = Instant::now();
+    let enabled = conn.request(json!({"op": "enable", "session": "s1"}));
+
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "enable did not respect worker response timeout"
+    );
+    assert_eq!(enabled["ok"], false, "enable: {enabled}");
+    assert!(
+        enabled["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("timed out"),
+        "enable: {enabled}"
+    );
+    assert_eq!(enabled["backend_status"], "failed");
+
+    let status = conn.request(json!({"op": "status"}));
+    assert_eq!(status["mode"], "on");
+    assert_eq!(status["backend_status"], "failed");
+}
+
+#[test]
+fn status_cache_reflects_silently_exited_worker() {
+    let daemon = DaemonUnderTest::start_with_worker("self-exit", 3, SELF_EXITING_WORKER, &[]);
+    let mut conn = daemon.connect();
+
+    let enabled = conn.request(json!({"op": "enable", "session": "s1"}));
+    assert_eq!(enabled["ok"], true, "enable: {enabled}");
+    assert_eq!(enabled["backend_status"], "resident");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while Instant::now() < deadline {
+        let _ = conn.request(json!({"op": "heartbeat", "session": "s1"}));
+        let status = conn.request(json!({"op": "status"}));
+        if status["backend_status"] == "failed" {
+            assert_eq!(status["mode"], "on");
+            assert_eq!(status["sessions"], 1);
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("status cache never observed the exited worker");
+}
+
+#[test]
 fn control_ops_answer_during_slow_prune() {
     let daemon = DaemonUnderTest::start("liveness", 90);
     let mut conn = daemon.connect();
@@ -206,9 +323,7 @@ fn control_ops_answer_during_slow_prune() {
 
     let socket = daemon.socket.clone();
     let slow = std::thread::spawn(move || {
-        let mut conn = Connection {
-            stream: UnixStream::connect(&socket).expect("connect"),
-        };
+        let mut conn = Connection::new(UnixStream::connect(&socket).expect("connect"));
         conn.request(json!({
             "op": "prune", "session": "s1",
             "text": "SLOW keep drop", "query": "keep relevant code",
@@ -310,4 +425,23 @@ fn status_cli_reports_running_and_absent_daemons() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     assert!(stdout.contains("no daemon running"), "stdout: {stdout}");
+}
+
+#[test]
+fn sigterm_runs_graceful_shutdown_and_removes_socket() {
+    let mut daemon = DaemonUnderTest::start("sigterm", 90);
+    let mut conn = daemon.connect();
+    assert_eq!(
+        conn.request(json!({"op": "enable", "session": "s1"}))["ok"],
+        true
+    );
+
+    let rc = unsafe { libc::kill(daemon.child.id() as libc::pid_t, libc::SIGTERM) };
+    assert_eq!(rc, 0, "kill failed: {}", std::io::Error::last_os_error());
+
+    let status = daemon
+        .wait_for_status(Duration::from_secs(5))
+        .expect("daemon should exit after SIGTERM");
+    assert!(status.success(), "daemon exit status: {status}");
+    assert!(!daemon.socket.exists(), "socket removed on SIGTERM");
 }

@@ -4,6 +4,12 @@ use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
+
+const WORKER_OP_TIMEOUT_ENV: &str = "NEEDLE_WORKER_OP_TIMEOUT_SECS";
+const DEFAULT_WORKER_OP_TIMEOUT_SECS: u64 = 600;
 
 #[derive(Clone, Debug)]
 pub(crate) struct WorkerCommand {
@@ -83,10 +89,12 @@ impl WorkerCommand {
             .stdout
             .take()
             .ok_or(WorkerError::MissingPipe("stdout"))?;
+        let (responses, reader) = spawn_stdout_reader(stdout);
         Ok(WorkerProcess {
             child,
             stdin,
-            stdout: BufReader::new(stdout),
+            responses,
+            reader: Some(reader),
         })
     }
 }
@@ -113,13 +121,66 @@ fn dev_python_path() -> Option<OsString> {
 struct WorkerProcess {
     child: Child,
     stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
+    responses: Receiver<WorkerRead>,
+    reader: Option<JoinHandle<()>>,
+}
+
+enum WorkerRead {
+    Line(String),
+    Eof,
+    Io(std::io::Error),
+}
+
+fn spawn_stdout_reader(stdout: ChildStdout) -> (Receiver<WorkerRead>, JoinHandle<()>) {
+    let (tx, rx) = mpsc::channel();
+    let reader = thread::spawn(move || {
+        let mut stdout = BufReader::new(stdout);
+        loop {
+            let mut line = String::new();
+            match stdout.read_line(&mut line) {
+                Ok(0) => {
+                    let _ = tx.send(WorkerRead::Eof);
+                    break;
+                }
+                Ok(_) => {
+                    if tx.send(WorkerRead::Line(line)).is_err() {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    let _ = tx.send(WorkerRead::Io(error));
+                    break;
+                }
+            }
+        }
+    });
+    (rx, reader)
+}
+
+impl WorkerProcess {
+    fn kill_and_wait(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        self.join_reader();
+    }
+
+    fn wait_and_join(&mut self) {
+        let _ = self.child.wait();
+        self.join_reader();
+    }
+
+    fn join_reader(&mut self) {
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+    }
 }
 
 pub(crate) struct Worker {
     status: BackendStatus,
     next_id: u64,
     command: WorkerCommand,
+    response_timeout: Duration,
     process: Option<WorkerProcess>,
 }
 
@@ -133,6 +194,21 @@ impl Worker {
             status: BackendStatus::Cold,
             next_id: 1,
             command,
+            response_timeout: worker_response_timeout(),
+            process: None,
+        }
+    }
+
+    #[cfg(test)]
+    fn with_command_and_response_timeout(
+        command: WorkerCommand,
+        response_timeout: Duration,
+    ) -> Self {
+        Self {
+            status: BackendStatus::Cold,
+            next_id: 1,
+            command,
+            response_timeout,
             process: None,
         }
     }
@@ -193,6 +269,9 @@ impl Worker {
             self.status = BackendStatus::Cold;
             return Ok(());
         }
+        if self.status == BackendStatus::Cold {
+            return Ok(());
+        }
         let id = self.next_request_id();
         let response = self.send(WorkerRequest::Unload { id })?;
         self.apply_status(&response);
@@ -208,10 +287,29 @@ impl Worker {
     pub(crate) fn stop(&mut self) {
         let _ = self.shutdown();
         if let Some(mut process) = self.process.take() {
-            let _ = process.child.kill();
-            let _ = process.child.wait();
+            process.kill_and_wait();
         }
         self.status = BackendStatus::Cold;
+    }
+
+    pub(crate) fn reap_exited_child(&mut self) -> bool {
+        let Some(process) = self.process.as_mut() else {
+            return false;
+        };
+        match process.child.try_wait() {
+            Ok(Some(_)) => {
+                if let Some(mut process) = self.process.take() {
+                    process.join_reader();
+                }
+                self.status = BackendStatus::Failed;
+                true
+            }
+            Ok(None) => false,
+            Err(_) => {
+                self.status = BackendStatus::Failed;
+                true
+            }
+        }
     }
 
     fn shutdown(&mut self) -> Result<(), WorkerError> {
@@ -223,7 +321,7 @@ impl Worker {
         let response = self.send(WorkerRequest::Exit { id })?;
         self.apply_status(&response);
         if let Some(mut process) = self.process.take() {
-            let _ = process.child.wait();
+            process.wait_and_join();
         }
         if response.ok {
             Ok(())
@@ -262,21 +360,38 @@ impl Worker {
 
     fn send_inner(&mut self, request: WorkerRequest) -> Result<WorkerResponse, WorkerError> {
         let expected_id = request.id();
-        let process = self.process()?;
-        serde_json::to_writer(&mut process.stdin, &request).map_err(WorkerError::Json)?;
-        process.stdin.write_all(b"\n").map_err(WorkerError::Io)?;
-        process.stdin.flush().map_err(WorkerError::Io)?;
+        let timeout = self.response_timeout;
+        let read = {
+            let process = self.process()?;
+            serde_json::to_writer(&mut process.stdin, &request).map_err(WorkerError::Json)?;
+            process.stdin.write_all(b"\n").map_err(WorkerError::Io)?;
+            process.stdin.flush().map_err(WorkerError::Io)?;
+            process.responses.recv_timeout(timeout)
+        };
 
-        let mut line = String::new();
-        let bytes = process
-            .stdout
-            .read_line(&mut line)
-            .map_err(WorkerError::Io)?;
-        if bytes == 0 {
-            return Err(WorkerError::Protocol(
-                "worker exited before sending a response".to_string(),
-            ));
-        }
+        let line = match read {
+            Ok(WorkerRead::Line(line)) => line,
+            Ok(WorkerRead::Eof) => {
+                self.kill_process();
+                return Err(WorkerError::Protocol(
+                    "worker exited before sending a response".to_string(),
+                ));
+            }
+            Ok(WorkerRead::Io(error)) => {
+                self.kill_process();
+                return Err(WorkerError::Io(error));
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                self.kill_process();
+                return Err(WorkerError::Timeout(timeout));
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                self.kill_process();
+                return Err(WorkerError::Protocol(
+                    "worker stdout reader stopped before sending a response".to_string(),
+                ));
+            }
+        };
 
         let response: WorkerResponse = serde_json::from_str(&line).map_err(WorkerError::Json)?;
         if response.id != Some(expected_id) {
@@ -288,6 +403,12 @@ impl Worker {
         Ok(response)
     }
 
+    fn kill_process(&mut self) {
+        if let Some(mut process) = self.process.take() {
+            process.kill_and_wait();
+        }
+    }
+
     fn apply_status(&mut self, response: &WorkerResponse) {
         if let Some(status) = response.status {
             self.status = BackendStatus::from(status);
@@ -297,12 +418,20 @@ impl Worker {
     }
 }
 
+fn worker_response_timeout() -> Duration {
+    std::env::var(WORKER_OP_TIMEOUT_ENV)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(DEFAULT_WORKER_OP_TIMEOUT_SECS))
+}
+
 impl Drop for Worker {
     fn drop(&mut self) {
         let _ = self.shutdown();
         if let Some(mut process) = self.process.take() {
-            let _ = process.child.kill();
-            let _ = process.child.wait();
+            process.kill_and_wait();
         }
     }
 }
@@ -356,8 +485,95 @@ for line in sys.stdin:
         response = {"id": request_id, "ok": False, "status": "failed", "error": "bad op"}
     print(json.dumps(response, separators=(",", ":")), flush=True)
 "#;
+    python_script_command("fake", label, script)
+}
+
+#[cfg(test)]
+pub(crate) fn hanging_worker_command(label: &str) -> WorkerCommand {
+    let script = r#"
+import json
+import sys
+import time
+
+for line in sys.stdin:
+    request = json.loads(line)
+    if request.get("op") == "load":
+        time.sleep(60)
+    elif request.get("op") == "exit":
+        break
+"#;
+    python_script_command("hanging", label, script)
+}
+
+#[cfg(test)]
+pub(crate) fn self_exiting_worker_command(label: &str) -> WorkerCommand {
+    let script = r#"
+import json
+import sys
+
+for line in sys.stdin:
+    request = json.loads(line)
+    request_id = request.get("id")
+    op = request.get("op")
+    if op == "load":
+        response = {"id": request_id, "ok": True, "status": "resident", "backend": "fake"}
+        print(json.dumps(response, separators=(",", ":")), flush=True)
+        sys.exit(0)
+    elif op == "exit":
+        response = {"id": request_id, "ok": True, "status": "cold"}
+        print(json.dumps(response, separators=(",", ":")), flush=True)
+        break
+    else:
+        response = {"id": request_id, "ok": False, "status": "failed", "error": "unexpected op"}
+        print(json.dumps(response, separators=(",", ":")), flush=True)
+"#;
+    python_script_command("self-exiting", label, script)
+}
+
+#[cfg(test)]
+pub(crate) fn counting_unload_worker_command(
+    label: &str,
+    log_path: &std::path::Path,
+) -> WorkerCommand {
+    let script = r#"
+import json
+import os
+import sys
+import time
+
+loaded = False
+
+for line in sys.stdin:
+    request = json.loads(line)
+    request_id = request.get("id")
+    op = request.get("op")
+    if op == "load":
+        loaded = True
+        response = {"id": request_id, "ok": True, "status": "resident", "backend": "fake"}
+    elif op == "unload":
+        with open(os.environ["NEEDLE_UNLOAD_LOG"], "a", encoding="utf-8") as handle:
+            handle.write("unload\n")
+        time.sleep(0.2)
+        loaded = False
+        response = {"id": request_id, "ok": True, "status": "cold"}
+    elif op == "exit":
+        loaded = False
+        response = {"id": request_id, "ok": True, "status": "cold"}
+        print(json.dumps(response, separators=(",", ":")), flush=True)
+        break
+    else:
+        status = "resident" if loaded else "cold"
+        response = {"id": request_id, "ok": True, "status": status}
+    print(json.dumps(response, separators=(",", ":")), flush=True)
+"#;
+    python_script_command("counting-unload", label, script)
+        .env("NEEDLE_UNLOAD_LOG", log_path.as_os_str())
+}
+
+#[cfg(test)]
+fn python_script_command(kind: &str, label: &str, script: &str) -> WorkerCommand {
     let path = std::env::temp_dir().join(format!(
-        "needle-fake-worker-{}-{label}.py",
+        "needle-{kind}-worker-{}-{label}.py",
         std::process::id()
     ));
     std::fs::write(&path, script).expect("write fake worker script");
@@ -367,9 +583,10 @@ for line in sys.stdin:
 
 #[cfg(test)]
 mod tests {
-    use super::{Worker, fake_worker_command};
+    use super::{Worker, fake_worker_command, hanging_worker_command};
     use crate::backend::BackendStatus;
     use crate::protocol::PruneDecision;
+    use std::time::{Duration, Instant};
 
     #[test]
     fn prune_starts_worker_and_returns_result() {
@@ -401,5 +618,23 @@ mod tests {
 
         worker.unload().expect("unload succeeds");
         assert_eq!(worker.status(), BackendStatus::Cold);
+    }
+
+    #[test]
+    fn load_timeout_kills_child_and_marks_failed() {
+        let mut worker = Worker::with_command_and_response_timeout(
+            hanging_worker_command("worker-timeout"),
+            Duration::from_millis(100),
+        );
+
+        let started = Instant::now();
+        let error = worker.load().expect_err("load times out");
+
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "load ignored response timeout"
+        );
+        assert!(error.to_string().contains("timed out"), "{error}");
+        assert_eq!(worker.status(), BackendStatus::Failed);
     }
 }

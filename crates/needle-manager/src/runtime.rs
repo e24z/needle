@@ -85,9 +85,13 @@ impl Runtime {
     /// Drop a session's lease. Returns true when it was the last one: the
     /// worker is unloaded and the caller should shut the daemon down.
     pub fn disable(&self, session: &str) -> Result<bool, WorkerError> {
-        let removed = self.lock_sessions().remove(session).is_some();
+        let last = {
+            let mut sessions = self.lock_sessions();
+            let removed = sessions.remove(session).is_some();
+            removed && sessions.is_empty()
+        };
         self.lock_originals().remove(session);
-        if removed && self.lock_sessions().is_empty() {
+        if last {
             self.unload()?;
             return Ok(true);
         }
@@ -119,6 +123,16 @@ impl Runtime {
             self.unload()?;
         }
         Ok(emptied)
+    }
+
+    /// Refresh the cached status if the child died outside a worker op.
+    pub fn reap_worker_exit(&self) -> bool {
+        let mut worker = self.lock_worker();
+        let changed = worker.reap_exited_child();
+        if changed {
+            self.set_status(worker.status());
+        }
+        changed
     }
 
     /// Prune on behalf of a leased session. Blocks for model residency; a
@@ -159,6 +173,10 @@ impl Runtime {
     /// Unload the model but keep the worker process contactable.
     fn unload(&self) -> Result<(), WorkerError> {
         let mut worker = self.lock_worker();
+        if worker.status() == BackendStatus::Cold {
+            self.set_status(BackendStatus::Cold);
+            return Ok(());
+        }
         let result = worker.unload();
         self.set_status(worker.status());
         result
@@ -198,8 +216,10 @@ impl Default for Runtime {
 mod tests {
     use super::{NeedleMode, Runtime};
     use crate::backend::BackendStatus;
-    use crate::worker::{Worker, fake_worker_command};
-    use std::sync::Arc;
+    use crate::worker::{
+        Worker, counting_unload_worker_command, fake_worker_command, self_exiting_worker_command,
+    };
+    use std::sync::{Arc, Barrier};
     use std::time::{Duration, Instant};
 
     fn runtime(label: &str) -> Runtime {
@@ -315,5 +335,67 @@ mod tests {
 
         let result = slow.join().expect("prune thread");
         assert_eq!(result.text, "SLOW keep");
+    }
+
+    #[test]
+    fn reaper_marks_silently_exited_worker_failed() {
+        let runtime = Runtime::with_worker(Worker::with_command(self_exiting_worker_command(
+            "self-exit",
+        )));
+        runtime.enable("s1").expect("enable");
+        assert_eq!(runtime.backend_status(), BackendStatus::Resident);
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < deadline {
+            if runtime.reap_worker_exit() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        assert_eq!(runtime.backend_status(), BackendStatus::Failed);
+        assert_eq!(runtime.mode(), NeedleMode::On);
+    }
+
+    #[test]
+    fn concurrent_last_lease_paths_unload_once() {
+        let log_path =
+            std::env::temp_dir().join(format!("needle-unload-count-{}.log", std::process::id()));
+        let _ = std::fs::remove_file(&log_path);
+        let runtime = Arc::new(Runtime::with_worker(Worker::with_command(
+            counting_unload_worker_command("race", &log_path),
+        )));
+        runtime.enable("s1").expect("enable s1");
+        runtime.enable("s2").expect("enable s2");
+
+        let barrier = Arc::new(Barrier::new(3));
+        let disable_runtime = Arc::clone(&runtime);
+        let disable_barrier = Arc::clone(&barrier);
+        let disable = std::thread::spawn(move || {
+            disable_barrier.wait();
+            disable_runtime.disable("s1").expect("disable s1")
+        });
+        let reap_runtime = Arc::clone(&runtime);
+        let reap_barrier = Arc::clone(&barrier);
+        let reap = std::thread::spawn(move || {
+            reap_barrier.wait();
+            reap_runtime
+                .reap_expired(Duration::ZERO)
+                .expect("reap expired")
+        });
+
+        barrier.wait();
+        let disable_last = disable.join().expect("disable thread");
+        let reap_emptied = reap.join().expect("reap thread");
+
+        assert!(
+            disable_last || reap_emptied,
+            "one path should observe the last lease"
+        );
+        assert_eq!(runtime.mode(), NeedleMode::Off);
+        assert_eq!(runtime.backend_status(), BackendStatus::Cold);
+        let unload_log = std::fs::read_to_string(&log_path).expect("read unload log");
+        assert_eq!(unload_log.lines().count(), 1, "unload log: {unload_log}");
+        let _ = std::fs::remove_file(&log_path);
     }
 }

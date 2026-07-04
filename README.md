@@ -152,5 +152,6 @@ bash scripts/package-release.sh
 ```
 
 Installed runtimes honor `NEEDLE_HOME`, `NEEDLE_MODEL_DIR` (reuse an existing
-snapshot), and `NEEDLE_SOCKET`. `NEEDLE_DEV_*` hooks are for development and
-tests only and are not part of the install contract.
+snapshot), `NEEDLE_SOCKET`, and `NEEDLE_WORKER_OP_TIMEOUT_SECS` (default 600;
+the per-operation worker response deadline). `NEEDLE_DEV_*` hooks are for
+development and tests only and are not part of the install contract.

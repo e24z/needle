@@ -8,6 +8,8 @@
 use crate::runtime::{NeedleMode, Runtime};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use signal_hook::consts::signal::{SIGINT, SIGTERM};
+use signal_hook::iterator::Signals;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -61,6 +63,10 @@ pub fn run(config: DaemonConfig) -> io::Result<()> {
     let socket_path = config.socket;
     let listener = bind(&socket_path)?;
     let runtime = Arc::new(Runtime::new());
+    if let Err(error) = install_shutdown_signals(Arc::clone(&runtime), socket_path.clone()) {
+        let _ = std::fs::remove_file(&socket_path);
+        return Err(error);
+    }
 
     let reaper_runtime = Arc::clone(&runtime);
     let reaper_socket = socket_path.clone();
@@ -68,6 +74,7 @@ pub fn run(config: DaemonConfig) -> io::Result<()> {
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(ttl.min(Duration::from_secs(30)) / 3);
+            reaper_runtime.reap_worker_exit();
             if matches!(reaper_runtime.reap_expired(ttl), Ok(true)) {
                 shutdown_daemon(&reaper_runtime, &reaper_socket);
             }
@@ -134,6 +141,16 @@ fn shutdown_daemon(runtime: &Runtime, socket_path: &Path) -> ! {
     runtime.shutdown();
     let _ = std::fs::remove_file(socket_path);
     std::process::exit(0)
+}
+
+fn install_shutdown_signals(runtime: Arc<Runtime>, socket_path: PathBuf) -> io::Result<()> {
+    let mut signals = Signals::new([SIGTERM, SIGINT])?;
+    std::thread::spawn(move || {
+        if signals.forever().next().is_some() {
+            shutdown_daemon(&runtime, &socket_path);
+        }
+    });
+    Ok(())
 }
 
 fn handle_connection(stream: UnixStream, runtime: Arc<Runtime>, socket_path: PathBuf) {
