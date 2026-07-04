@@ -44,6 +44,7 @@ pub struct PruneResult {
 
 #[derive(Debug)]
 pub enum WorkerError {
+    MemoryPressure(String),
     Spawn(io::Error),
     MissingPipe(&'static str),
     Io(io::Error),
@@ -55,6 +56,7 @@ pub enum WorkerError {
 impl fmt::Display for WorkerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            WorkerError::MemoryPressure(message) => write!(f, "{message}"),
             WorkerError::Spawn(error) => write!(f, "failed to start worker: {error}"),
             WorkerError::MissingPipe(pipe) => write!(f, "worker child missing {pipe} pipe"),
             WorkerError::Io(error) => write!(f, "worker I/O failed: {error}"),
@@ -70,7 +72,10 @@ impl Error for WorkerError {
         match self {
             WorkerError::Spawn(error) | WorkerError::Io(error) => Some(error),
             WorkerError::Json(error) => Some(error),
-            WorkerError::MissingPipe(_) | WorkerError::Protocol(_) | WorkerError::Worker(_) => None,
+            WorkerError::MemoryPressure(_)
+            | WorkerError::MissingPipe(_)
+            | WorkerError::Protocol(_)
+            | WorkerError::Worker(_) => None,
         }
     }
 }

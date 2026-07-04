@@ -52,6 +52,7 @@ fn fake_worker_dir(label: &str) -> PathBuf {
 fn needle_command(label: &str) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_needle"));
     command.env("PYTHONPATH", fake_worker_dir(label));
+    command.env("NEEDLE_COLD_LOAD_MIN_AVAILABLE_MB", "0");
     command.env_remove("NEEDLE_PYTHON");
     command
 }

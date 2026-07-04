@@ -651,8 +651,7 @@ function availableMemoryMbFromVmStat() {
 	const reclaimablePages =
 		(pages.free || 0) +
 		(pages.inactive || 0) +
-		(pages.speculative || 0) +
-		(pages["file-backed"] || 0);
+		(pages.speculative || 0);
 	if (!Number.isFinite(reclaimablePages) || reclaimablePages <= 0) return null;
 	return {
 		availableMb: reclaimablePages * pageSize / 1024 / 1024,

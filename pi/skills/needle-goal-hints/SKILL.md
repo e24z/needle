@@ -56,8 +56,8 @@ conversation:
 - If pruning fails or the question is missing, the observation arrives
   unpruned with a visible banner — never silently.
 - The original text of the last prune is recoverable: the daemon caches it
-  per session. Use `/needle original` if a non-idempotent command was
-  over-pruned.
+  per session. Ask the user to run `/needle original` if a non-idempotent
+  command was over-pruned.
 
 If you genuinely need exact output (for example a ranged read before an edit),
 set `verbatim: true` on the tool call and still provide a short

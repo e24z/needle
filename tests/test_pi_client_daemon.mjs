@@ -43,6 +43,7 @@ writeFileSync(path.join(pythonPath, "needle_worker", "__main__.py"), FAKE_WORKER
 
 process.env.NEEDLE_SOCKET = path.join(scratch, "needle.sock");
 process.env.NEEDLE_BIN = process.env.NEEDLE_BIN || "target/debug/needle";
+process.env.NEEDLE_COLD_LOAD_MIN_AVAILABLE_MB = "0";
 process.env.PYTHONPATH = pythonPath;
 
 const { ensureDaemon, request } = await import("../pi/client.mjs");

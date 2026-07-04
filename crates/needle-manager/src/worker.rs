@@ -10,6 +10,7 @@ pub(crate) struct WorkerCommand {
     program: OsString,
     args: Vec<OsString>,
     envs: Vec<(OsString, OsString)>,
+    enforce_cold_load_memory_gate: bool,
 }
 
 impl WorkerCommand {
@@ -18,6 +19,7 @@ impl WorkerCommand {
             program: program.into(),
             args: Vec::new(),
             envs: Vec::new(),
+            enforce_cold_load_memory_gate: false,
         }
     }
 
@@ -28,6 +30,11 @@ impl WorkerCommand {
 
     pub(crate) fn env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
         self.envs.push((key.into(), value.into()));
+        self
+    }
+
+    fn with_cold_load_memory_gate(mut self) -> Self {
+        self.enforce_cold_load_memory_gate = true;
         self
     }
 
@@ -55,7 +62,7 @@ impl WorkerCommand {
                 command = command.env("NEEDLE_MODEL_DIR", model_dir.as_os_str());
             }
         }
-        command
+        command.with_cold_load_memory_gate()
     }
 
     fn spawn(&self) -> Result<WorkerProcess, WorkerError> {
@@ -233,6 +240,11 @@ impl Worker {
 
     fn process(&mut self) -> Result<&mut WorkerProcess, WorkerError> {
         if self.process.is_none() {
+            if self.command.enforce_cold_load_memory_gate {
+                if let Some(refusal) = crate::memory::cold_load_refusal() {
+                    return Err(WorkerError::MemoryPressure(refusal.message()));
+                }
+            }
             self.process = Some(self.command.spawn()?);
         }
         Ok(self.process.as_mut().expect("process exists after spawn"))

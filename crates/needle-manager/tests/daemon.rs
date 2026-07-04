@@ -72,6 +72,7 @@ impl DaemonUnderTest {
                 &lease_ttl_secs.to_string(),
             ])
             .env("PYTHONPATH", dir.join("pythonpath"))
+            .env("NEEDLE_COLD_LOAD_MIN_AVAILABLE_MB", "0")
             .env_remove("NEEDLE_PYTHON")
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
