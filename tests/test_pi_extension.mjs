@@ -71,14 +71,20 @@ function throwingToolFactory(message) {
 	});
 }
 
-function okMemory() {
-	return { critical: false, availableMb: 8192, minAvailableMb: 768, source: "test" };
-}
-
-function recordingRequestFn({ pruneResponse, pruneError, originalText = BIG_TEXT } = {}) {
+function recordingRequestFn({
+	enableResponse,
+	enableError,
+	pruneResponse,
+	pruneError,
+	originalText = BIG_TEXT,
+} = {}) {
 	const calls = [];
 	const fn = async (op, fields = {}) => {
 		calls.push({ op, ...fields });
+		if (op === "enable") {
+			if (enableError) throw enableError;
+			return enableResponse ?? { ok: true, backend_status: "resident" };
+		}
 		if (op === "prune") {
 			if (pruneError) throw pruneError;
 			return (
@@ -92,7 +98,6 @@ function recordingRequestFn({ pruneResponse, pruneError, originalText = BIG_TEXT
 				}
 			);
 		}
-		if (op === "enable") return { ok: true, backend_status: "resident" };
 		if (op === "status") return { ok: true, mode: "on", backend_status: "resident", sessions: 1 };
 		if (op === "original") return { ok: true, text: originalText };
 		return { ok: true };
@@ -108,7 +113,6 @@ async function installAndStart(text, requestFn, options = {}) {
 		createBashTool: options.createBashTool || fakeToolFactory(text),
 		requestFn,
 		ensureDaemonFn: async () => true,
-		memoryPressureFn: options.memoryPressureFn || okMemory,
 	});
 	const ctx = {
 		sessionManager: { getSessionId: () => "s-test", getEntries: () => [] },
@@ -273,15 +277,12 @@ async function testThrownBashErrorIsPrunedAndKeepsExitStatus() {
 }
 
 async function testCriticalMemoryPressureIsLoud() {
-	const requestFn = recordingRequestFn();
-	const { pi, stop } = await installAndStart(BIG_TEXT, requestFn, {
-		memoryPressureFn: () => ({
-			critical: true,
-			availableMb: 12,
-			minAvailableMb: 768,
-			source: "test",
-		}),
+	const error =
+		"memory pressure critical (12 MB available; minimum 2048 MB for cold model load; source vm_stat)";
+	const requestFn = recordingRequestFn({
+		enableResponse: { ok: false, backend_status: "failed", error },
 	});
+	const { pi, stop } = await installAndStart(BIG_TEXT, requestFn);
 	try {
 		const result = await pi.tools.get("read").execute(
 			"t1",
@@ -291,9 +292,10 @@ async function testCriticalMemoryPressureIsLoud() {
 			{},
 		);
 		const text = extractText(result.content);
-		assert.ok(text.startsWith("[needle skipped: memory pressure critical"), "loud memory banner");
+		assert.ok(text.startsWith(`[needle failed: ${error}`), "loud memory banner");
 		assert.ok(text.includes(BIG_TEXT), "original output still follows");
-		assert.equal(result.details.needle.reason, "memory-pressure");
+		assert.equal(result.details.needle.reason, error);
+		assert.ok(requestFn.calls.some((call) => call.op === "enable"), "enable surfaced the daemon refusal");
 		assert.ok(!requestFn.calls.some((call) => call.op === "prune"), "no prune under critical memory");
 	} finally {
 		await stop();
@@ -315,7 +317,6 @@ async function testToolCallBlocksOnSlowEnablement() {
 			daemonReady = true;
 			return true;
 		},
-		memoryPressureFn: okMemory,
 	});
 	const ctx = {
 		sessionManager: { getSessionId: () => "s-race", getEntries: () => [] },

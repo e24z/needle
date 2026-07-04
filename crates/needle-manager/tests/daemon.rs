@@ -290,6 +290,46 @@ fn hung_worker_load_times_out_loudly() {
 }
 
 #[test]
+fn memory_pressure_error_surfaces_intact_over_socket() {
+    let daemon = DaemonUnderTest::start_with_worker(
+        "memory-pressure",
+        90,
+        FAKE_WORKER,
+        &[("NEEDLE_COLD_LOAD_MIN_AVAILABLE_MB", "999999999999")],
+    );
+    let mut conn = daemon.connect();
+
+    let enabled = conn.request(json!({"op": "enable", "session": "s1"}));
+    assert_eq!(enabled["ok"], false, "enable: {enabled}");
+    let enable_error = enabled["error"].as_str().unwrap_or("");
+    assert!(
+        enable_error.starts_with("memory pressure critical ("),
+        "enable: {enabled}"
+    );
+    assert!(
+        !enable_error.contains("worker failed"),
+        "enable error was wrapped: {enable_error}"
+    );
+    assert_eq!(enabled["backend_status"], "failed");
+
+    let pruned = conn.request(json!({
+        "op": "prune", "session": "s1",
+        "text": "keep drop", "query": "keep relevant code",
+    }));
+    assert_eq!(pruned["ok"], false, "prune: {pruned}");
+    let prune_error = pruned["error"].as_str().unwrap_or("");
+    assert!(
+        prune_error.starts_with("memory pressure critical ("),
+        "prune: {pruned}"
+    );
+    assert!(
+        !prune_error.contains("worker failed"),
+        "prune error was wrapped: {prune_error}"
+    );
+    assert_eq!(pruned["backend_status"], "failed");
+}
+
+#[test]
 fn status_cache_reflects_silently_exited_worker() {
     let daemon = DaemonUnderTest::start_with_worker("self-exit", 3, SELF_EXITING_WORKER, &[]);
     let mut conn = daemon.connect();

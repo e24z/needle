@@ -3,13 +3,12 @@
 //
 // Blocking semantics: if Needle is on, supported observations go through the
 // model. Cold, loading, or slow are not bypass reasons. Critical memory
-// pressure is a loud refusal, never silent pass-through. `context_focus_question`
-// is required by the tool schema; its absence (schema drift, host quirks) is
-// also loud.
+// pressure is refused by the daemon and rendered loudly, never silent
+// pass-through. `context_focus_question` is required by the tool schema; its
+// absence (schema drift, host quirks) is also loud.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
-import os from "node:os";
+import { existsSync, realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -39,7 +38,6 @@ const STATE_CODES = {
 /// status lines after a blank line. Those never reach the model pruner and are
 /// reattached verbatim.
 const ENVELOPE_PATTERN = /(?:\n+(?:\[[^\n]*\]|Command (?:exited with code \d+|timed out after [^\n]+ seconds|aborted)))+\s*$/;
-const DEFAULT_MIN_AVAILABLE_MB = 768;
 
 export default async function needlePiExtension(pi) {
 	return installNeedlePiExtension(pi, await loadPiTools());
@@ -55,7 +53,6 @@ export function installNeedlePiExtension(pi, options = {}) {
 		counters: emptyCounters(),
 		requestFn: options.requestFn || request,
 		ensureDaemonFn: options.ensureDaemonFn || ensureDaemon,
-		memoryPressureFn: options.memoryPressureFn || memoryPressure,
 		enablePromise: null,
 	};
 	let heartbeatTimer;
@@ -109,12 +106,6 @@ function ensureEnabled(state) {
 async function enableNeedle(state) {
 	state.backendStatus = "loading";
 	state.lastError = null;
-	const memory = memoryRefusal(state);
-	if (memory) {
-		state.backendStatus = "failed";
-		state.lastError = memory.message;
-		return false;
-	}
 	const up = await state.ensureDaemonFn();
 	if (!up) {
 		state.backendStatus = "failed";
@@ -273,16 +264,6 @@ export async function buildToolResultPatch(toolName, result, params, state) {
 	// Block until the daemon is up and the model resident. Cold, loading,
 	// or slow are not bypass reasons; genuine failure and critical memory
 	// pressure are loud below.
-	const memory = memoryRefusal(state);
-	if (memory) {
-		state.backendStatus = "failed";
-		state.lastError = memory.message;
-		return banner(original, memory.banner, {
-			decision: "failed",
-			reason: "memory-pressure",
-			memory: memory.details,
-		});
-	}
 	const enabled = await ensureEnabled(state).catch(() => false);
 	if (!enabled) {
 		return failureBanner(original, state.lastError || "needle could not start");
@@ -577,101 +558,6 @@ function restoreCounters(entries) {
 		// Fresh sessions have nothing to restore.
 	}
 	return counters;
-}
-
-function memoryRefusal(state) {
-	let pressure;
-	try {
-		pressure = state.memoryPressureFn?.();
-	} catch {
-		return null;
-	}
-	if (!pressure?.critical) return null;
-	const details = {
-		availableMb: pressure.availableMb,
-		minAvailableMb: pressure.minAvailableMb,
-		source: pressure.source,
-	};
-	const observed = Number.isFinite(pressure.availableMb)
-		? `${Math.round(pressure.availableMb)} MB available`
-		: "available memory unknown";
-	const required = Number.isFinite(pressure.minAvailableMb)
-		? `minimum ${Math.round(pressure.minAvailableMb)} MB`
-		: "minimum unavailable";
-	const message = `memory pressure critical (${observed}; ${required})`;
-	return {
-		message,
-		banner: `needle skipped: ${message} — original output follows. Free memory or /needle off to disable pruning`,
-		details,
-	};
-}
-
-function memoryPressure() {
-	const minAvailableMb = Number.parseFloat(
-		process.env.NEEDLE_MIN_AVAILABLE_MB ?? String(DEFAULT_MIN_AVAILABLE_MB),
-	);
-	if (!Number.isFinite(minAvailableMb) || minAvailableMb <= 0) {
-		return { critical: false, source: "disabled", minAvailableMb: 0 };
-	}
-	const available = availableMemoryMb();
-	if (!available) return { critical: false, source: "unknown", minAvailableMb };
-	return {
-		critical: available.availableMb < minAvailableMb,
-		availableMb: available.availableMb,
-		minAvailableMb,
-		source: available.source,
-	};
-}
-
-function availableMemoryMb() {
-	if (process.platform === "darwin") {
-		const fromVmStat = availableMemoryMbFromVmStat();
-		if (fromVmStat) return fromVmStat;
-	}
-	if (process.platform === "linux") {
-		const fromMeminfo = availableMemoryMbFromMeminfo();
-		if (fromMeminfo) return fromMeminfo;
-	}
-	return { availableMb: os.freemem() / 1024 / 1024, source: "os.freemem" };
-}
-
-function availableMemoryMbFromVmStat() {
-	let output;
-	try {
-		output = execFileSync("vm_stat", { encoding: "utf8", timeout: 1000 });
-	} catch {
-		return null;
-	}
-	const pageSize = Number(output.match(/page size of (\d+) bytes/)?.[1] || 4096);
-	const pages = {};
-	for (const line of output.split("\n")) {
-		const match = line.match(/^Pages ([^:]+):\s+([0-9.]+)/);
-		if (match) pages[match[1].trim().toLowerCase()] = Number(match[2]);
-	}
-	const reclaimablePages =
-		(pages.free || 0) +
-		(pages.inactive || 0) +
-		(pages.speculative || 0);
-	if (!Number.isFinite(reclaimablePages) || reclaimablePages <= 0) return null;
-	return {
-		availableMb: reclaimablePages * pageSize / 1024 / 1024,
-		source: "vm_stat",
-	};
-}
-
-function availableMemoryMbFromMeminfo() {
-	let text;
-	try {
-		text = readFileSync("/proc/meminfo", "utf8");
-	} catch {
-		return null;
-	}
-	const match = text.match(/^MemAvailable:\s+(\d+)\s+kB/m);
-	if (!match) return null;
-	return {
-		availableMb: Number(match[1]) / 1024,
-		source: "/proc/meminfo",
-	};
 }
 
 function record(counters, originalLen, prunedLen, tool) {

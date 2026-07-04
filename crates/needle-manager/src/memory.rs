@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 const DEFAULT_COLD_LOAD_MIN_AVAILABLE_MB: f64 = 2048.0;
 const MODEL_LOAD_HEADROOM_MB: f64 = 768.0;
 const COLD_LOAD_MIN_ENV: &str = "NEEDLE_COLD_LOAD_MIN_AVAILABLE_MB";
-const COMPAT_MIN_ENV: &str = "NEEDLE_MIN_AVAILABLE_MB";
 
 #[derive(Clone, Debug)]
 pub(crate) struct MemoryRefusal {
@@ -43,7 +42,6 @@ pub(crate) fn cold_load_refusal() -> Option<MemoryRefusal> {
 fn cold_load_min_available_mb() -> f64 {
     env::var(COLD_LOAD_MIN_ENV)
         .ok()
-        .or_else(|| env::var(COMPAT_MIN_ENV).ok())
         .and_then(|value| value.parse::<f64>().ok())
         .unwrap_or_else(default_cold_load_min_available_mb)
 }
@@ -89,23 +87,15 @@ struct AvailableMemory {
 fn available_memory_mb() -> Option<AvailableMemory> {
     #[cfg(target_os = "macos")]
     {
-        if let Some(available_mb) = available_mb_from_vm_stat_command() {
-            return Some(AvailableMemory {
-                available_mb,
-                source: "vm_stat",
-            });
-        }
+        available_mb_from_vm_stat_command().map(|available_mb| AvailableMemory {
+            available_mb,
+            source: "vm_stat",
+        })
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "macos"))]
     {
-        if let Some(available_mb) = available_mb_from_meminfo_file() {
-            return Some(AvailableMemory {
-                available_mb,
-                source: "/proc/meminfo",
-            });
-        }
+        None
     }
-    None
 }
 
 #[cfg(target_os = "macos")]
@@ -116,12 +106,6 @@ fn available_mb_from_vm_stat_command() -> Option<f64> {
     }
     let text = String::from_utf8(output.stdout).ok()?;
     available_mb_from_vm_stat(&text)
-}
-
-#[cfg(target_os = "linux")]
-fn available_mb_from_meminfo_file() -> Option<f64> {
-    let text = std::fs::read_to_string("/proc/meminfo").ok()?;
-    available_mb_from_meminfo(&text)
 }
 
 #[cfg(any(test, target_os = "macos"))]
@@ -168,21 +152,9 @@ fn page_count(text: &str) -> Option<u64> {
     digits.parse().ok()
 }
 
-#[cfg(any(test, target_os = "linux"))]
-fn available_mb_from_meminfo(text: &str) -> Option<f64> {
-    for line in text.lines() {
-        let Some(rest) = line.strip_prefix("MemAvailable:") else {
-            continue;
-        };
-        let kb = rest.split_whitespace().next()?.parse::<u64>().ok()?;
-        return Some(kb as f64 / 1024.0);
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{available_mb_from_meminfo, available_mb_from_vm_stat};
+    use super::available_mb_from_vm_stat;
 
     #[test]
     fn vm_stat_counts_reclaimable_pages_without_file_backed_cache() {
@@ -198,16 +170,5 @@ File-backed pages:                      50000.
         let available_mb = available_mb_from_vm_stat(text).expect("vm_stat parses");
 
         assert_eq!(available_mb, 125.0 * 4096.0 / 1024.0 / 1024.0);
-    }
-
-    #[test]
-    fn meminfo_uses_memavailable() {
-        let text = "\
-MemTotal:       65536000 kB
-MemFree:         1024000 kB
-MemAvailable:    2097152 kB
-";
-
-        assert_eq!(available_mb_from_meminfo(text), Some(2048.0));
     }
 }

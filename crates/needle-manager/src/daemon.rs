@@ -342,12 +342,20 @@ fn mode_str(mode: NeedleMode) -> &'static str {
 }
 
 fn peer_is_same_uid(stream: &UnixStream) -> bool {
-    peer_uid(stream)
-        .map(|uid| uid == unsafe { libc::getuid() })
-        .unwrap_or(false)
+    #[cfg(target_os = "macos")]
+    {
+        return peer_uid(stream)
+            .map(|uid| uid == unsafe { libc::getuid() })
+            .unwrap_or(false);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = stream;
+        false
+    }
 }
 
-#[cfg(any(target_os = "macos", target_os = "freebsd"))]
+#[cfg(target_os = "macos")]
 fn peer_uid(stream: &UnixStream) -> io::Result<libc::uid_t> {
     use std::os::fd::AsRawFd;
     let mut uid: libc::uid_t = 0;
@@ -357,28 +365,4 @@ fn peer_uid(stream: &UnixStream) -> io::Result<libc::uid_t> {
         return Err(io::Error::last_os_error());
     }
     Ok(uid)
-}
-
-#[cfg(target_os = "linux")]
-fn peer_uid(stream: &UnixStream) -> io::Result<libc::uid_t> {
-    use std::os::fd::AsRawFd;
-    let mut cred = libc::ucred {
-        pid: 0,
-        uid: 0,
-        gid: 0,
-    };
-    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-    let rc = unsafe {
-        libc::getsockopt(
-            stream.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            &mut cred as *mut libc::ucred as *mut libc::c_void,
-            &mut len,
-        )
-    };
-    if rc != 0 {
-        return Err(io::Error::last_os_error());
-    }
-    Ok(cred.uid)
 }
