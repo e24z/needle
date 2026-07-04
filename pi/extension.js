@@ -2,13 +2,14 @@
 // local Needle daemon.
 //
 // Blocking semantics: if Needle is on, supported observations go through the
-// model — cold, loading, slow, or RAM-constrained are never reasons to skip.
-// Failure is loud: a visible banner in the observation, never a silent
-// pass-through. `context_focus_question` is required by the tool schema; its
-// absence (schema drift, host quirks) is also loud.
+// model. Cold, loading, or slow are not bypass reasons. Critical memory
+// pressure is a loud refusal, never silent pass-through. `context_focus_question`
+// is required by the tool schema; its absence (schema drift, host quirks) is
+// also loud.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import os from "node:os";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -34,9 +35,11 @@ const STATE_CODES = {
 };
 
 /// Trailing host envelope: Pi appends bracketed notices like
-/// "[Showing lines 1-2000 of 5000. Full output: /tmp/...]" after a blank
-/// line. Those never reach the model pruner and are reattached verbatim.
-const ENVELOPE_PATTERN = /(?:\n+\[[^\n]*\])+\s*$/;
+/// "[Showing lines 1-2000 of 5000. Full output: /tmp/...]" and bash failure
+/// status lines after a blank line. Those never reach the model pruner and are
+/// reattached verbatim.
+const ENVELOPE_PATTERN = /(?:\n+(?:\[[^\n]*\]|Command (?:exited with code \d+|timed out after [^\n]+ seconds|aborted)))+\s*$/;
+const DEFAULT_MIN_AVAILABLE_MB = 768;
 
 export default async function needlePiExtension(pi) {
 	return installNeedlePiExtension(pi, await loadPiTools());
@@ -52,6 +55,7 @@ export function installNeedlePiExtension(pi, options = {}) {
 		counters: emptyCounters(),
 		requestFn: options.requestFn || request,
 		ensureDaemonFn: options.ensureDaemonFn || ensureDaemon,
+		memoryPressureFn: options.memoryPressureFn || memoryPressure,
 		enablePromise: null,
 	};
 	let heartbeatTimer;
@@ -105,6 +109,12 @@ function ensureEnabled(state) {
 async function enableNeedle(state) {
 	state.backendStatus = "loading";
 	state.lastError = null;
+	const memory = memoryRefusal(state);
+	if (memory) {
+		state.backendStatus = "failed";
+		state.lastError = memory.message;
+		return false;
+	}
 	const up = await state.ensureDaemonFn();
 	if (!up) {
 		state.backendStatus = "failed";
@@ -155,13 +165,24 @@ function registerOverride(pi, state, createTool, toolName) {
 		parameters: withRequiredFocusQuestion(template.parameters),
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const nativeTool = createTool(ctx?.cwd || process.cwd());
-			const result = await nativeTool.execute(
-				toolCallId,
-				stripNeedleParams(params),
-				signal,
-				onUpdate,
-				ctx,
-			);
+			let result;
+			try {
+				result = await nativeTool.execute(
+					toolCallId,
+					stripNeedleParams(params),
+					signal,
+					onUpdate,
+					ctx,
+				);
+			} catch (error) {
+				if (!state.needleOn) throw error;
+				state.busyPrunes += 1;
+				try {
+					throw await pruneThrownToolError(toolName, error, params, state);
+				} finally {
+					state.busyPrunes = Math.max(0, state.busyPrunes - 1);
+				}
+			}
 			if (!state.needleOn) return result;
 			state.busyPrunes += 1;
 			try {
@@ -207,6 +228,12 @@ export function withRequiredFocusQuestion(parameters) {
 					"information need — what you want to learn from this output. Needle " +
 					"prunes the observation to the lines relevant to it.",
 			},
+			verbatim: {
+				type: "boolean",
+				description:
+					"Set true only when you need the exact, unpruned output, such as a ranged " +
+					"read before editing. Needle returns the native output unchanged.",
+			},
 		},
 		required: required.includes("context_focus_question")
 			? required
@@ -215,14 +242,19 @@ export function withRequiredFocusQuestion(parameters) {
 }
 
 function stripNeedleParams(params) {
-	if (!params || typeof params !== "object" || !("context_focus_question" in params)) return params;
-	const { context_focus_question: _focus, ...rest } = params;
+	if (!params || typeof params !== "object") return params;
+	const { context_focus_question: _focus, verbatim: _verbatim, ...rest } = params;
 	return rest;
 }
 
 export async function buildToolResultPatch(toolName, result, params, state) {
 	const original = extractText(result?.content);
 	if (!original || original.length < MIN_CHARS) return undefined;
+	if (params?.verbatim === true) {
+		return {
+			details: { needle: { decision: "unchanged", reason: "verbatim" } },
+		};
+	}
 
 	const query = typeof params?.context_focus_question === "string"
 		? params.context_focus_question.trim()
@@ -239,7 +271,18 @@ export async function buildToolResultPatch(toolName, result, params, state) {
 	}
 
 	// Block until the daemon is up and the model resident. Cold, loading,
-	// or slow are not bypass reasons; a genuine failure is loud below.
+	// or slow are not bypass reasons; genuine failure and critical memory
+	// pressure are loud below.
+	const memory = memoryRefusal(state);
+	if (memory) {
+		state.backendStatus = "failed";
+		state.lastError = memory.message;
+		return banner(original, memory.banner, {
+			decision: "failed",
+			reason: "memory-pressure",
+			memory: memory.details,
+		});
+	}
 	const enabled = await ensureEnabled(state).catch(() => false);
 	if (!enabled) {
 		return failureBanner(original, state.lastError || "needle could not start");
@@ -286,6 +329,23 @@ export async function buildToolResultPatch(toolName, result, params, state) {
 	};
 }
 
+async function pruneThrownToolError(toolName, error, params, state) {
+	const original = String(error?.message || error || "");
+	const result = { content: [{ type: "text", text: original }] };
+	const patch = await buildToolResultPatch(toolName, result, params, state);
+	if (!patch?.content) return error;
+	const pruned = extractText(patch.content);
+	if (!pruned) return error;
+	const wrapped = new Error(pruned);
+	wrapped.name = error?.name || "Error";
+	if (error && typeof error === "object") {
+		for (const key of ["code", "errno", "syscall", "path", "signal"]) {
+			if (key in error) wrapped[key] = error[key];
+		}
+	}
+	return wrapped;
+}
+
 function banner(original, message, needleDetails) {
 	return {
 		content: [{ type: "text", text: `[${message}]\n\n${original}` }],
@@ -324,9 +384,9 @@ export function extractText(content) {
 
 function registerNeedleCommand(pi, state) {
 	pi.registerCommand?.("needle", {
-		description: "Needle status and on/off",
+		description: "Needle status, recovery, and on/off",
 		getArgumentCompletions: (prefix) => {
-			const items = ["status", "on", "off"].filter((item) => item.startsWith(prefix));
+			const items = ["status", "original", "on", "off"].filter((item) => item.startsWith(prefix));
 			return items.length ? items.map((value) => ({ value, label: value })) : null;
 		},
 		handler: async (args, ctx) => {
@@ -348,6 +408,15 @@ function registerNeedleCommand(pi, state) {
 					ok ? "needle on: model resident" : `needle failed: ${state.lastError}`,
 					ok ? "info" : "error",
 				);
+				return;
+			}
+			if (sub === "original") {
+				const content = await buildOriginalMessage(state);
+				if (typeof pi.sendMessage === "function") {
+					pi.sendMessage({ customType: "needle-original", content, display: true });
+				} else {
+					ctx.ui?.notify?.(content, "info");
+				}
 				return;
 			}
 			const content = await buildStatusMessage(state);
@@ -384,6 +453,21 @@ async function buildStatusMessage(state) {
 	lines.push(`socket: ${socketPath()}`);
 	lines.push(`home: ${needleHome()}`);
 	return lines.join("\n");
+}
+
+async function buildOriginalMessage(state) {
+	if (!state.sessionId) return "needle: no active session";
+	try {
+		const response = await state.requestFn(
+			"original",
+			{ session: state.sessionId },
+			{ timeoutMs: 1000 },
+		);
+		if (response?.ok) return String(response.text ?? "");
+		return `needle: ${response?.error || "no original cached for session"}`;
+	} catch (error) {
+		return `needle: original unavailable: ${String(error?.message || error)}`;
+	}
 }
 
 // --- statusline --------------------------------------------------------------
@@ -493,6 +577,102 @@ function restoreCounters(entries) {
 		// Fresh sessions have nothing to restore.
 	}
 	return counters;
+}
+
+function memoryRefusal(state) {
+	let pressure;
+	try {
+		pressure = state.memoryPressureFn?.();
+	} catch {
+		return null;
+	}
+	if (!pressure?.critical) return null;
+	const details = {
+		availableMb: pressure.availableMb,
+		minAvailableMb: pressure.minAvailableMb,
+		source: pressure.source,
+	};
+	const observed = Number.isFinite(pressure.availableMb)
+		? `${Math.round(pressure.availableMb)} MB available`
+		: "available memory unknown";
+	const required = Number.isFinite(pressure.minAvailableMb)
+		? `minimum ${Math.round(pressure.minAvailableMb)} MB`
+		: "minimum unavailable";
+	const message = `memory pressure critical (${observed}; ${required})`;
+	return {
+		message,
+		banner: `needle skipped: ${message} — original output follows. Free memory or /needle off to disable pruning`,
+		details,
+	};
+}
+
+function memoryPressure() {
+	const minAvailableMb = Number.parseFloat(
+		process.env.NEEDLE_MIN_AVAILABLE_MB ?? String(DEFAULT_MIN_AVAILABLE_MB),
+	);
+	if (!Number.isFinite(minAvailableMb) || minAvailableMb <= 0) {
+		return { critical: false, source: "disabled", minAvailableMb: 0 };
+	}
+	const available = availableMemoryMb();
+	if (!available) return { critical: false, source: "unknown", minAvailableMb };
+	return {
+		critical: available.availableMb < minAvailableMb,
+		availableMb: available.availableMb,
+		minAvailableMb,
+		source: available.source,
+	};
+}
+
+function availableMemoryMb() {
+	if (process.platform === "darwin") {
+		const fromVmStat = availableMemoryMbFromVmStat();
+		if (fromVmStat) return fromVmStat;
+	}
+	if (process.platform === "linux") {
+		const fromMeminfo = availableMemoryMbFromMeminfo();
+		if (fromMeminfo) return fromMeminfo;
+	}
+	return { availableMb: os.freemem() / 1024 / 1024, source: "os.freemem" };
+}
+
+function availableMemoryMbFromVmStat() {
+	let output;
+	try {
+		output = execFileSync("vm_stat", { encoding: "utf8", timeout: 1000 });
+	} catch {
+		return null;
+	}
+	const pageSize = Number(output.match(/page size of (\d+) bytes/)?.[1] || 4096);
+	const pages = {};
+	for (const line of output.split("\n")) {
+		const match = line.match(/^Pages ([^:]+):\s+([0-9.]+)/);
+		if (match) pages[match[1].trim().toLowerCase()] = Number(match[2]);
+	}
+	const reclaimablePages =
+		(pages.free || 0) +
+		(pages.inactive || 0) +
+		(pages.speculative || 0) +
+		(pages["file-backed"] || 0);
+	if (!Number.isFinite(reclaimablePages) || reclaimablePages <= 0) return null;
+	return {
+		availableMb: reclaimablePages * pageSize / 1024 / 1024,
+		source: "vm_stat",
+	};
+}
+
+function availableMemoryMbFromMeminfo() {
+	let text;
+	try {
+		text = readFileSync("/proc/meminfo", "utf8");
+	} catch {
+		return null;
+	}
+	const match = text.match(/^MemAvailable:\s+(\d+)\s+kB/m);
+	if (!match) return null;
+	return {
+		availableMb: Number(match[1]) / 1024,
+		source: "/proc/meminfo",
+	};
 }
 
 function record(counters, originalLen, prunedLen, tool) {

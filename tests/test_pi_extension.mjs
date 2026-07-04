@@ -35,7 +35,10 @@ function fakePi() {
 		appendEntry(type, data) {
 			this.entries.push({ type, data });
 		},
-		sendMessage() {},
+		messages: [],
+		sendMessage(message) {
+			this.messages.push(message);
+		},
 	};
 	return pi;
 }
@@ -53,7 +56,26 @@ function fakeToolFactory(text) {
 	});
 }
 
-function recordingRequestFn({ pruneResponse, pruneError } = {}) {
+function throwingToolFactory(message) {
+	return () => ({
+		label: "fake",
+		description: "fake tool",
+		parameters: {
+			type: "object",
+			properties: { path: { type: "string" } },
+			required: ["path"],
+		},
+		execute: async () => {
+			throw new Error(message);
+		},
+	});
+}
+
+function okMemory() {
+	return { critical: false, availableMb: 8192, minAvailableMb: 768, source: "test" };
+}
+
+function recordingRequestFn({ pruneResponse, pruneError, originalText = BIG_TEXT } = {}) {
 	const calls = [];
 	const fn = async (op, fields = {}) => {
 		calls.push({ op, ...fields });
@@ -72,19 +94,21 @@ function recordingRequestFn({ pruneResponse, pruneError } = {}) {
 		}
 		if (op === "enable") return { ok: true, backend_status: "resident" };
 		if (op === "status") return { ok: true, mode: "on", backend_status: "resident", sessions: 1 };
+		if (op === "original") return { ok: true, text: originalText };
 		return { ok: true };
 	};
 	fn.calls = calls;
 	return fn;
 }
 
-async function installAndStart(text, requestFn) {
+async function installAndStart(text, requestFn, options = {}) {
 	const pi = fakePi();
 	installNeedlePiExtension(pi, {
-		createReadTool: fakeToolFactory(text),
-		createBashTool: fakeToolFactory(text),
+		createReadTool: options.createReadTool || fakeToolFactory(text),
+		createBashTool: options.createBashTool || fakeToolFactory(text),
 		requestFn,
 		ensureDaemonFn: async () => true,
+		memoryPressureFn: options.memoryPressureFn || okMemory,
 	});
 	const ctx = {
 		sessionManager: { getSessionId: () => "s-test", getEntries: () => [] },
@@ -106,6 +130,8 @@ async function testSchemaRequiresFocusQuestion() {
 				parameters.required.includes("context_focus_question"),
 				`${name} schema requires context_focus_question`,
 			);
+			assert.ok(parameters.properties.verbatim, `${name} has the verbatim bypass parameter`);
+			assert.ok(!parameters.required.includes("verbatim"), `${name} does not require verbatim`);
 			assert.ok(parameters.required.includes("path"), `${name} keeps native required params`);
 		}
 	} finally {
@@ -194,6 +220,86 @@ async function testPruneFailureIsLoud() {
 	}
 }
 
+async function testVerbatimBypassesPruning() {
+	const requestFn = recordingRequestFn();
+	const { pi, stop } = await installAndStart(BIG_TEXT, requestFn);
+	try {
+		const result = await pi.tools.get("read").execute(
+			"t1",
+			{
+				path: "x.py",
+				context_focus_question: "What exact file contents are needed before editing?",
+				verbatim: true,
+			},
+			null,
+			null,
+			{},
+		);
+		assert.equal(extractText(result.content), BIG_TEXT, "verbatim read keeps original");
+		assert.equal(result.details.needle.reason, "verbatim");
+		assert.ok(!requestFn.calls.some((call) => call.op === "prune"), "no prune for verbatim read");
+	} finally {
+		await stop();
+	}
+}
+
+async function testThrownBashErrorIsPrunedAndKeepsExitStatus() {
+	const requestFn = recordingRequestFn();
+	const errorText = `${BIG_TEXT}\n\nCommand exited with code 1`;
+	const { pi, stop } = await installAndStart(BIG_TEXT, requestFn, {
+		createBashTool: throwingToolFactory(errorText),
+	});
+	try {
+		await assert.rejects(
+			() => pi.tools.get("bash").execute(
+				"t1",
+				{ path: "ls", context_focus_question: "Which failing lines explain the error?" },
+				null,
+				null,
+				{},
+			),
+			(error) => {
+				assert.ok(!error.message.includes(" drop"), "thrown output was pruned");
+				assert.ok(error.message.includes("Command exited with code 1"), "exit status preserved");
+				return true;
+			},
+		);
+		const prune = requestFn.calls.find((call) => call.op === "prune");
+		assert.ok(prune, "thrown error was sent to the pruner");
+		assert.ok(!prune.text.includes("Command exited with code 1"), "exit status kept out of model payload");
+	} finally {
+		await stop();
+	}
+}
+
+async function testCriticalMemoryPressureIsLoud() {
+	const requestFn = recordingRequestFn();
+	const { pi, stop } = await installAndStart(BIG_TEXT, requestFn, {
+		memoryPressureFn: () => ({
+			critical: true,
+			availableMb: 12,
+			minAvailableMb: 768,
+			source: "test",
+		}),
+	});
+	try {
+		const result = await pi.tools.get("read").execute(
+			"t1",
+			{ path: "x.py", context_focus_question: "Which lines matter?" },
+			null,
+			null,
+			{},
+		);
+		const text = extractText(result.content);
+		assert.ok(text.startsWith("[needle skipped: memory pressure critical"), "loud memory banner");
+		assert.ok(text.includes(BIG_TEXT), "original output still follows");
+		assert.equal(result.details.needle.reason, "memory-pressure");
+		assert.ok(!requestFn.calls.some((call) => call.op === "prune"), "no prune under critical memory");
+	} finally {
+		await stop();
+	}
+}
+
 async function testToolCallBlocksOnSlowEnablement() {
 	// Regression: the first tool call used to race daemon startup and fail
 	// loudly instead of waiting. It must block on the shared enable promise.
@@ -209,6 +315,7 @@ async function testToolCallBlocksOnSlowEnablement() {
 			daemonReady = true;
 			return true;
 		},
+		memoryPressureFn: okMemory,
 	});
 	const ctx = {
 		sessionManager: { getSessionId: () => "s-race", getEntries: () => [] },
@@ -281,10 +388,29 @@ async function testUnchangedDecisionKeepsOriginal() {
 	}
 }
 
+async function testNeedleOriginalCommand() {
+	const requestFn = recordingRequestFn({ originalText: "pre-prune output" });
+	const { pi, ctx, stop } = await installAndStart(BIG_TEXT, requestFn);
+	try {
+		await pi.commands.get("needle").handler("original", ctx);
+		const message = pi.messages.at(-1);
+		assert.equal(message.customType, "needle-original");
+		assert.equal(message.content, "pre-prune output");
+		const original = requestFn.calls.find((call) => call.op === "original");
+		assert.equal(original.session, "s-test");
+	} finally {
+		await stop();
+	}
+}
+
 function testSplitEnvelope() {
 	const { payload, envelope } = splitEnvelope(BIG_TEXT + ENVELOPE);
 	assert.equal(payload, BIG_TEXT);
 	assert.equal(envelope, ENVELOPE);
+
+	const failed = splitEnvelope(`${BIG_TEXT}\n\nCommand exited with code 1`);
+	assert.equal(failed.payload, BIG_TEXT);
+	assert.equal(failed.envelope, "\n\nCommand exited with code 1");
 
 	const plain = splitEnvelope("no envelope here");
 	assert.equal(plain.payload, "no envelope here");
@@ -329,9 +455,13 @@ async function main() {
 	await testBashEnvelopeSurvivesPruning();
 	await testMissingFocusQuestionIsLoud();
 	await testPruneFailureIsLoud();
+	await testVerbatimBypassesPruning();
+	await testThrownBashErrorIsPrunedAndKeepsExitStatus();
+	await testCriticalMemoryPressureIsLoud();
 	await testToolCallBlocksOnSlowEnablement();
 	await testSmallObservationsSkipped();
 	await testUnchangedDecisionKeepsOriginal();
+	await testNeedleOriginalCommand();
 	testSplitEnvelope();
 	testStatuslineStates();
 	testSchemaHelperIdempotent();
