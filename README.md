@@ -1,161 +1,156 @@
 # Needle
 
-Needle is a Pi-first local pruning runtime.
+Needle is a local pruning layer for [Pi](https://github.com/mariozechner/pi).
+It sits between a tool call and the model: large `read`/`bash` observations go
+through a small local MLX model that keeps the lines relevant to what the agent
+is actually trying to learn, and drops the rest. Nothing leaves your machine.
 
-The product is the Rust `needle` binary. Python is private worker machinery for
-the MLX Soft-LaMR model path.
-
-## Current Shape
+Here is a real prune from this repo (local model, Apple Silicon):
 
 ```text
-crates/
-  needle-manager/        # Rust runtime: CLI, daemon, worker lifecycle
+needle prune --query "how does the batch guardrail split oversized batches?" \
+  python/needle_worker/soft_lamr/batching.py
 
-pi/                      # Pi package: extension + goal-hints skill
-  extension.js           # overrides read/bash, requires context_focus_question
-  client.mjs             # NDJSON socket client
-  skills/needle-goal-hints/
-
-python/
-  needle_worker/         # private Python worker package
-    worker.py            # worker entrypoint
-    soft_lamr/           # MLX model implementation
-
-tests/                   # worker/model/extension tests
+needle: pruned (model) · 4390 -> 1723 chars · backend code-pruner
 ```
 
-The old Python CLI, MCP host, backend registry, Homebrew formula, and runtime
-manager have been removed from this worktree. They were part of the previous
-product story and should not be treated as live architecture.
+```python
+[pruned]
+@dataclass(frozen=True)
+class BatchBudgetResult(Generic[T]):
+    batches: list[list[T]]
+    splits: int
+    singles_over_budget: int
+[pruned]
+def split_batches_by_padded_token_budget(
+    batches: list[list[T]],
+    *,
+    max_padded_tokens: int | None,
+    length_fn: Callable[[T], int],
+) -> BatchBudgetResult[T]:
+    """Split batches so each rectangular model call stays under a token budget.
 
-## Worker Checks
-
-```bash
-PYTHONPATH=python python3 -m needle_worker --help
-PYTHONPATH=python python3 tests/test_worker.py
-PYTHONPATH=python python3 tests/test_repair.py
-PYTHONPATH=python python3 tests/test_backends.py
-PYTHONPATH=python python3 tests/test_code_pruner_batching.py
-PYTHONPATH=python python3 tests/test_code_pruner_chunking.py
-PYTHONPATH=python python3 tests/test_code_pruner_profiling.py
-PYTHONPATH=python python3 tests/test_code_pruner_backbone.py
-PYTHONPATH=python python3 tests/test_model_download.py
+    A single long row can exceed the budget; that is recorded but not split.
+    """
+    ...
 ```
 
-## Rust Checks
+The agent asked a question, got 39% of the file back, and answered correctly.
+The other 61% of those tokens never entered its context window.
 
-```bash
-cargo check
-cargo test
-```
-
-## Prune From The CLI (development)
-
-The `needle` binary drives the Python worker end to end:
-
-```bash
-cargo build
-./target/debug/needle prune --query "what does the merge step do?" path/to/file.py
-./target/debug/needle prune --query "..." --json < input.txt
-```
-
-Pruned text goes to stdout; a `decision (reason) · chars · backend` summary goes
-to stderr (`--json` emits one envelope on stdout instead). Worker or model
-failures exit non-zero and loudly — there is no silent raw-text fallback.
-`NEEDLE_PYTHON` selects the worker Python; `NEEDLE_MODEL_DIR` points at a local
-model directory.
-
-## Daemon
-
-```bash
-./target/debug/needle daemon          # foreground; socket under NEEDLE_HOME/runtime
-./target/debug/needle status          # mode · backend status · sessions
-```
-
-The daemon serves NDJSON over a unix socket: `enable`, `disable`, `heartbeat`,
-`prune`, `mode`, `backend_status`, `status`, and `original` (the pre-prune text
-of a session's last prune, for over-pruned non-idempotent commands). Campfire
-lifecycle: the first `enable` lights it and blocks until the model is resident;
-the last `disable` — or a lease missing its heartbeats — unloads the worker,
-removes the socket, and exits the process. Control ops never queue behind model
-work. The socket is same-UID only, mode 0600, with 16 MiB bounded frames.
-
-## Setup
-
-When a release artifact is published, install with:
+## Install
 
 ```bash
 curl -fsSL https://e24z.github.io/needle/install.sh | bash
+needle
 ```
 
-A bare `needle` on an unconfigured machine enters the setup wizard: system
-check, Pi check, private worker venv, model download, Pi integration, final
-status. Everything lands under `NEEDLE_HOME` (default:
-`~/Library/Application Support/Needle`), every step is idempotent, and
-`needle setup --dry-run` prints intended changes without touching anything.
-Writing to your Pi settings happens in exactly one step, behind an explicit
-confirmation (`pi install <NEEDLE_HOME>/pi`).
+The bare `needle` command runs the setup wizard on an unconfigured machine:
+system check, Pi check, private worker venv, model download (~1.5 GB), Pi
+integration. Every mutation is behind its own confirmation; everything lands
+under `NEEDLE_HOME` (default `~/Library/Application Support/Needle`);
+`needle setup --dry-run` prints intentions and touches nothing. Uninstall is
+first-class: `needle uninstall`, or `--purge` to remove all local state
+including the model.
 
-Most users should not need env overrides. The installed runtime honors
-`NEEDLE_HOME` for sandboxing, `NEEDLE_MODEL_DIR` to reuse an existing model
-snapshot, and `NEEDLE_SOCKET` for explicit daemon clients. Development and
-test-only hooks use `NEEDLE_DEV_*` names and are intentionally not part of the
-install contract.
+Requires an Apple Silicon Mac (the model runs on MLX) and Pi. See
+[TESTING.md](TESTING.md) for a full walkthrough with expected results.
 
-## Uninstall
+## The contract
 
-```bash
-needle uninstall
-needle uninstall --purge
+**If Needle is on, it's on.** Supported observations go through the model —
+cold start, slow load, and memory pressure are never reasons to silently skip
+pruning. The first tool call after a cold start blocks until the model is
+resident; the statusline spinner is the explanation for the wait.
+
+**Failure is loud.** If the model can't load (including the low-memory refusal
+on constrained machines), the observation arrives unpruned with a visible
+`[needle failed: ...]` banner and an off-ramp (`/needle off`). There is no
+silent raw-text fallback anywhere in the runtime.
+
+**Structure is protected.** Exit codes, error statuses, and truncation notices
+ride outside the pruner and are never dropped. Pruned Python is repaired to
+parse (`ast.parse`-verified); when repair can't guarantee that, it says so and
+steps aside. Unchanged results carry explicit reasons, not shrugs.
+
+**The original is recoverable.** The daemon caches the pre-prune text of each
+session's last prune — `/needle original` retrieves it, so an over-pruned
+non-idempotent command never forces a re-run.
+
+## Why Pi only
+
+Pruning quality is bounded by the focus question the agent attaches to each
+tool call. Pi lets an extension own the native tool schemas, so
+`context_focus_question` is *required* — the model must write one. Hosts where
+an extension can only offer a competing tool (the MCP path) cannot enforce
+that contract: the model may ignore the tool or omit the question, and the
+pruning layer degrades to an ornament. That asymmetry is the finding, and it
+is why there is no MCP surface here.
+
+A bundled skill (`needle-goal-hints`) teaches the agent to write good focus
+questions; `verbatim: true` is the escape hatch for patch-sensitive reads.
+
+## Measurements
+
+Numbers pending — the harness exists and the lane is chosen (SWE-bench subset,
+containers hosted on Modal, pruning local). This table is a stub to be replaced
+before these claims are cited anywhere:
+
+| metric | value |
+| --- | --- |
+| observations evaluated | _TBD_ |
+| mean char reduction | _TBD_ |
+| answer retention (LLM-judged) | _TBD_ |
+| cold model load | _TBD_ |
+| warm prune p50 / p95 | _TBD_ |
+| repair on vs off savings | _TBD_ |
+
+What exists today is behavioral evidence: every contract above is covered by
+tests (Rust daemon integration, Node extension suite, Python worker/repair
+suites), and the install/prune/uninstall loop is verified live on this
+hardware.
+
+## How it's put together
+
+```text
+crates/needle-manager/   # the product: CLI, setup wizard, daemon, worker lifecycle (Rust)
+pi/                      # Pi package: extension + goal-hints skill + socket client
+python/needle_worker/    # private MLX worker: model load, scoring, repair
+site/                    # curl installer (GitHub Pages)
+scripts/                 # release packaging, eval harness
+tests/                   # Python, Rust-adjacent Node, and worker test suites
 ```
 
-Default uninstall stops a running daemon, removes the Pi package registration,
-and deletes config/runtime state while keeping the private venv, model snapshot,
-and logs under `NEEDLE_HOME`. `--purge` removes the whole `NEEDLE_HOME` tree.
+Rust owns the CLI, setup, Pi integration, daemon/session/lease lifecycle,
+worker process lifecycle, and every visible state. Python owns MLX: model
+download, load, inference, model-local cleanup. They speak one NDJSON protocol
+over stdin/stdout (worker) and a 0600 unix socket (daemon; same-UID peers,
+bounded frames).
 
-## Build Artifact
+The daemon is a campfire: the first session's `enable` lights it and blocks
+until the model is resident; the last `disable` — or a lease missing its
+heartbeats — unloads the model, removes the socket, and exits. No sessions, no
+resident model, no daemon.
+
+## Development
 
 ```bash
+cargo build && cargo test                 # runtime
+PYTHONPATH=python python3 tests/test_worker.py    # worker (see tests/ for the full list)
+node tests/test_pi_extension.mjs          # extension behaviors
+NEEDLE_BIN=target/debug/needle node tests/test_pi_client_daemon.mjs
+
+# prune from the CLI
+./target/debug/needle prune --query "..." path/to/file.py
+
+# run Pi against the dev extension without touching your Pi config
+NEEDLE_BIN=$PWD/target/debug/needle pi --no-extensions -e pi/extension.js \
+  --skill pi/skills/needle-goal-hints
+
+# build the release artifact (bin + Pi package + worker wheel)
 bash scripts/package-release.sh
 ```
 
-The release tarball contains `bin/needle`, the Pi package under
-`share/needle/pi`, and a built `needle_worker` wheel under
-`share/needle/wheels`. The setup wizard prefers that shipped wheel when running
-from an installed artifact, and falls back to the source checkout in
-development. The stable asset filename is `needle-aarch64-apple-darwin.tar.gz`
-so the install script can target GitHub Releases' `latest/download` URL.
-
-## Pi Extension (development)
-
-```bash
-cargo build
-NEEDLE_BIN=$PWD/target/debug/needle pi --no-extensions -e pi/extension.js --skill pi/skills/needle-goal-hints
-```
-
-The extension overrides Pi's native `read` and `bash` tools with
-`context_focus_question` required in the schema, spawns the daemon on demand,
-and routes observations through it. Blocking semantics: the first tool call
-waits for daemon startup and model residency. Missing focus questions and
-runtime failures produce a visible banner in the observation — never a silent
-pass-through. Host envelope lines (truncation notices) are split off before
-pruning and reattached verbatim; error results (non-zero exits) are never
-pruned. The statusline shows off/loading/busy/resident/failed plus session
-savings; `/needle status|on|off` controls it.
-
-## Ownership
-
-Rust owns:
-
-- CLI and setup flow
-- Pi integration
-- daemon/session/lease lifecycle
-- worker process lifecycle
-- status and visible failure states
-
-Python owns:
-
-- MLX imports
-- model download/load
-- inference
-- model-local cleanup
+Installed runtimes honor `NEEDLE_HOME`, `NEEDLE_MODEL_DIR` (reuse an existing
+snapshot), and `NEEDLE_SOCKET`. `NEEDLE_DEV_*` hooks are for development and
+tests only and are not part of the install contract.
