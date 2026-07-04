@@ -35,8 +35,9 @@ def split_batches_by_padded_token_budget(
     ...
 ```
 
-The agent asked a question, got 39% of the file back, and answered correctly.
-The other 61% of those tokens never entered its context window.
+In this demo run, the agent asked a question and got 39% of the file back.
+The other 61% of those tokens never entered its context window; retention is
+what the measurements table below has to earn.
 
 ## Install
 
