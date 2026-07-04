@@ -43,6 +43,7 @@ from .config import (
     first_env,
     repair_enabled_for_builtin_runtime,
 )
+from .decision import prune_decision_reason
 from .lines import aggregate_token_scores_to_lines, prune_code_lines
 
 # The optional C++ Viterbi extension is not part of current Needle; the numpy
@@ -123,6 +124,19 @@ def _reset_mlx_peak_memory() -> None:
     fn = _mlx_func("reset_peak_memory")
     if fn is not None:
         fn()
+
+
+def _decision_stats(
+    original: str,
+    pruned: str,
+    passthrough_reason: object | None = None,
+) -> dict[str, str]:
+    decision, reason = prune_decision_reason(
+        original=original,
+        pruned=pruned,
+        passthrough_reason=passthrough_reason,
+    )
+    return {"decision": decision, "reason": reason}
 
 
 def _mlx_memory_mb() -> dict[str, float]:
@@ -1004,6 +1018,7 @@ class MLXSwePrunerBackend:
         if code_token_budget < _MIN_CODE_TOKENS:
             self.last_stats = {
                 **base_stats,
+                **_decision_stats(text, text, "query-too-long"),
                 "passthrough_reason": "query-too-long",
                 "input_chars": len(text),
                 "output_chars": len(text),
@@ -1026,6 +1041,7 @@ class MLXSwePrunerBackend:
         if not chunks:
             self.last_stats = {
                 **base_stats,
+                **_decision_stats(text, text, "empty-tokenization"),
                 "passthrough_reason": "empty-tokenization",
                 "input_chars": len(text),
                 "output_chars": len(text),
@@ -1083,6 +1099,7 @@ class MLXSwePrunerBackend:
         except BatchRetryFailed as exc:
             self.last_stats = {
                 **base_stats,
+                **_decision_stats(text, text, "batch-resource-error"),
                 "passthrough_reason": "batch-resource-error",
                 "batch_error": str(exc.original)[:200],
                 "chunks": len(chunks),
@@ -1102,6 +1119,7 @@ class MLXSwePrunerBackend:
         if not scored_results:
             self.last_stats = {
                 **base_stats,
+                **_decision_stats(text, text, "no-scored-chunks"),
                 "passthrough_reason": "no-scored-chunks",
                 "chunks": len(chunks),
                 "batches": len(prepared_batches),
@@ -1155,6 +1173,10 @@ class MLXSwePrunerBackend:
                     repair_outcome = "repair-parse-failed"
 
         result, floor_reason = _apply_floor(text, result)
+        passthrough_reason = (
+            "floor-original" if floor_reason == "floor-original" else None
+        )
+        decision_fields = _decision_stats(text, result, passthrough_reason)
         real_tokens = sum(int(stats.get("real_tokens", 0)) for stats in batch_stats)
         padded_tokens = sum(int(stats.get("padded_tokens", 0)) for stats in batch_stats)
         pad_tokens = padded_tokens - real_tokens
@@ -1191,6 +1213,7 @@ class MLXSwePrunerBackend:
         chunk_scores = [score for score, _tokens, _offsets, _start in scored_results]
         self.last_stats = {
             **base_stats,
+            **decision_fields,
             "chunks": len(chunks),
             "batches": len(batch_stats),
             "batch_sizes": [len(batch) for batch in prepared_batches],
@@ -1247,8 +1270,8 @@ class MLXSwePrunerBackend:
             "repair": repair_outcome,
             "floor": floor_reason,
             **(
-                {"passthrough_reason": "floor-original"}
-                if floor_reason == "floor-original"
+                {"passthrough_reason": passthrough_reason}
+                if passthrough_reason
                 else {}
             ),
             "input_chars": len(text),

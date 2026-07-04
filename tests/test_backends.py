@@ -29,6 +29,7 @@ from needle_worker.soft_lamr.config import (  # noqa: E402
     first_env,
     repair_enabled_for_builtin_runtime,
 )
+from needle_worker.soft_lamr.decision import prune_decision_reason  # noqa: E402
 from needle_worker.soft_lamr.lines import prune_code_lines  # noqa: E402
 from needle_worker.soft_lamr.repair import repair_python_mask  # noqa: E402
 
@@ -151,6 +152,27 @@ def test_plain_renderer_keeps_tiny_gaps_when_marker_is_longer() -> None:
     assert pruned == code.rstrip("\n")
 
 
+def test_prune_decision_reason_policy() -> None:
+    assert prune_decision_reason(
+        original="same",
+        pruned="same",
+        passthrough_reason="query-too-long",
+    ) == ("unchanged", "query-too-long")
+    assert prune_decision_reason(
+        original="same",
+        pruned="same",
+        passthrough_reason="floor-original",
+    ) == ("unchanged", "floor-original")
+    assert prune_decision_reason(original="same", pruned="same") == (
+        "unchanged",
+        "no-lines-removed",
+    )
+    assert prune_decision_reason(original="keep drop", pruned="keep") == (
+        "pruned",
+        "model",
+    )
+
+
 def main() -> int:
     test_code_pruner_env_tuples_prefer_needle_names()
     test_adaptive_mlx_profile_uses_2048_for_small_observations()
@@ -161,6 +183,7 @@ def main() -> int:
     test_repair_expands_enclosing_scope()
     test_plain_renderer_uses_upstream_filtered_marker()
     test_plain_renderer_keeps_tiny_gaps_when_marker_is_longer()
+    test_prune_decision_reason_policy()
     print("test_backends OK")
     return 0
 

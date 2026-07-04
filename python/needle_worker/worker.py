@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TextIO
 
+from needle_worker.soft_lamr.decision import prune_decision_reason
 
 JsonObject = dict[str, Any]
 
@@ -47,6 +48,18 @@ def _backend_name(backend: Any) -> str:
 def _backend_stats(backend: Any) -> JsonObject:
     stats = getattr(backend, "last_stats", {})
     return dict(stats) if isinstance(stats, dict) else {}
+
+
+def _backend_decision(stats: JsonObject, *, original: str, pruned: str) -> tuple[str, str]:
+    decision = stats.get("decision")
+    reason = stats.get("reason")
+    if isinstance(decision, str) and isinstance(reason, str):
+        return decision, reason
+    return prune_decision_reason(
+        original=original,
+        pruned=pruned,
+        passthrough_reason=stats.get("passthrough_reason"),
+    )
 
 
 def _status_response(state: WorkerState) -> JsonObject:
@@ -127,13 +140,7 @@ def handle_request(
             state.last_error = str(exc)
             return _failed(request, str(exc)), False
         stats = _backend_stats(state.backend)
-        passthrough_reason = stats.get("passthrough_reason")
-        if passthrough_reason:
-            decision, reason = "unchanged", str(passthrough_reason)
-        elif pruned == text:
-            decision, reason = "unchanged", "no-lines-removed"
-        else:
-            decision, reason = "pruned", "model"
+        decision, reason = _backend_decision(stats, original=text, pruned=pruned)
         return (
             _with_id(
                 request,

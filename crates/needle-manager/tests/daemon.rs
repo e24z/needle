@@ -9,78 +9,7 @@ use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
-const FAKE_WORKER: &str = r#"
-import json
-import sys
-import time
-
-for line in sys.stdin:
-    request = json.loads(line)
-    request_id = request.get("id")
-    op = request.get("op")
-    if op == "prune":
-        text = request["text"]
-        if "SLOW" in text:
-            time.sleep(1.5)
-        pruned = text.replace(" drop", "")
-        response = {
-            "id": request_id,
-            "ok": True,
-            "status": "resident",
-            "backend": "fake-soft-lamr",
-            "decision": "pruned" if pruned != text else "unchanged",
-            "reason": "model" if pruned != text else "no-lines-removed",
-            "text": pruned,
-            "stats": {},
-        }
-    elif op == "load":
-        response = {"id": request_id, "ok": True, "status": "resident", "backend": "fake-soft-lamr"}
-    elif op in ("status", "unload", "exit"):
-        response = {"id": request_id, "ok": True, "status": "cold"}
-    else:
-        response = {"id": request_id, "ok": False, "status": "failed", "error": "bad op"}
-    print(json.dumps(response, separators=(",", ":")), flush=True)
-    if op == "exit":
-        break
-"#;
-
-const HANGING_WORKER: &str = r#"
-import json
-import sys
-import time
-
-for line in sys.stdin:
-    request = json.loads(line)
-    request_id = request.get("id")
-    op = request.get("op")
-    if op == "load":
-        time.sleep(60)
-    elif op == "exit":
-        response = {"id": request_id, "ok": True, "status": "cold"}
-        print(json.dumps(response, separators=(",", ":")), flush=True)
-        break
-"#;
-
-const SELF_EXITING_WORKER: &str = r#"
-import json
-import sys
-
-for line in sys.stdin:
-    request = json.loads(line)
-    request_id = request.get("id")
-    op = request.get("op")
-    if op == "load":
-        response = {"id": request_id, "ok": True, "status": "resident", "backend": "fake-soft-lamr"}
-        print(json.dumps(response, separators=(",", ":")), flush=True)
-        sys.exit(0)
-    elif op == "exit":
-        response = {"id": request_id, "ok": True, "status": "cold"}
-        print(json.dumps(response, separators=(",", ":")), flush=True)
-        break
-    else:
-        response = {"id": request_id, "ok": False, "status": "failed", "error": "unexpected op"}
-        print(json.dumps(response, separators=(",", ":")), flush=True)
-"#;
+const FAKE_WORKER: &str = include_str!("../../../tests/fixtures/fake_worker.py");
 
 struct DaemonUnderTest {
     child: Child,
@@ -89,13 +18,13 @@ struct DaemonUnderTest {
 
 impl DaemonUnderTest {
     fn start(label: &str, lease_ttl_secs: u64) -> Self {
-        Self::start_with_worker(label, lease_ttl_secs, FAKE_WORKER, &[])
+        Self::start_with_worker(label, lease_ttl_secs, "normal", &[])
     }
 
     fn start_with_worker(
         label: &str,
         lease_ttl_secs: u64,
-        worker_script: &str,
+        worker_mode: &str,
         extra_env: &[(&str, &str)],
     ) -> Self {
         let dir =
@@ -105,7 +34,7 @@ impl DaemonUnderTest {
         let package = dir.join("pythonpath").join("needle_worker");
         std::fs::create_dir_all(&package).expect("create fake package");
         std::fs::write(package.join("__init__.py"), "").expect("write __init__");
-        std::fs::write(package.join("__main__.py"), worker_script).expect("write __main__");
+        std::fs::write(package.join("__main__.py"), FAKE_WORKER).expect("write __main__");
         // A subdir the daemon must create itself, mirroring the default
         // NEEDLE_HOME/runtime layout (created dirs get locked to 0700).
         let socket = dir.join("runtime").join("needle.sock");
@@ -120,6 +49,7 @@ impl DaemonUnderTest {
                 &lease_ttl_secs.to_string(),
             ])
             .env("PYTHONPATH", dir.join("pythonpath"))
+            .env("FAKE_WORKER_MODE", worker_mode)
             .env("NEEDLE_COLD_LOAD_MIN_AVAILABLE_MB", "0")
             .env_remove("NEEDLE_PYTHON")
             .stdout(Stdio::null())
@@ -262,7 +192,7 @@ fn hung_worker_load_times_out_loudly() {
     let daemon = DaemonUnderTest::start_with_worker(
         "hung-load",
         90,
-        HANGING_WORKER,
+        "hang",
         &[("NEEDLE_WORKER_OP_TIMEOUT_SECS", "1")],
     );
     let mut conn = daemon.connect();
@@ -294,7 +224,7 @@ fn memory_pressure_error_surfaces_intact_over_socket() {
     let daemon = DaemonUnderTest::start_with_worker(
         "memory-pressure",
         90,
-        FAKE_WORKER,
+        "normal",
         &[("NEEDLE_COLD_LOAD_MIN_AVAILABLE_MB", "999999999999")],
     );
     let mut conn = daemon.connect();
@@ -331,7 +261,7 @@ fn memory_pressure_error_surfaces_intact_over_socket() {
 
 #[test]
 fn status_cache_reflects_silently_exited_worker() {
-    let daemon = DaemonUnderTest::start_with_worker("self-exit", 3, SELF_EXITING_WORKER, &[]);
+    let daemon = DaemonUnderTest::start_with_worker("self-exit", 3, "die", &[]);
     let mut conn = daemon.connect();
 
     let enabled = conn.request(json!({"op": "enable", "session": "s1"}));
@@ -465,6 +395,29 @@ fn status_cli_reports_running_and_absent_daemons() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success());
     assert!(stdout.contains("no daemon running"), "stdout: {stdout}");
+}
+
+#[test]
+fn paths_cli_reports_home_socket_and_config() {
+    let dir = std::env::temp_dir().join(format!("needle-paths-{}", std::process::id()));
+    let home = dir.join("home");
+    let socket = dir.join("custom.sock");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_needle"))
+        .args(["paths", "--json"])
+        .env("NEEDLE_HOME", &home)
+        .env("NEEDLE_SOCKET", &socket)
+        .output()
+        .expect("run needle paths");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "stdout: {stdout}");
+    let paths: Value = serde_json::from_slice(&output.stdout).expect("paths JSON");
+    assert_eq!(paths["home"], home.to_string_lossy().as_ref());
+    assert_eq!(paths["socket"], socket.to_string_lossy().as_ref());
+    assert_eq!(
+        paths["config"],
+        home.join("config.json").to_string_lossy().as_ref()
+    );
 }
 
 #[test]

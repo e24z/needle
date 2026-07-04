@@ -431,9 +431,17 @@ async function buildStatusMessage(state) {
 	lines.push(
 		`this session: ${formatCount(state.counters.savedChars || 0)} chars trimmed${SEP}${state.counters.calls || 0} prunes`,
 	);
-	lines.push(`socket: ${socketPath()}`);
-	lines.push(`home: ${needleHome()}`);
+	lines.push(`socket: ${resolvedPathLine(socketPath)}`);
+	lines.push(`home: ${resolvedPathLine(needleHome)}`);
 	return lines.join("\n");
+}
+
+function resolvedPathLine(resolvePath) {
+	try {
+		return resolvePath();
+	} catch (error) {
+		return `unavailable (${String(error?.message || error)})`;
+	}
 }
 
 async function buildOriginalMessage(state) {

@@ -4,26 +4,41 @@
 // are in flight, so there is nothing to gain from connection reuse here, and
 // per-op connections cannot leak wedged state between calls.
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import net from "node:net";
-import os from "node:os";
-import path from "node:path";
+
+let cachedPaths = null;
 
 export function needleHome() {
-	if (process.env.NEEDLE_HOME) return process.env.NEEDLE_HOME;
-	if (process.platform === "darwin") {
-		return path.join(os.homedir(), "Library", "Application Support", "Needle");
-	}
-	return path.join(os.homedir(), ".local", "share", "needle");
+	return needlePaths().home;
 }
 
 export function socketPath() {
 	if (process.env.NEEDLE_SOCKET) return process.env.NEEDLE_SOCKET;
-	return path.join(needleHome(), "runtime", "needle.sock");
+	return needlePaths().socket;
 }
 
 export function needleBinary() {
 	return process.env.NEEDLE_BIN || "needle";
+}
+
+export function needlePaths() {
+	if (cachedPaths) return cachedPaths;
+	const output = execFileSync(needleBinary(), ["paths", "--json"], {
+		encoding: "utf8",
+		timeout: 5000,
+	});
+	const paths = JSON.parse(output);
+	if (
+		!paths ||
+		typeof paths.home !== "string" ||
+		typeof paths.socket !== "string" ||
+		typeof paths.config !== "string"
+	) {
+		throw new Error("needle paths --json returned invalid paths");
+	}
+	cachedPaths = paths;
+	return cachedPaths;
 }
 
 export function request(op, fields = {}, { timeoutMs = 5000 } = {}) {

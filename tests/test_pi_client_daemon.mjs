@@ -4,36 +4,13 @@
 // Run: cargo build && NEEDLE_BIN=target/debug/needle node tests/test_pi_client_daemon.mjs
 
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync, existsSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const FAKE_WORKER = `
-import json
-import sys
-
-for line in sys.stdin:
-    request = json.loads(line)
-    request_id = request.get("id")
-    op = request.get("op")
-    if op == "prune":
-        text = request["text"]
-        pruned = text.replace(" drop", "")
-        response = {
-            "id": request_id, "ok": True, "status": "resident",
-            "backend": "fake-soft-lamr",
-            "decision": "pruned" if pruned != text else "unchanged",
-            "reason": "model" if pruned != text else "no-lines-removed",
-            "text": pruned, "stats": {},
-        }
-    elif op == "load":
-        response = {"id": request_id, "ok": True, "status": "resident", "backend": "fake-soft-lamr"}
-    else:
-        response = {"id": request_id, "ok": True, "status": "cold"}
-    print(json.dumps(response, separators=(",", ":")), flush=True)
-    if op == "exit":
-        break
-`;
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const FAKE_WORKER = readFileSync(path.join(HERE, "fixtures", "fake_worker.py"), "utf8");
 
 const scratch = path.join(os.tmpdir(), `needle-pi-client-${process.pid}`);
 const pythonPath = path.join(scratch, "pythonpath");
@@ -44,6 +21,7 @@ writeFileSync(path.join(pythonPath, "needle_worker", "__main__.py"), FAKE_WORKER
 process.env.NEEDLE_SOCKET = path.join(scratch, "needle.sock");
 process.env.NEEDLE_BIN = process.env.NEEDLE_BIN || "target/debug/needle";
 process.env.NEEDLE_COLD_LOAD_MIN_AVAILABLE_MB = "0";
+process.env.FAKE_WORKER_MODE = "normal";
 process.env.PYTHONPATH = pythonPath;
 
 const { ensureDaemon, request } = await import("../pi/client.mjs");

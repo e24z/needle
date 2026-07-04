@@ -6,7 +6,7 @@
 //! same-UID peers only, 0600 socket under NEEDLE_HOME/runtime, bounded frames.
 
 use crate::runtime::{NeedleMode, Runtime};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use signal_hook::consts::signal::{SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
@@ -38,11 +38,31 @@ pub fn needle_home() -> PathBuf {
     }
 }
 
-pub fn default_socket_path() -> PathBuf {
+#[derive(Debug, Serialize)]
+pub struct Paths {
+    pub home: PathBuf,
+    pub socket: PathBuf,
+    pub config: PathBuf,
+}
+
+pub fn resolved_paths() -> Paths {
+    let home = needle_home();
+    Paths {
+        socket: socket_path_for_home(&home),
+        config: home.join("config.json"),
+        home,
+    }
+}
+
+fn socket_path_for_home(home: &Path) -> PathBuf {
     if let Some(path) = std::env::var_os("NEEDLE_SOCKET") {
         return PathBuf::from(path);
     }
-    needle_home().join("runtime").join("needle.sock")
+    home.join("runtime").join("needle.sock")
+}
+
+pub fn default_socket_path() -> PathBuf {
+    socket_path_for_home(&needle_home())
 }
 
 pub struct DaemonConfig {
@@ -248,15 +268,12 @@ fn dispatch(line: &str, runtime: &Runtime) -> (Value, bool) {
 
     match request {
         Request::Enable { session } => match runtime.enable(&session) {
-            Ok(status) => (
-                json!({"ok": true, "backend_status": status.as_str()}),
-                false,
-            ),
+            Ok(status) => (json!({"ok": true, "backend_status": status}), false),
             Err(error) => (
                 json!({
                     "ok": false,
                     "error": error.to_string(),
-                    "backend_status": runtime.backend_status().as_str(),
+                    "backend_status": runtime.backend_status(),
                 }),
                 false,
             ),
@@ -288,11 +305,8 @@ fn dispatch(line: &str, runtime: &Runtime) -> (Value, bool) {
             Ok(result) => (
                 json!({
                     "ok": true,
-                    "backend_status": runtime.backend_status().as_str(),
-                    "decision": match result.decision {
-                        crate::protocol::PruneDecision::Pruned => "pruned",
-                        crate::protocol::PruneDecision::Unchanged => "unchanged",
-                    },
+                    "backend_status": runtime.backend_status(),
+                    "decision": result.decision,
                     "reason": result.reason,
                     "backend": result.backend,
                     "text": result.text,
@@ -304,21 +318,21 @@ fn dispatch(line: &str, runtime: &Runtime) -> (Value, bool) {
                 json!({
                     "ok": false,
                     "error": error.to_string(),
-                    "backend_status": runtime.backend_status().as_str(),
+                    "backend_status": runtime.backend_status(),
                 }),
                 false,
             ),
         },
         Request::Mode => (json!({"ok": true, "mode": mode_str(runtime.mode())}), false),
         Request::BackendStatus => (
-            json!({"ok": true, "backend_status": runtime.backend_status().as_str()}),
+            json!({"ok": true, "backend_status": runtime.backend_status()}),
             false,
         ),
         Request::Status => (
             json!({
                 "ok": true,
                 "mode": mode_str(runtime.mode()),
-                "backend_status": runtime.backend_status().as_str(),
+                "backend_status": runtime.backend_status(),
                 "sessions": runtime.session_count(),
             }),
             false,

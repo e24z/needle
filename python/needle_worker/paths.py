@@ -1,26 +1,21 @@
 """Needle-owned local paths used by the private Python worker.
 
-Rust owns the product layout and should pass explicit directories during normal
-operation. These defaults keep local worker runs predictable without importing
-the old Python runtime package.
+Rust owns the product layout and passes NEEDLE_HOME to managed worker children.
+Python intentionally has no platform-default branch here: standalone/dev runs
+must set NEEDLE_HOME explicitly so layout drift fails loudly.
 """
 
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
-
-APP_NAME = "Needle"
 
 
 def app_home() -> Path:
     env = os.environ.get("NEEDLE_HOME")
     if env:
         return Path(env).expanduser()
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / APP_NAME
-    return Path.home() / ".local" / "share" / "needle"
+    raise RuntimeError("NEEDLE_HOME is required; the Rust needle binary owns path layout")
 
 
 def model_root() -> Path:

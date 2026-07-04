@@ -1,5 +1,5 @@
 use crate::daemon::{self, DaemonConfig};
-use crate::protocol::{PruneDecision, PruneResult};
+use crate::protocol::{PruneResult, wire_name};
 use crate::runtime::Runtime;
 use crate::ui;
 use clap::{Args, Parser, Subcommand};
@@ -24,6 +24,8 @@ pub struct Cli {
 enum Command {
     /// Run the setup wizard (also runs on a bare `needle` when unconfigured).
     Setup(SetupArgs),
+    /// Print Needle-owned local paths.
+    Paths(PathsArgs),
     /// Prune text against a focus question using the local model.
     Prune(PruneArgs),
     /// Run the Needle daemon in the foreground.
@@ -75,6 +77,13 @@ struct StatusArgs {
 }
 
 #[derive(Args)]
+struct PathsArgs {
+    /// Print the paths as JSON.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
 struct PruneArgs {
     /// Focus question describing what you need from the text.
     #[arg(long)]
@@ -89,12 +98,31 @@ struct PruneArgs {
 pub fn run() -> ExitCode {
     match Cli::parse().command {
         Some(Command::Setup(args)) => run_setup(args),
+        Some(Command::Paths(args)) => run_paths(args),
         Some(Command::Prune(args)) => run_prune(args),
         Some(Command::Daemon(args)) => run_daemon(args),
         Some(Command::Status(args)) => run_status(args),
         Some(Command::Uninstall(args)) => run_uninstall(args),
         None => run_bare(),
     }
+}
+
+fn run_paths(args: PathsArgs) -> ExitCode {
+    let paths = daemon::resolved_paths();
+    if args.json {
+        match serde_json::to_string(&paths) {
+            Ok(text) => println!("{text}"),
+            Err(error) => {
+                ui::error(format!("needle: failed to serialize paths: {error}"));
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        println!("home: {}", paths.home.display());
+        println!("socket: {}", paths.socket.display());
+        println!("config: {}", paths.config.display());
+    }
+    ExitCode::SUCCESS
 }
 
 /// Bare `needle`: the wizard on an unconfigured machine, status otherwise.
@@ -230,7 +258,7 @@ fn read_input(file: Option<&Path>) -> std::io::Result<String> {
 fn print_result(result: &PruneResult, as_json: bool) {
     if as_json {
         let envelope = json!({
-            "decision": decision_str(result.decision),
+            "decision": result.decision,
             "reason": result.reason,
             "backend": result.backend,
             "stats": result.stats,
@@ -275,17 +303,11 @@ fn print_status_off() {
     }
 }
 
-fn decision_str(decision: PruneDecision) -> &'static str {
-    match decision {
-        PruneDecision::Pruned => "pruned",
-        PruneDecision::Unchanged => "unchanged",
-    }
-}
-
 fn summary(result: &PruneResult) -> String {
+    let decision = wire_name(result.decision);
     let mut parts = vec![match &result.reason {
-        Some(reason) => format!("{} ({reason})", decision_str(result.decision)),
-        None => decision_str(result.decision).to_string(),
+        Some(reason) => format!("{decision} ({reason})"),
+        None => decision,
     }];
     let stat = |key: &str| result.stats.get(key).and_then(serde_json::Value::as_i64);
     if let (Some(input), Some(output)) = (stat("input_chars"), stat("output_chars")) {

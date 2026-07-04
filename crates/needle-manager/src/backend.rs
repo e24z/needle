@@ -8,14 +8,3 @@ pub enum BackendStatus {
     Resident,
     Failed,
 }
-
-impl BackendStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            BackendStatus::Cold => "cold",
-            BackendStatus::Loading => "loading",
-            BackendStatus::Resident => "resident",
-            BackendStatus::Failed => "failed",
-        }
-    }
-}

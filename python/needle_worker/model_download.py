@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,8 +48,12 @@ def read_model_provenance(local_dir: Path) -> dict[str, Any] | None:
 
 
 def _ensure_model_dir(path: Path) -> None:
-    app_home = naming.app_home()
-    if path == app_home or path.is_relative_to(app_home):
+    home_env = os.environ.get("NEEDLE_HOME")
+    if home_env:
+        app_home = naming.app_home()
+    else:
+        app_home = None
+    if app_home is not None and (path == app_home or path.is_relative_to(app_home)):
         naming.ensure_private_dir(app_home)
     naming.ensure_runtime_parent(path)
 

@@ -57,7 +57,10 @@ impl WorkerCommand {
         });
         let dev_fallback = configured_python.is_none();
         let python = configured_python.unwrap_or_else(|| OsString::from("python3"));
-        let mut command = Self::new(python).arg("-m").arg("needle_worker");
+        let mut command = Self::new(python)
+            .arg("-m")
+            .arg("needle_worker")
+            .env("NEEDLE_HOME", crate::daemon::needle_home().into_os_string());
         if dev_fallback {
             if let Some(python_path) = dev_python_path() {
                 command = command.env("PYTHONPATH", python_path);
@@ -436,98 +439,28 @@ impl Drop for Worker {
     }
 }
 
+#[cfg(test)]
+const FAKE_WORKER: &str = include_str!("../../../tests/fixtures/fake_worker.py");
+
 /// A protocol-faithful fake worker for tests: prunes by dropping " drop",
 /// sleeps when the text contains "SLOW" so tests can hold the worker busy.
 #[cfg(test)]
 pub(crate) fn fake_worker_command(label: &str) -> WorkerCommand {
-    let script = r#"
-import json
-import sys
-import time
-
-loaded = False
-
-for line in sys.stdin:
-    request = json.loads(line)
-    request_id = request.get("id")
-    op = request.get("op")
-    if op == "status":
-        status = "resident" if loaded else "cold"
-        response = {"id": request_id, "ok": True, "status": status}
-    elif op == "load":
-        loaded = True
-        response = {"id": request_id, "ok": True, "status": "resident", "backend": "fake"}
-    elif op == "prune":
-        loaded = True
-        text = request["text"]
-        if "SLOW" in text:
-            time.sleep(1.5)
-        pruned = text.replace(" drop", "")
-        response = {
-            "id": request_id,
-            "ok": True,
-            "status": "resident",
-            "backend": "fake",
-            "decision": "pruned" if pruned != text else "unchanged",
-            "reason": "model" if pruned != text else "no-lines-removed",
-            "text": pruned,
-            "stats": {"saved_chars": len(text) - len(pruned)},
-        }
-    elif op == "unload":
-        loaded = False
-        response = {"id": request_id, "ok": True, "status": "cold"}
-    elif op == "exit":
-        loaded = False
-        response = {"id": request_id, "ok": True, "status": "cold"}
-        print(json.dumps(response, separators=(",", ":")), flush=True)
-        break
-    else:
-        response = {"id": request_id, "ok": False, "status": "failed", "error": "bad op"}
-    print(json.dumps(response, separators=(",", ":")), flush=True)
-"#;
-    python_script_command("fake", label, script)
+    python_script_command("fake", label, FAKE_WORKER).env("FAKE_WORKER_BACKEND", "fake")
 }
 
 #[cfg(test)]
 pub(crate) fn hanging_worker_command(label: &str) -> WorkerCommand {
-    let script = r#"
-import json
-import sys
-import time
-
-for line in sys.stdin:
-    request = json.loads(line)
-    if request.get("op") == "load":
-        time.sleep(60)
-    elif request.get("op") == "exit":
-        break
-"#;
-    python_script_command("hanging", label, script)
+    python_script_command("hanging", label, FAKE_WORKER)
+        .env("FAKE_WORKER_BACKEND", "fake")
+        .env("FAKE_WORKER_MODE", "hang")
 }
 
 #[cfg(test)]
 pub(crate) fn self_exiting_worker_command(label: &str) -> WorkerCommand {
-    let script = r#"
-import json
-import sys
-
-for line in sys.stdin:
-    request = json.loads(line)
-    request_id = request.get("id")
-    op = request.get("op")
-    if op == "load":
-        response = {"id": request_id, "ok": True, "status": "resident", "backend": "fake"}
-        print(json.dumps(response, separators=(",", ":")), flush=True)
-        sys.exit(0)
-    elif op == "exit":
-        response = {"id": request_id, "ok": True, "status": "cold"}
-        print(json.dumps(response, separators=(",", ":")), flush=True)
-        break
-    else:
-        response = {"id": request_id, "ok": False, "status": "failed", "error": "unexpected op"}
-        print(json.dumps(response, separators=(",", ":")), flush=True)
-"#;
-    python_script_command("self-exiting", label, script)
+    python_script_command("self-exiting", label, FAKE_WORKER)
+        .env("FAKE_WORKER_BACKEND", "fake")
+        .env("FAKE_WORKER_MODE", "die")
 }
 
 #[cfg(test)]
@@ -535,38 +468,9 @@ pub(crate) fn counting_unload_worker_command(
     label: &str,
     log_path: &std::path::Path,
 ) -> WorkerCommand {
-    let script = r#"
-import json
-import os
-import sys
-import time
-
-loaded = False
-
-for line in sys.stdin:
-    request = json.loads(line)
-    request_id = request.get("id")
-    op = request.get("op")
-    if op == "load":
-        loaded = True
-        response = {"id": request_id, "ok": True, "status": "resident", "backend": "fake"}
-    elif op == "unload":
-        with open(os.environ["NEEDLE_UNLOAD_LOG"], "a", encoding="utf-8") as handle:
-            handle.write("unload\n")
-        time.sleep(0.2)
-        loaded = False
-        response = {"id": request_id, "ok": True, "status": "cold"}
-    elif op == "exit":
-        loaded = False
-        response = {"id": request_id, "ok": True, "status": "cold"}
-        print(json.dumps(response, separators=(",", ":")), flush=True)
-        break
-    else:
-        status = "resident" if loaded else "cold"
-        response = {"id": request_id, "ok": True, "status": status}
-    print(json.dumps(response, separators=(",", ":")), flush=True)
-"#;
-    python_script_command("counting-unload", label, script)
+    python_script_command("counting-unload", label, FAKE_WORKER)
+        .env("FAKE_WORKER_BACKEND", "fake")
+        .env("FAKE_WORKER_MODE", "counting-unload")
         .env("NEEDLE_UNLOAD_LOG", log_path.as_os_str())
 }
 

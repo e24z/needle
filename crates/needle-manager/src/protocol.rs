@@ -27,11 +27,18 @@ impl From<WorkerStatus> for BackendStatus {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PruneDecision {
     Pruned,
     Unchanged,
+}
+
+pub fn wire_name<T: Serialize>(value: T) -> String {
+    match serde_json::to_value(value).expect("wire enum serializes to JSON") {
+        Value::String(name) => name,
+        other => panic!("wire enum serialized to non-string JSON: {other}"),
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

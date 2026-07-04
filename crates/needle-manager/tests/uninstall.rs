@@ -7,20 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const FAKE_WORKER: &str = r#"
-import json
-import sys
-
-for line in sys.stdin:
-    request = json.loads(line)
-    op = request.get("op")
-    response = {"id": request.get("id"), "ok": True, "status": "resident"}
-    if op in ("unload", "exit", "status"):
-        response["status"] = "cold"
-    print(json.dumps(response), flush=True)
-    if op == "exit":
-        break
-"#;
+const FAKE_WORKER: &str = include_str!("../../../tests/fixtures/fake_worker.py");
 
 fn scratch(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("nu-{}-{label}", std::process::id()));

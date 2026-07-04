@@ -8,37 +8,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-const FAKE_WORKER: &str = r#"
-import json
-import sys
-
-for line in sys.stdin:
-    request = json.loads(line)
-    request_id = request.get("id")
-    op = request.get("op")
-    if op == "prune":
-        text = request["text"]
-        pruned = text.replace(" drop", "")
-        decision = "pruned" if pruned != text else "unchanged"
-        response = {
-            "id": request_id,
-            "ok": True,
-            "status": "resident",
-            "backend": "fake-soft-lamr",
-            "decision": decision,
-            "reason": "model" if decision == "pruned" else "no-lines-removed",
-            "text": pruned,
-            "stats": {"input_chars": len(text), "output_chars": len(pruned)},
-        }
-    elif op in ("status", "load", "unload", "exit"):
-        status = "resident" if op == "load" else "cold"
-        response = {"id": request_id, "ok": True, "status": status}
-    else:
-        response = {"id": request_id, "ok": False, "status": "failed", "error": "bad op"}
-    print(json.dumps(response, separators=(",", ":")), flush=True)
-    if op == "exit":
-        break
-"#;
+const FAKE_WORKER: &str = include_str!("../../../tests/fixtures/fake_worker.py");
 
 fn fake_worker_dir(label: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("needle-cli-fake-{}-{label}", std::process::id()));
