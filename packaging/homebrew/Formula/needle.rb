@@ -4,7 +4,7 @@
 class Needle < Formula
   desc "Pi-first local observation pruning runtime"
   homepage "https://github.com/e24z/needle"
-  url "https://github.com/e24z/needle.git", branch: "push-1.0"
+  url "https://github.com/e24z/needle.git", branch: "main"
   license "MIT"
 
   depends_on "rust" => :build
