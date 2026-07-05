@@ -43,6 +43,7 @@ jobs:
           PYTHONPATH=python python tests/test_code_pruner_profiling.py
           PYTHONPATH=python python tests/test_code_pruner_backbone.py
           PYTHONPATH=python python tests/test_model_download.py
+          PYTHONPATH=python python tests/test_example_traces.py
 
       - name: Run Pi extension tests
         run: |
