@@ -1,6 +1,6 @@
 """Batch guardrail helpers for the code-pruner backend.
 
-Run: PYTHONPATH=src python3 tests/test_code_pruner_batching.py
+Run: PYTHONPATH=python python3 tests/test_code_pruner_batching.py
 """
 
 from __future__ import annotations
@@ -8,14 +8,14 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
-from needle.backends.code_pruner.batching import (  # noqa: E402
+from needle_worker.soft_lamr.batching import (  # noqa: E402
     BatchRetryFailed,
     score_batches_with_retry,
     split_batches_by_padded_token_budget,
 )
-from needle.backends.code_pruner.config import configured_max_batch_tokens  # noqa: E402
+from needle_worker.soft_lamr.config import configured_max_batch_tokens  # noqa: E402
 
 
 def test_split_batches_by_padded_token_budget_keeps_calls_bounded() -> None:
@@ -66,13 +66,8 @@ def test_score_batches_raises_when_serial_retry_still_fails() -> None:
         raise AssertionError("serial retry failure should surface as BatchRetryFailed")
 
 
-def test_configured_max_batch_tokens_prefers_needle_env() -> None:
-    env = {
-        "HAY_MLX_MAX_BATCH_TOKENS": "10",
-        "NEEDLE_MLX_MAX_BATCH_TOKENS": "20",
-    }
-    assert configured_max_batch_tokens(env) == 20
-    assert configured_max_batch_tokens({"HAY_MLX_MAX_BATCH_TOKENS": "10"}) == 10
+def test_configured_max_batch_tokens_reads_needle_env() -> None:
+    assert configured_max_batch_tokens({"NEEDLE_MLX_MAX_BATCH_TOKENS": "20"}) == 20
     assert configured_max_batch_tokens({}) is None
 
 
@@ -80,7 +75,7 @@ def main() -> int:
     test_split_batches_by_padded_token_budget_keeps_calls_bounded()
     test_score_batches_retries_retryable_batch_serially()
     test_score_batches_raises_when_serial_retry_still_fails()
-    test_configured_max_batch_tokens_prefers_needle_env()
+    test_configured_max_batch_tokens_reads_needle_env()
     print("test_code_pruner_batching OK")
     return 0
 

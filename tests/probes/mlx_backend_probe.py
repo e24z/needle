@@ -6,7 +6,7 @@ compare serial chunk scoring (`NEEDLE_MLX_MAX_BATCH_SIZE=1`) with a batched run.
 
 Example:
 
-    NEEDLE_PROFILE_MLX=1 uv run --extra backend-code-pruner-mlx \
+    PYTHONPATH=python NEEDLE_PROFILE_MLX=1 \
       python3 tests/probes/mlx_backend_probe.py --functions 40 --max-length 1024 --batch-size 2
 """
 
@@ -22,9 +22,9 @@ import time
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+PYTHON = ROOT / "python"
+if str(PYTHON) not in sys.path:
+    sys.path.insert(0, str(PYTHON))
 
 STAT_KEYS = (
     "chunks",
@@ -114,7 +114,7 @@ def _run_once(backend: Any, *, text: str, query: str, batch_size: int) -> dict[s
 
 def _run_probe(args: argparse.Namespace) -> dict[str, object]:
     try:
-        from needle.backends.code_pruner.model import CodePrunerBackend
+        from needle_worker.soft_lamr.model import CodePrunerBackend
     except Exception as exc:  # noqa: BLE001
         return {"ok": False, "skipped": True, "reason": f"backend unavailable: {exc}"}
 

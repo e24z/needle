@@ -1,4 +1,5 @@
 .venv/
+target/
 .pytest_cache/
 .DS_Store
 .claude/

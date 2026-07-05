@@ -1,3 +1,0 @@
-recursive-include src/needle/registry_data *.yaml *.json *.md
-recursive-include src/needle/hosts/pi *.js *.mjs *.json *.md
-recursive-include src/needle/hosts/mcp *.md

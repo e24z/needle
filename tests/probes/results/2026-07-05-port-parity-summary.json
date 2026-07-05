@@ -1,0 +1,96 @@
+{
+  "date": "2026-07-05",
+  "claim": "Needle MLX and upstream SWE-Pruner torch/MPS produced identical line masks on these local fixtures when run with the same checkpoint, max_length=512, threshold=0.5, and repair disabled.",
+  "checkpoint": {
+    "model_safetensors": "byte-identical between upstream torch/MPS checkout and Needle MLX model directory, verified locally with cmp",
+    "config_sha256_prefix": "9b1e88732190d3bb",
+    "backbone_model_name_or_path": "Qwen/Qwen3-Reranker-0.6B",
+    "compression_head_type": "crf"
+  },
+  "upstream": {
+    "repo": "Ayanami1314/swe-pruner local checkout",
+    "commit": "130423152f09b7d876303d91c9660ba1c6c92ea0"
+  },
+  "runs": [
+    {
+      "suite": "diagnostic_cases",
+      "source": "tests/probes/fixtures/port_parity_cases.jsonl",
+      "cases": 4,
+      "comparisons": 4,
+      "exact_mask_rate": 1.0,
+      "mean_line_agreement": 1.0,
+      "mean_jaccard": 1.0,
+      "total_lines": 141,
+      "cases_detail": [
+        {
+          "id": "auth_dataclass_support",
+          "line_count": 55,
+          "kept_lines": 23,
+          "chunks": 1,
+          "missing_must_contain": ["class User", "class Session"],
+          "present_must_not_contain": []
+        },
+        {
+          "id": "nested_method_support",
+          "line_count": 35,
+          "kept_lines": 23,
+          "chunks": 1,
+          "missing_must_contain": ["class WorkspacePolicy"],
+          "present_must_not_contain": []
+        },
+        {
+          "id": "imports_constants_support",
+          "line_count": 24,
+          "kept_lines": 10,
+          "chunks": 1,
+          "missing_must_contain": ["import hmac", "import hashlib"],
+          "present_must_not_contain": []
+        },
+        {
+          "id": "test_failure_context",
+          "line_count": 27,
+          "kept_lines": 8,
+          "chunks": 1,
+          "missing_must_contain": ["class RateLimitError", "def should_retry"],
+          "present_must_not_contain": []
+        }
+      ]
+    },
+    {
+      "suite": "synthetic_chunking",
+      "source": "port_parity.py --synthetic",
+      "cases": 2,
+      "comparisons": 2,
+      "exact_mask_rate": 1.0,
+      "mean_line_agreement": 1.0,
+      "mean_jaccard": 1.0,
+      "total_lines": 448,
+      "cases_detail": [
+        {
+          "id": "synthetic-config-validation",
+          "line_count": 17,
+          "kept_lines": 6,
+          "chunks": 1,
+          "missing_must_contain": [],
+          "present_must_not_contain": []
+        },
+        {
+          "id": "synthetic-tail-relevance",
+          "line_count": 431,
+          "kept_lines": 8,
+          "chunks": 7,
+          "missing_must_contain": ["class TailRateLimitError"],
+          "present_must_not_contain": []
+        }
+      ]
+    }
+  ],
+  "interpretation": {
+    "port_parity": "pass",
+    "quality_eval": "not covered",
+    "notes": [
+      "The fixture-level misses are identical between ports, so they are model/policy behavior rather than MLX-port divergence.",
+      "This probe is intentionally optional and should be run manually or in a dedicated environment, not in the default PR suite."
+    ]
+  }
+}

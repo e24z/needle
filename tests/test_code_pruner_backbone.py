@@ -11,10 +11,10 @@ import types
 from pathlib import Path
 from types import SimpleNamespace
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
-from needle import model_download  # noqa: E402
-from needle.backends.code_pruner import backbone as backbone_mod  # noqa: E402
+from needle_worker import model_download  # noqa: E402
+from needle_worker.soft_lamr import backbone as backbone_mod  # noqa: E402
 
 
 def _restore_env(old: dict[str, str | None]) -> None:
@@ -75,7 +75,6 @@ def test_explicit_local_backbone_path_is_allowed_and_missing_paths_fail() -> Non
 def test_backbone_revision_and_download_use_resolved_revision() -> None:
     old_env = {
         "NEEDLE_BACKBONE_REVISION": os.environ.get("NEEDLE_BACKBONE_REVISION"),
-        "HAY_BACKBONE_REVISION": os.environ.get("HAY_BACKBONE_REVISION"),
     }
     old_resolve = model_download.resolve_model_revision
     old_download = model_download.download_model_snapshot
@@ -91,7 +90,6 @@ def test_backbone_revision_and_download_use_resolved_revision() -> None:
         return SimpleNamespace(path="/tmp/resolved-backbone")
 
     os.environ.pop("NEEDLE_BACKBONE_REVISION", None)
-    os.environ.pop("HAY_BACKBONE_REVISION", None)
     model_download.resolve_model_revision = fake_resolve
     model_download.download_model_snapshot = fake_download_model_snapshot
     try:
@@ -131,7 +129,7 @@ def test_light_backbone_config_fetch_uses_resolved_revision() -> None:
         "mlx_lm.models.qwen3",
         "numpy",
         "transformers",
-        "needle.backends.code_pruner.model",
+        "needle_worker.soft_lamr.model",
     ]
     old_modules = {name: sys.modules.get(name) for name in module_names}
 
@@ -192,9 +190,9 @@ def test_light_backbone_config_fetch_uses_resolved_revision() -> None:
         sys.modules["mlx_lm.models.qwen3"] = fake_qwen3
         sys.modules["numpy"] = fake_numpy
         sys.modules["transformers"] = fake_transformers
-        sys.modules.pop("needle.backends.code_pruner.model", None)
+        sys.modules.pop("needle_worker.soft_lamr.model", None)
         try:
-            model_mod = importlib.import_module("needle.backends.code_pruner.model")
+            model_mod = importlib.import_module("needle_worker.soft_lamr.model")
             ref = backbone_mod.ResolvedBackbone(
                 repo="Qwen/Qwen3-Reranker-0.6B",
                 requested_revision="default",
@@ -203,7 +201,7 @@ def test_light_backbone_config_fetch_uses_resolved_revision() -> None:
             owner = SimpleNamespace(model_dir="/tmp/main-model")
             model_obj, tokenizer = model_mod.MLXSwePrunerBackend._build_backbone_light(owner, ref)
         finally:
-            sys.modules.pop("needle.backends.code_pruner.model", None)
+            sys.modules.pop("needle_worker.soft_lamr.model", None)
             for name, module in old_modules.items():
                 if module is None:
                     sys.modules.pop(name, None)

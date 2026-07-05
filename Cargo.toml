@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/needle-manager"]
+resolver = "3"

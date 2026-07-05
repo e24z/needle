@@ -1,6 +1,6 @@
 """Padding and batching accounting for the MLX code-pruner path.
 
-Run: PYTHONPATH=src python3 tests/test_code_pruner_profiling.py
+Run: PYTHONPATH=python python3 tests/test_code_pruner_profiling.py
 """
 
 from __future__ import annotations
@@ -8,9 +8,9 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
 
-from needle.backends.code_pruner.profiling import (  # noqa: E402
+from needle_worker.soft_lamr.profiling import (  # noqa: E402
     current_serial_fixed_padding,
     length_bucket_batches,
     one_dynamic_batch,
