@@ -80,7 +80,7 @@ not force a re-run.
 Pruning quality is bounded by the focus question the agent attaches to each
 tool call. Pi lets an extension own the native tool schemas, so
 `context_focus_question` is required: the model must write one. Hosts where
-an extension can only offer a competing tool (the MCP path) cannot enforce
+an extension can only offer a competing tool cannot enforce
 that contract: the model may ignore the tool or omit the question, and the
 pruning quality then depends on optional behavior. For now, Needle targets Pi
 only.
@@ -114,11 +114,8 @@ scripts/                 # release packaging, eval harness
 tests/                   # Python, Rust-adjacent Node, and worker test suites
 ```
 
-Rust owns the CLI, setup, Pi integration, daemon/session/lease lifecycle,
-worker process lifecycle, and every visible state. Python owns MLX: model
-download, load, inference, model-local cleanup. They speak one NDJSON protocol
-over stdin/stdout (worker) and a 0600 unix socket (daemon; same-UID peers,
-bounded frames).
+Rust handles everything that isn't model inference, Python loads MLX. They speak one NDJSON protocol
+over stdin/stdout (worker) and a 0600 unix socket.
 
 The first session's `enable` starts the daemon and blocks until the model is
 resident. The last `disable`, or a lease that misses its heartbeats, unloads
