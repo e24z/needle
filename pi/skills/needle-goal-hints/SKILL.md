@@ -54,7 +54,7 @@ conversation:
 - Relevant lines are kept; pruned spans collapse to `[pruned]` markers.
 - Exit codes and truncation notices are never pruned.
 - If pruning fails or the question is missing, the observation arrives
-  unpruned with a visible banner — never silently.
+  unpruned with a visible banner, not as a silent pass-through.
 - The original text of the last prune is recoverable: the daemon caches it
   per session. Ask the user to run `/needle original` if a non-idempotent
   command was over-pruned.

@@ -5,10 +5,10 @@ model download (~1.5 GB). Everything below is safe to run on your own machine
 and fully removable at the end.
 
 **You need:** an Apple Silicon Mac, macOS 14+, ~4 GB free disk, python3, and
-[Pi](https://github.com/mariozechner/pi) (`npm i -g @mariozechner/pi-coding-agent`).
+[Pi](https://github.com/earendil-works/pi) (`npm i -g @mariozechner/pi-coding-agent`).
 8 GB RAM works; close heavy apps before the model-load steps.
 
-Report anything that deviates from an **expect** line — that's the test.
+Report anything that deviates from an **expect** line. That's the test.
 
 ## 1. Install
 
@@ -26,13 +26,13 @@ it tells you.
 needle
 ```
 
-**Expect:** a five-step wizard (system check → pi check → worker environment →
-model → pi integration). It asks before creating the venv, before the ~1.5 GB
-model download, and before touching your Pi settings — each mutation is behind
-its own confirmation. On completion it prints where everything went
+**Expect:** a five-step wizard (system check -> pi check -> worker environment
+-> model -> pi integration). It asks before creating the venv, before the
+~1.5 GB model download, and before touching your Pi settings. On completion it
+prints where everything went
 (`~/Library/Application Support/Needle`).
 
-Run `needle` again. **Expect:** a status summary, not the wizard — setup is
+Run `needle` again. **Expect:** a status summary, not the wizard. Setup is
 idempotent.
 
 ## 3. Pruning in a real Pi session
@@ -46,18 +46,18 @@ Ask Pi something that makes it read a large file, e.g.
 
 **Expect:**
 - The statusline shows a needle indicator: spinner while the model loads
-  (first call after cold start blocks — this is by design), then
+  (first call after cold start blocks by design), then
   `needle · Nk chars trimmed · N prunes`.
 - The read observation in the transcript contains `[pruned]` markers and is
   visibly shorter than the file.
-- The tool call includes a `context_focus_question` — Pi's model wrote it
+- The tool call includes a `context_focus_question`: Pi's model wrote it
   because the schema requires it.
 - Pi's answer is still correct.
 
 Then a failing command: ask Pi to run something that exits non-zero (e.g.
 *"run `ls /nonexistent` and tell me what happened"*).
 
-**Expect:** the exit status / error is intact in the observation — pruning
+**Expect:** the exit status / error is intact in the observation. Pruning
 never eats exit codes.
 
 ## 4. Controls
@@ -71,7 +71,7 @@ Inside the same Pi session:
 | `/needle off` | notice; subsequent tool output arrives untouched, statusline shows off |
 | `/needle on` | statusline returns (may spin while the model reloads) |
 
-## 5. Campfire
+## 5. Daemon lifecycle
 
 Quit Pi, then:
 
@@ -79,8 +79,8 @@ Quit Pi, then:
 needle status
 ```
 
-**Expect:** no daemon running. The daemon lives only while sessions hold it —
-last session out unloads the model and exits. `ps aux | grep needle` should
+**Expect:** no daemon running. The daemon lives only while sessions hold it.
+The last session unloads the model and exits. `ps aux | grep needle` should
 show nothing.
 
 ## 6. Uninstall
@@ -96,7 +96,7 @@ daemon, and after `--purge` no `~/Library/Application Support/Needle`.
 ## What to report
 
 - Any observation that arrived unpruned **without** a visible
-  `[needle ...]` banner explaining why — silent pass-through is a bug, loud
+  `[needle ...]` banner explaining why. Silent pass-through is a bug; visible
   failure is not.
 - Wall-clock feel: model load time, per-prune stall, whether the machine
   swapped.

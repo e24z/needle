@@ -57,6 +57,22 @@ fn needle_setup(home: &Path, dir: &Path, args: &[&str]) -> std::process::Output 
         .expect("run needle setup")
 }
 
+fn needle_setup_without_model_override(
+    home: &Path,
+    dir: &Path,
+    args: &[&str],
+) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_needle"))
+        .arg("setup")
+        .args(args)
+        .env("NEEDLE_HOME", home)
+        .env("NEEDLE_DEV_WORKER_SOURCE", fake_worker_source(dir))
+        .env_remove("NEEDLE_MODEL_DIR")
+        .env("NEEDLE_DEV_PI_BIN", "/nonexistent/pi")
+        .output()
+        .expect("run needle setup")
+}
+
 #[test]
 fn dry_run_touches_nothing() {
     let dir = scratch("dry");
@@ -67,6 +83,26 @@ fn dry_run_touches_nothing() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(output.status.success(), "stdout: {stdout}");
     assert!(stdout.contains("dry run"), "stdout: {stdout}");
+    assert!(!home.exists(), "dry run created NEEDLE_HOME");
+}
+
+#[test]
+fn dry_run_fresh_home_reports_planned_model_download() {
+    let dir = scratch("dry-fresh");
+    let home = dir.join("home");
+
+    let output = needle_setup_without_model_override(&home, &dir, &["--dry-run", "--yes"]);
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("would run `python -m needle_worker.model_download_cli`"),
+        "model dry-run did not reach planned download: {stdout}"
+    );
     assert!(!home.exists(), "dry run created NEEDLE_HOME");
 }
 

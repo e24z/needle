@@ -1,8 +1,8 @@
 //! The Needle daemon: NDJSON over a unix socket.
 //!
-//! Campfire lifecycle: the first `enable` lights it, the last `disable` (or
-//! lease expiry) puts it out — the worker is unloaded, the socket removed,
-//! and the process exits. Security posture matches the old Python manager:
+//! Session lifecycle: the first `enable` loads the worker, the last `disable`
+//! (or lease expiry) unloads it, removes the socket, and exits. Security
+//! posture matches the old Python manager:
 //! same-UID peers only, 0600 socket under NEEDLE_HOME/runtime, bounded frames.
 
 use crate::runtime::{NeedleMode, Runtime};
@@ -282,8 +282,8 @@ fn dispatch(line: &str, runtime: &Runtime) -> (Value, bool) {
             Ok(last) => (json!({"ok": true, "shutdown": last}), last),
             Err(error) => (
                 json!({"ok": false, "error": error.to_string(), "shutdown": true}),
-                // A failed unload still means the last lease is gone: put the
-                // campfire out rather than leaving a session-less daemon.
+                // A failed unload still means the last lease is gone. Exit
+                // rather than leaving a daemon with no sessions.
                 true,
             ),
         },

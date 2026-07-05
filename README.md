@@ -1,6 +1,6 @@
 # Needle
 
-Needle is a local pruning layer for [Pi](https://github.com/mariozechner/pi).
+Needle is a local pruning layer for [Pi](https://github.com/earendil-works/pi).
 It sits between a tool call and the model: large `read`/`bash` observations go
 through a small local MLX model that keeps the lines relevant to what the agent
 is actually trying to learn, and drops the rest. Nothing leaves your machine.
@@ -36,8 +36,8 @@ def split_batches_by_padded_token_budget(
 ```
 
 In this demo run, the agent asked a question and got 39% of the file back.
-The other 61% of those tokens never entered its context window; retention is
-what the measurements table below has to earn.
+The other 61% of those tokens never entered its context window. The evidence
+below explains what has been checked so far, and what has not.
 
 ## Install
 
@@ -48,68 +48,61 @@ needle
 
 The bare `needle` command runs the setup wizard on an unconfigured machine:
 system check, Pi check, private worker venv, model download (~1.5 GB), Pi
-integration. Every mutation is behind its own confirmation; everything lands
-under `NEEDLE_HOME` (default `~/Library/Application Support/Needle`);
-`needle setup --dry-run` prints intentions and touches nothing. Uninstall is
-first-class: `needle uninstall`, or `--purge` to remove all local state
-including the model.
+integration. Every mutation asks first; everything lands under `NEEDLE_HOME`
+(default `~/Library/Application Support/Needle`). `needle setup --dry-run`
+prints the planned changes and touches nothing. `needle uninstall` removes the
+Pi integration; `needle uninstall --purge` also removes local state, including
+the model.
 
 Requires an Apple Silicon Mac (the model runs on MLX) and Pi. See
 [TESTING.md](TESTING.md) for a full walkthrough with expected results.
 
 ## The contract
 
-**If Needle is on, it's on.** Supported observations go through the model —
-cold start, slow load, and memory pressure are never reasons to silently skip
-pruning. The first tool call after a cold start blocks until the model is
-resident; the statusline spinner is the explanation for the wait.
+When Needle is enabled, supported observations wait for the daemon and resident
+model. A cold start or slow model load can delay the first tool call, but it
+does not silently bypass pruning.
 
-**Failure is loud.** If the model can't load (including the low-memory refusal
-on constrained machines), the observation arrives unpruned with a visible
+If the model cannot load, including the low-memory refusal on constrained
+machines, Needle returns the original observation with a visible
 `[needle failed: ...]` banner and an off-ramp (`/needle off`). There is no
-silent raw-text fallback anywhere in the runtime.
+silent raw-text fallback in the runtime.
 
-**Structure is protected.** Exit codes, error statuses, and truncation notices
-ride outside the pruner and are never dropped. Pruned Python is repaired to
-parse (`ast.parse`-verified); when repair can't guarantee that, it says so and
-steps aside. Unchanged results carry explicit reasons, not shrugs.
+Exit codes, error statuses, and truncation notices stay outside the pruner.
+Pruned Python is repaired to parse (`ast.parse`-verified); when repair cannot
+guarantee that, Needle returns the original text with an explicit reason.
 
-**The original is recoverable.** The daemon caches the pre-prune text of each
-session's last prune — `/needle original` retrieves it, so an over-pruned
-non-idempotent command never forces a re-run.
+The daemon caches the pre-prune text for each session's last prune.
+`/needle original` retrieves it, so an over-pruned non-idempotent command does
+not force a re-run.
 
 ## Why Pi only
 
 Pruning quality is bounded by the focus question the agent attaches to each
 tool call. Pi lets an extension own the native tool schemas, so
-`context_focus_question` is *required* — the model must write one. Hosts where
+`context_focus_question` is required: the model must write one. Hosts where
 an extension can only offer a competing tool (the MCP path) cannot enforce
 that contract: the model may ignore the tool or omit the question, and the
-pruning layer degrades to an ornament. That asymmetry is the finding, and it
-is why there is no MCP surface here.
+pruning quality then depends on optional behavior. For now, Needle targets Pi
+only.
 
 A bundled skill (`needle-goal-hints`) teaches the agent to write good focus
 questions; `verbatim: true` is the escape hatch for patch-sensitive reads.
 
-## Measurements
+## Evidence
 
-Numbers pending — the harness exists and the lane is chosen (SWE-bench subset,
-containers hosted on Modal, pruning local). This table is a stub to be replaced
-before these claims are cited anywhere:
+Needle does not yet have a SWE-bench quality benchmark or published latency
+numbers. The current evidence is narrower:
 
-| metric | value |
+| claim | current evidence |
 | --- | --- |
-| observations evaluated | _TBD_ |
-| mean char reduction | _TBD_ |
-| answer retention (LLM-judged) | _TBD_ |
-| cold model load | _TBD_ |
-| warm prune p50 / p95 | _TBD_ |
-| repair on vs off savings | _TBD_ |
-
-What exists today is behavioral evidence: every contract above is covered by
-tests (Rust daemon integration, Node extension suite, Python worker/repair
-suites), and the install/prune/uninstall loop is verified live on this
-hardware.
+| Release artifact installs | `scripts/package-release.sh` builds the macOS Apple Silicon tarball with the Rust binary, Pi package, goal-hints skill, and worker wheel. `site/install.sh --archive-url ... --prefix ...` installs that tarball and the installed binary reports `needle 0.1.0`. |
+| Setup is recoverable | Rust setup tests cover dry-run, full setup into a throwaway `NEEDLE_HOME`, idempotent rerun, and bare `needle` entering the wizard on an unconfigured home. |
+| Runtime contract is covered | `cargo test` covers daemon/session behavior, leases, status, prune/original recovery, frame limits, setup, and uninstall paths. |
+| Pi integration is covered | Node tests cover tool overrides, required `context_focus_question`, daemon client behavior, status controls, and visible failure banners. |
+| Worker behavior is covered | Python tests cover the worker protocol, backend selection, batching and chunking guardrails, profiling metadata, model download handling, AST repair, and example traces. |
+| MLX port matches the upstream mask path on fixtures | `tests/probes/results/2026-07-05-port-parity-summary.json` records 6 local fixture/synthetic comparisons, 589 total lines, and exact mask agreement between upstream SWE-Pruner torch/MPS and Needle MLX using the same checkpoint, `max_length=512`, `threshold=0.5`, and repair disabled. |
+| Quality evaluation is still pending | The parity probe does not measure answer retention or pruning quality. Fixture-level misses appear in both ports, so those misses belong to the model/policy, not the MLX port. |
 
 ## How it's put together
 
@@ -128,10 +121,10 @@ download, load, inference, model-local cleanup. They speak one NDJSON protocol
 over stdin/stdout (worker) and a 0600 unix socket (daemon; same-UID peers,
 bounded frames).
 
-The daemon is a campfire: the first session's `enable` lights it and blocks
-until the model is resident; the last `disable` — or a lease missing its
-heartbeats — unloads the model, removes the socket, and exits. No sessions, no
-resident model, no daemon.
+The first session's `enable` starts the daemon and blocks until the model is
+resident. The last `disable`, or a lease that misses its heartbeats, unloads
+the model, removes the socket, and exits. No sessions means no resident model
+and no daemon.
 
 ## Development
 

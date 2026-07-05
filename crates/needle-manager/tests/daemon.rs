@@ -131,8 +131,8 @@ impl Connection {
 }
 
 #[test]
-fn campfire_lifecycle_two_sessions() {
-    let mut daemon = DaemonUnderTest::start("campfire", 90);
+fn daemon_lifecycle_two_sessions() {
+    let mut daemon = DaemonUnderTest::start("lifecycle", 90);
     let mut conn = daemon.connect();
 
     let enabled = conn.request(json!({"op": "enable", "session": "s1"}));
@@ -173,7 +173,7 @@ fn campfire_lifecycle_two_sessions() {
 }
 
 #[test]
-fn expired_lease_puts_the_campfire_out() {
+fn expired_lease_exits_daemon() {
     let mut daemon = DaemonUnderTest::start("ttl", 1);
     let mut conn = daemon.connect();
 
@@ -341,8 +341,8 @@ fn oversized_frames_are_rejected_and_daemon_survives() {
 
     // The daemon stops reading at the frame cap, answers with an error, and
     // closes the connection. Our blocked write then fails with EPIPE and the
-    // reset may eat the response — both are the rejection working. What must
-    // hold: the daemon itself survives and keeps serving new connections.
+    // reset may eat the response. Both outcomes mean the rejection worked. The
+    // daemon itself must survive and keep serving new connections.
     let oversized = vec![b'x'; 17 * 1024 * 1024];
     let write_result = stream
         .write_all(&oversized)

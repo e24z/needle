@@ -1,9 +1,9 @@
-# Optional Probes
+# Optional probes
 
 This directory contains probes that are useful before a release but too heavy
 or environment-specific for the normal test suite.
 
-## Port Parity
+## Port parity
 
 `port_parity.py` compares upstream SWE-Pruner's PyTorch implementation with
 Needle's MLX port on identical `(observation, goal hint)` pairs. It compares
@@ -64,13 +64,13 @@ For a built-in chunking stress case:
 python3 tests/probes/port_parity.py --synthetic --backends none
 ```
 
-## Current Evidence
+## Current evidence
 
 `results/2026-07-05-port-parity-summary.json` records the first local parity
 run. The checkpoint used by upstream torch/MPS and Needle MLX was verified
 byte-identical with `cmp`, and both configs had the same hash.
 
-The evidence is good enough to say the MLX port is behaviorally equivalent to
-upstream SWE-Pruner for these mask-generation fixtures. It is not yet a full
-quality evaluation; several fixture-level misses appear in both ports, which
-means those misses belong to the model/policy rather than the MLX port.
+The recorded run supports one claim: for these mask-generation fixtures,
+Needle's MLX port matches upstream SWE-Pruner. It is not a quality evaluation.
+Several fixture-level misses appear in both ports, which means those misses
+belong to the model/policy rather than the MLX port.

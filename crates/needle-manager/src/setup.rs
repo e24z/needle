@@ -1,14 +1,13 @@
 //! The setup wizard: what a bare `needle` runs on an unconfigured machine.
 //!
-//! Owns product setup end to end: system check, Pi check, private worker
-//! venv, model download, Pi integration, final status. Everything lands
+//! Owns product setup: system check, Pi check, private worker venv, model
+//! download, Pi integration, final status. Everything lands
 //! under NEEDLE_HOME. Homebrew (or any installer) only places the binary;
 //! this wizard is the one path that configures the product.
 //!
 //! Every step is idempotent: it inspects state, reports "already", and only
 //! then mutates. `--dry-run` prints the mutations it would make and touches
-//! nothing. Writing to the user's real Pi config happens in exactly one
-//! step, behind an explicit confirmation.
+//! nothing. The Pi config write happens in one step, behind confirmation.
 
 use crate::config::{self, Config};
 use crate::daemon::needle_home;
@@ -66,7 +65,7 @@ fn step_system_check() {
     let python = python3();
     match probe(&python, &["--version"]) {
         Some(version) => ui::info(format!("python3: {version} ({})", python.to_string_lossy())),
-        None => ui::warning("python3 not found — the worker venv step will fail"),
+        None => ui::warning("python3 not found; the worker venv step will fail"),
     }
 }
 
@@ -75,7 +74,7 @@ fn step_pi_check() -> Option<String> {
     let version = probe(&pi_binary(), &["--version"]);
     match &version {
         Some(version) => ui::info(format!("pi: {version}")),
-        None => ui::warning("pi not found on PATH — Pi integration will be skipped"),
+        None => ui::warning("pi not found on PATH; Pi integration will be skipped"),
     }
     version
 }
@@ -101,6 +100,7 @@ fn step_worker_env(home: &Path, config: &mut Config, options: &SetupOptions) -> 
     ui::info(format!("will create venv: {}", venv.display()));
     if options.dry_run {
         ui::info("dry run: would run `python3 -m venv` and `pip install`");
+        config.worker_python = Some(venv_python);
         return Ok(true);
     }
     if !ui::confirm(
@@ -134,7 +134,7 @@ fn step_model(home: &Path, config: &mut Config, options: &SetupOptions) -> io::R
     ui::step(4, 5, "model");
 
     // An explicit NEEDLE_MODEL_DIR (an already-downloaded snapshot) is
-    // recorded and reused — model downloads are expensive.
+    // recorded and reused because model downloads are expensive.
     if let Some(dir) = std::env::var_os("NEEDLE_MODEL_DIR").map(PathBuf::from) {
         if dir.is_dir() {
             ui::success(format!("using NEEDLE_MODEL_DIR: {}", dir.display()));
@@ -235,7 +235,7 @@ fn step_pi_integration(
         return Ok(true);
     }
     if !ui::confirm("Register Needle with Pi?", options.assume_yes) {
-        ui::warning("skipped — run `needle setup` again when ready");
+        ui::warning("skipped; run `needle setup` again when ready");
         return Ok(true);
     }
 
@@ -269,7 +269,7 @@ fn step_final_status(home: &Path, config: &Config, options: &SetupOptions, ok: b
     if ok {
         ui::outro("needle is set up. Open a Pi session to use Needle, or check `needle status`.");
     } else {
-        ui::outro_cancel("setup finished with skipped or failed steps — run `needle setup` again.");
+        ui::outro_cancel("setup finished with skipped or failed steps; run `needle setup` again.");
     }
 }
 

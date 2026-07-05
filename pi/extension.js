@@ -1,11 +1,11 @@
 // Needle Pi extension: routes native read/bash observations through the
 // local Needle daemon.
 //
-// Blocking semantics: if Needle is on, supported observations go through the
-// model. Cold, loading, or slow are not bypass reasons. Critical memory
-// pressure is refused by the daemon and rendered loudly, never silent
-// pass-through. `context_focus_question` is required by the tool schema; its
-// absence (schema drift, host quirks) is also loud.
+// Blocking semantics: when Needle is on, supported observations wait for the
+// daemon and resident model. Cold starts, slow loads, and memory refusals
+// return visible unpruned-output banners instead of silently passing through.
+// `context_focus_question` is required by the tool schema; if it is missing,
+// the extension returns a visible unpruned-output banner.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, realpathSync } from "node:fs";
@@ -88,10 +88,9 @@ export function installNeedlePiExtension(pi, options = {}) {
 		Object.assign(state.counters, restored.counters);
 		if (restored.statusMode) state.statusMode = restored.statusMode;
 		updatePricingFromContext(state, ctx);
-		// Kick enablement off in the background: the session UI comes up
-		// immediately and the statusline shows loading. Tool calls await the
-		// same promise, so the first observation blocks until the daemon is
-		// up and the model resident — never a race, never a bypass.
+		// Start enablement in the background so the session UI appears
+		// immediately. Tool calls await the same promise, so the first
+		// observation still waits for the daemon and resident model.
 		ensureEnabled(state).catch(() => undefined);
 		heartbeatTimer = setInterval(() => {
 			if (state.sessionId && state.needleOn) {
@@ -175,8 +174,8 @@ async function pollStatus(state) {
 			if (response.backend_status === "resident") state.lastError = null;
 		}
 	} catch {
-		// Daemon gone (campfire out, crash): visible, not fatal — the next
-		// tool call re-lights it.
+		// Daemon gone or crashed: visible, not fatal. The next tool call
+		// starts it again.
 		if (state.backendStatus === "resident") state.backendStatus = "cold";
 	} finally {
 		state.statusPollInFlight = false;
@@ -252,11 +251,11 @@ export function withRequiredFocusQuestion(parameters) {
 		properties: {
 			...(base.properties || {}),
 			context_focus_question: {
-				type: "string",
-				description:
-					"Required. A complete, self-contained question describing your current " +
-					"information need — what you want to learn from this output. Needle " +
-					"prunes the observation to the lines relevant to it.",
+					type: "string",
+					description:
+						"Required. A complete, self-contained question describing your current " +
+						"information need: what you want to learn from this output. Needle " +
+						"prunes the observation to the lines relevant to it.",
 			},
 			verbatim: {
 				type: "boolean",
@@ -290,19 +289,18 @@ export async function buildToolResultPatch(toolName, result, params, state) {
 		? params.context_focus_question.trim()
 		: "";
 	if (!query) {
-		// Schema drift or host quirk: required parameter missing. Loud, never
-		// silent — the model (and the user scrolling the transcript) sees it.
+		// Schema drift or host quirk: required parameter missing. Return the
+		// original output with a banner the model and user can see.
 		return banner(
 			original,
-			"needle: missing context_focus_question — output returned unpruned. " +
+			"needle: missing context_focus_question; output returned unpruned. " +
 				"Provide a goal hint (see the needle-goal-hints skill).",
 			{ decision: "unchanged", reason: "missing-focus-question" },
 		);
 	}
 
-	// Block until the daemon is up and the model resident. Cold, loading,
-	// or slow are not bypass reasons; genuine failure and critical memory
-	// pressure are loud below.
+	// Block until the daemon is up and the model resident. Cold starts and
+	// slow loads do not bypass pruning; failures return banners below.
 	const enabled = await ensureEnabled(state).catch(() => false);
 	if (!enabled) {
 		return failureBanner(original, state.lastError || "needle could not start");
@@ -376,7 +374,7 @@ function banner(original, message, needleDetails) {
 function failureBanner(original, error) {
 	return banner(
 		original,
-		`needle failed: ${error} — original output follows. /needle off to disable pruning`,
+		`needle failed: ${error}; original output follows. /needle off to disable pruning`,
 		{ decision: "failed", reason: error },
 	);
 }
@@ -516,7 +514,7 @@ async function buildStatusMessage(state) {
 		daemon = null;
 	}
 	if (!state.needleOn) {
-		lines.push("needle: off (this session) — /needle on to re-enable");
+		lines.push("needle: off (this session); /needle on to re-enable");
 	} else if (!daemon?.ok) {
 		lines.push("needle: daemon not running (starts on the next tool call)");
 	} else {

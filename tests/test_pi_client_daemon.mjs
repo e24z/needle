@@ -51,7 +51,7 @@ async function main() {
 	assert.ok(original.text.includes("keep drop"), "original recoverable");
 
 	const disabled = await request("disable", { session: "pi-test" });
-	assert.equal(disabled.shutdown, true, "last lease puts the campfire out");
+	assert.equal(disabled.shutdown, true, "last lease exits the daemon");
 
 	// The daemon exits and removes its socket.
 	const deadline = Date.now() + 5000;

@@ -66,7 +66,7 @@ impl Runtime {
     }
 
     /// Register (or refresh) a lease and block until the model is resident.
-    /// Failure is loud: the lease stays, the status reads Failed, and the
+    /// If loading fails, the lease stays, the status reads Failed, and the
     /// caller decides whether to retry or disable.
     pub fn enable(&self, session: &str) -> Result<BackendStatus, WorkerError> {
         self.lock_sessions()
@@ -110,7 +110,7 @@ impl Runtime {
     }
 
     /// Remove leases that have missed their heartbeats. Returns true when
-    /// this emptied a previously non-empty table (campfire: last one out).
+    /// this emptied a previously non-empty table.
     pub fn reap_expired(&self, ttl: Duration) -> Result<bool, WorkerError> {
         let emptied = {
             let mut sessions = self.lock_sessions();
