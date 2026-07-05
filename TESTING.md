@@ -10,32 +10,26 @@ and fully removable at the end.
 
 Report anything that deviates from an **expect** line. That's the test.
 
-## 1. Install
+## 1. Install and setup
 
 ```bash
 curl -fsSL https://e24z.github.io/needle/install.sh | bash
 ```
 
 **Expect:** the script reports the installed binary path (`~/.local/bin/needle`)
-and `needle --version` prints a version. If `~/.local/bin` is not on your PATH,
-it tells you.
-
-## 2. Setup wizard
-
-```bash
-needle
-```
-
-**Expect:** a five-step wizard (system check -> pi check -> worker environment
--> model -> pi integration). It asks before creating the venv, before the
-~1.5 GB model download, and before touching your Pi settings. On completion it
-prints where everything went
+and then starts a five-step wizard (system check -> pi check -> worker
+environment -> model -> pi integration). It asks before creating the venv,
+before the ~1.5 GB model download, and before touching your Pi settings. On
+completion it prints where everything went
 (`~/Library/Application Support/Needle`).
 
 Run `needle` again. **Expect:** a status summary, not the wizard. Setup is
 idempotent.
 
-## 3. Pruning in a real Pi session
+If the installer says no interactive terminal was detected, run `needle setup`
+manually. That should start the same wizard.
+
+## 2. Pruning in a real Pi session
 
 ```bash
 cd <some repo of yours> && pi
@@ -60,7 +54,7 @@ Then a failing command: ask Pi to run something that exits non-zero (e.g.
 **Expect:** the exit status / error is intact in the observation. Pruning
 never eats exit codes.
 
-## 4. Controls
+## 3. Controls
 
 Inside the same Pi session:
 
@@ -71,7 +65,7 @@ Inside the same Pi session:
 | `/needle off` | notice; subsequent tool output arrives untouched, statusline shows off |
 | `/needle on` | statusline returns (may spin while the model reloads) |
 
-## 5. Daemon lifecycle
+## 4. Daemon lifecycle
 
 Quit Pi, then:
 
@@ -83,7 +77,7 @@ needle status
 The last session unloads the model and exits. `ps aux | grep needle` should
 show nothing.
 
-## 6. Uninstall
+## 5. Uninstall
 
 ```bash
 needle uninstall          # keeps the venv/model under NEEDLE_HOME

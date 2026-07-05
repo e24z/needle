@@ -6,13 +6,14 @@ version="latest"
 prefix="${HOME}/.local"
 archive_url=""
 dry_run=0
+run_setup=1
 
 usage() {
 	cat <<'USAGE'
 Install Needle.
 
 Usage:
-  install.sh [--version latest|vX.Y.Z] [--prefix DIR] [--archive-url URL] [--dry-run]
+  install.sh [--version latest|vX.Y.Z] [--prefix DIR] [--archive-url URL] [--dry-run] [--no-setup]
 
 Defaults:
   --version latest
@@ -21,6 +22,7 @@ Defaults:
 Examples:
   curl -fsSL https://e24z.github.io/needle/install.sh | bash
   curl -fsSL https://e24z.github.io/needle/install.sh | bash -s -- --prefix /opt/homebrew
+  curl -fsSL https://e24z.github.io/needle/install.sh | bash -s -- --no-setup
 USAGE
 }
 
@@ -40,6 +42,10 @@ while [[ $# -gt 0 ]]; do
 			;;
 		--dry-run)
 			dry_run=1
+			shift
+			;;
+		--no-setup)
+			run_setup=0
 			shift
 			;;
 		--help|-h)
@@ -106,4 +112,17 @@ echo "installed: ${prefix}/bin/needle"
 if [[ ":${PATH}:" != *":${prefix}/bin:"* ]]; then
 	echo "note: ${prefix}/bin is not on PATH"
 fi
-echo "next: needle setup"
+
+installed_needle="${prefix}/bin/needle"
+if [[ "$run_setup" == 0 ]]; then
+	echo "next: ${installed_needle} setup"
+	exit 0
+fi
+
+if [[ -t 1 && -r /dev/tty && -w /dev/tty ]]; then
+	echo "starting setup wizard..."
+	"$installed_needle" setup < /dev/tty
+else
+	echo "setup wizard not started: no interactive terminal detected"
+	echo "next: ${installed_needle} setup"
+fi

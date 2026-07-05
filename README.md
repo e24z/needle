@@ -43,16 +43,17 @@ below explains what has been checked so far, and what has not.
 
 ```bash
 curl -fsSL https://e24z.github.io/needle/install.sh | bash
-needle
 ```
 
-The bare `needle` command runs the setup wizard on an unconfigured machine:
-system check, Pi check, private worker venv, model download (~1.5 GB), Pi
-integration. Every mutation asks first; everything lands under `NEEDLE_HOME`
-(default `~/Library/Application Support/Needle`). `needle setup --dry-run`
-prints the planned changes and touches nothing. `needle uninstall` removes the
-Pi integration; `needle uninstall --purge` also removes local state, including
-the model.
+The installer copies the binary, then starts the setup wizard immediately when
+it is running in an interactive terminal. The wizard checks the system and Pi,
+creates the private worker venv, downloads the model (~1.5 GB), and registers
+the Pi integration. Every mutation asks first; everything lands under
+`NEEDLE_HOME` (default `~/Library/Application Support/Needle`). If setup cannot
+start because there is no terminal, the installer prints the exact
+`needle setup` command to run later. `needle setup --dry-run` prints the planned
+changes and touches nothing. `needle uninstall` removes the Pi integration;
+`needle uninstall --purge` also removes local state, including the model.
 
 Requires an Apple Silicon Mac (the model runs on MLX) and Pi. See
 [TESTING.md](TESTING.md) for a full walkthrough with expected results.
@@ -96,7 +97,7 @@ numbers. The current evidence is narrower:
 
 | claim | current evidence |
 | --- | --- |
-| Release artifact installs | `scripts/package-release.sh` builds the macOS Apple Silicon tarball with the Rust binary, Pi package, goal-hints skill, and worker wheel. `site/install.sh --archive-url ... --prefix ...` installs that tarball and the installed binary reports `needle 0.1.0`. |
+| Release artifact installs | `scripts/package-release.sh` builds the macOS Apple Silicon tarball with the Rust binary, Pi package, goal-hints skill, and worker wheel. `site/install.sh --archive-url ... --prefix ...` installs that tarball, starts setup when an interactive terminal is available, and the installed binary reports `needle 0.1.0`. |
 | Setup is recoverable | Rust setup tests cover dry-run, full setup into a throwaway `NEEDLE_HOME`, idempotent rerun, and bare `needle` entering the wizard on an unconfigured home. |
 | Runtime contract is covered | `cargo test` covers daemon/session behavior, leases, status, prune/original recovery, frame limits, setup, and uninstall paths. |
 | Pi integration is covered | Node tests cover tool overrides, required `context_focus_question`, daemon client behavior, status controls, and visible failure banners. |
