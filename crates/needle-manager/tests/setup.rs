@@ -4,6 +4,7 @@
 //! dir is pre-seeded, and NEEDLE_DEV_PI_BIN points nowhere so the wizard can
 //! never touch a real Pi config from tests.
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -43,6 +44,40 @@ fn fake_model_dir(dir: &Path) -> PathBuf {
     std::fs::create_dir_all(&model).expect("create model dir");
     std::fs::write(model.join("needle-model.json"), "{}").expect("write provenance");
     model
+}
+
+fn fake_pi_with_registered_packages(dir: &Path) -> PathBuf {
+    let script = dir.join("fake-pi.sh");
+    std::fs::write(
+        &script,
+        r#"#!/bin/sh
+case "$1" in
+  --version)
+    echo "0.73.1"
+    ;;
+  list)
+    echo "User packages:"
+    echo "  $PI_OLD_SOURCE"
+    echo "    $PI_OLD_RESOLVED"
+    echo "  $PI_CURRENT_SOURCE"
+    echo "    $PI_CURRENT_RESOLVED"
+    ;;
+  install|uninstall|remove)
+    echo "$@" >> "$PI_CALLS"
+    ;;
+  *)
+    echo "$@" >> "$PI_CALLS"
+    ;;
+esac
+"#,
+    )
+    .expect("write fake pi");
+    let mut perms = std::fs::metadata(&script)
+        .expect("stat fake pi")
+        .permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&script, perms).expect("chmod fake pi");
+    script
 }
 
 fn needle_setup(home: &Path, dir: &Path, args: &[&str]) -> std::process::Output {
@@ -152,6 +187,69 @@ fn full_setup_provisions_home_and_is_idempotent() {
         stdout.contains("using NEEDLE_MODEL_DIR"),
         "model step not idempotent: {stdout}"
     );
+}
+
+#[test]
+fn setup_replaces_stale_needle_pi_registration() {
+    let dir = scratch("stale-pi");
+    let home = dir.join("home");
+    let current = home.join("pi");
+    let calls = dir.join("pi-calls.txt");
+    let old_resolved = dir
+        .join("old-homebrew")
+        .join("Cellar/needle/HEAD-1611dc9/libexec/lib/python3.13/site-packages/needle/hosts/pi");
+    std::fs::create_dir_all(&current).expect("create current pi target");
+    std::fs::create_dir_all(&old_resolved).expect("create old pi package");
+    std::fs::create_dir_all(&home).expect("create home");
+    std::fs::write(
+        home.join("config.json"),
+        serde_json::json!({
+            "pi_integrated": true
+        })
+        .to_string(),
+    )
+    .expect("write config");
+
+    let old_source = "../../../../opt/homebrew/Cellar/needle/HEAD-1611dc9/libexec/lib/python3.13/site-packages/needle/hosts/pi";
+    let output = Command::new(env!("CARGO_BIN_EXE_needle"))
+        .arg("setup")
+        .arg("--yes")
+        .env("NEEDLE_HOME", &home)
+        .env("NEEDLE_DEV_WORKER_SOURCE", fake_worker_source(&dir))
+        .env("NEEDLE_MODEL_DIR", fake_model_dir(&dir))
+        .env("NEEDLE_DEV_PI_BIN", fake_pi_with_registered_packages(&dir))
+        .env("PI_CALLS", &calls)
+        .env("PI_OLD_SOURCE", old_source)
+        .env("PI_OLD_RESOLVED", &old_resolved)
+        .env("PI_CURRENT_SOURCE", &current)
+        .env("PI_CURRENT_RESOLVED", &current)
+        .output()
+        .expect("run needle setup");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("will remove stale Needle Pi package"),
+        "stale package warning missing: {stdout}"
+    );
+    let pi_calls = std::fs::read_to_string(&calls).expect("pi calls");
+    assert!(
+        pi_calls.contains(&format!("uninstall {old_source}")),
+        "old package was not uninstalled: {pi_calls}"
+    );
+    assert!(
+        pi_calls.contains(&format!("install {}", current.display())),
+        "current package was not installed: {pi_calls}"
+    );
+
+    let config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(home.join("config.json")).unwrap())
+            .expect("config parses");
+    assert_eq!(config["pi_integrated"], true);
 }
 
 #[test]

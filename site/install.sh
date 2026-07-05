@@ -114,6 +114,18 @@ if [[ ":${PATH}:" != *":${prefix}/bin:"* ]]; then
 fi
 
 installed_needle="${prefix}/bin/needle"
+if command -v needle >/dev/null 2>&1; then
+	path_needle="$(command -v needle)"
+	path_dir="$(cd "$(dirname "$path_needle")" && pwd -P)"
+	installed_dir="$(cd "$(dirname "$installed_needle")" && pwd -P)"
+	path_needle_resolved="${path_dir}/$(basename "$path_needle")"
+	installed_needle_resolved="${installed_dir}/$(basename "$installed_needle")"
+	if [[ "$path_needle_resolved" != "$installed_needle_resolved" ]]; then
+		echo "warning: 'needle' on PATH resolves to ${path_needle_resolved}"
+		echo "         use ${installed_needle} or put ${prefix}/bin earlier on PATH"
+	fi
+fi
+
 if [[ "$run_setup" == 0 ]]; then
 	echo "next: ${installed_needle} setup"
 	exit 0

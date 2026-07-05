@@ -95,8 +95,8 @@ numbers. The current evidence is narrower:
 
 | claim | current evidence |
 | --- | --- |
-| Release artifact installs | `scripts/package-release.sh` builds the macOS Apple Silicon tarball with the Rust binary, Pi package, goal-hints skill, and worker wheel. `site/install.sh --archive-url ... --prefix ...` installs that tarball, starts setup when an interactive terminal is available, and the installed binary reports `needle 0.2.0`. |
-| Setup is recoverable | Rust setup tests cover dry-run, full setup into a throwaway `NEEDLE_HOME`, idempotent rerun, and bare `needle` entering the wizard on an unconfigured home. |
+| Release artifact installs | `scripts/package-release.sh` builds the macOS Apple Silicon tarball with the Rust binary, Pi package, goal-hints skill, and worker wheel. `site/install.sh --archive-url ... --prefix ...` installs that tarball, starts setup when an interactive terminal is available, and the installed binary reports `needle 0.2.1`. |
+| Setup is recoverable | Rust setup tests cover dry-run, full setup into a throwaway `NEEDLE_HOME`, idempotent rerun, stale Pi registration replacement, and bare `needle` entering the wizard on an unconfigured home. |
 | Runtime contract is covered | `cargo test` covers daemon/session behavior, leases, status, prune/original recovery, frame limits, setup, and uninstall paths. |
 | Pi integration is covered | Node tests cover tool overrides, required `context_focus_question`, daemon client behavior, status controls, and visible failure banners. |
 | Worker behavior is covered | Python tests cover the worker protocol, backend selection, batching and chunking guardrails, profiling metadata, model download handling, AST repair, and example traces. |

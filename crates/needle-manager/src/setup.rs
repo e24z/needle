@@ -15,7 +15,7 @@ use crate::ui;
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::OnceLock;
 
 pub struct SetupOptions {
@@ -169,10 +169,12 @@ fn step_model(home: &Path, config: &mut Config, options: &SetupOptions) -> io::R
         return Ok(false);
     }
 
+    ui::info("download progress will appear below when Hugging Face reports it");
     let output = ui::activity("downloading model", "model download finished", || {
         Command::new(&worker_python)
             .args(["-m", "needle_worker.model_download_cli"])
             .env("NEEDLE_HOME", home)
+            .stderr(Stdio::inherit())
             .output()
     })?;
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -211,11 +213,6 @@ fn step_pi_integration(
         ui::warning("skipped: pi is not installed");
         return Ok(true);
     }
-    if config.pi_integrated {
-        ui::success("already registered with pi");
-        return Ok(true);
-    }
-
     let Some(source) = pi_package_source() else {
         ui::error(
             "error: pi package source not found (set NEEDLE_DEV_PI_PACKAGE, or run from a checkout)",
@@ -223,7 +220,35 @@ fn step_pi_integration(
         return Ok(false);
     };
     let target = home.join("pi");
+    let registrations = match pi_registrations() {
+        Ok(registrations) => registrations,
+        Err(error) => {
+            ui::warning(format!("could not inspect existing Pi packages: {error}"));
+            Vec::new()
+        }
+    };
+    let current_registered = registrations
+        .iter()
+        .any(|registration| registration.matches_path(&target));
+    let stale = registrations
+        .iter()
+        .filter(|registration| {
+            !registration.matches_path(&target) && registration.looks_like_needle_package()
+        })
+        .collect::<Vec<_>>();
+
+    if config.pi_integrated && current_registered && stale.is_empty() && target.exists() {
+        ui::success("already registered with pi");
+        return Ok(true);
+    }
+
     ui::info(format!("package source: {}", source.display()));
+    for registration in &stale {
+        ui::warning(format!(
+            "will remove stale Needle Pi package: {}",
+            registration.source
+        ));
+    }
     ui::info(format!(
         "will copy to {} and run `pi install {}`",
         target.display(),
@@ -239,6 +264,14 @@ fn step_pi_integration(
         return Ok(true);
     }
 
+    for registration in stale {
+        run_logged(
+            Command::new(pi_binary())
+                .arg("uninstall")
+                .arg(&registration.source),
+            &format!("pi uninstall {}", registration.source),
+        )?;
+    }
     copy_dir(&source, &target)?;
     run_logged(
         Command::new(pi_binary()).arg("install").arg(&target),
@@ -323,6 +356,106 @@ fn pi_package_source() -> Option<PathBuf> {
         return Some(shipped);
     }
     dev_path("pi")
+}
+
+#[derive(Debug)]
+struct PiRegistration {
+    source: String,
+    resolved: Option<PathBuf>,
+}
+
+impl PiRegistration {
+    fn matches_path(&self, path: &Path) -> bool {
+        self.paths()
+            .into_iter()
+            .any(|candidate| paths_equivalent(&candidate, path))
+    }
+
+    fn looks_like_needle_package(&self) -> bool {
+        let source = self.source.to_lowercase();
+        if source.contains("needle/hosts/pi") || source.contains("site-packages/needle/hosts/pi") {
+            return true;
+        }
+        self.paths().into_iter().any(|path| {
+            path.join("extension.js").exists() && package_json_is_needle_pi_package(&path)
+        })
+    }
+
+    fn paths(&self) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        paths.push(expand_tilde(&self.source));
+        if let Some(path) = &self.resolved {
+            paths.push(path.clone());
+        }
+        paths
+    }
+}
+
+fn package_json_is_needle_pi_package(path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(path.join("package.json")) else {
+        return false;
+    };
+    let Ok(package) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return false;
+    };
+    package.get("name").and_then(|name| name.as_str()) == Some("needle")
+        && package
+            .get("pi")
+            .and_then(|pi| pi.get("extensions"))
+            .and_then(|extensions| extensions.as_array())
+            .is_some_and(|extensions| !extensions.is_empty())
+}
+
+fn pi_registrations() -> io::Result<Vec<PiRegistration>> {
+    let output = Command::new(pi_binary()).arg("list").output()?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "pi list failed with {}",
+            output.status
+        )));
+    }
+    Ok(parse_pi_list(&String::from_utf8_lossy(&output.stdout)))
+}
+
+fn parse_pi_list(output: &str) -> Vec<PiRegistration> {
+    let mut registrations = Vec::new();
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.ends_with("packages:") {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        if indent <= 2 {
+            registrations.push(PiRegistration {
+                source: trimmed.to_string(),
+                resolved: None,
+            });
+        } else if let Some(registration) = registrations.last_mut() {
+            registration
+                .resolved
+                .get_or_insert_with(|| PathBuf::from(trimmed));
+        }
+    }
+    registrations
+}
+
+fn expand_tilde(path: &str) -> PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home).join(rest);
+        }
+    }
+    PathBuf::from(path)
+}
+
+fn paths_equivalent(candidate: &Path, expected: &Path) -> bool {
+    if candidate == expected {
+        return true;
+    }
+    match (candidate.canonicalize(), expected.canonicalize()) {
+        (Ok(candidate), Ok(expected)) => candidate == expected,
+        _ => false,
+    }
 }
 
 fn sibling(relative: &str) -> Option<PathBuf> {
