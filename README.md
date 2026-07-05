@@ -1,6 +1,6 @@
 # Needle
 
-Needle is a local pruning layer for [Pi](https://github.com/earendil-works/pi).
+Needle is a local pruning layer for [Pi](https://github.com/earendil-works/pi), inspired by [SWE-Pruner](https://github.com/Ayanami1314/swe-pruner).
 It sits between a tool call and the model: large `read`/`bash` observations go
 through a small local MLX model that keeps the lines relevant to what the agent
 is actually trying to learn, and drops the rest. Nothing leaves your machine.
@@ -36,8 +36,6 @@ def split_batches_by_padded_token_budget(
 ```
 
 In this demo run, the agent asked a question and got 39% of the file back.
-The other 61% of those tokens never entered its context window. The evidence
-below explains what has been checked so far, and what has not.
 
 ## Install
 
