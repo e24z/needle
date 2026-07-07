@@ -17,10 +17,11 @@ curl -fsSL https://e24z.github.io/needle/install.sh | bash
 ```
 
 **Expect:** the script reports the installed binary path (`~/.local/bin/needle`)
-and then starts a five-step wizard (system check -> pi check -> worker
-environment -> model -> pi integration). It asks before creating the venv,
-before the ~1.5 GB model download, and before touching your Pi settings. On
-completion it prints where everything went
+and then starts a six-step wizard (system check -> pi check -> worker
+environment -> model -> statusline appearance -> pi integration). It asks
+before creating the venv, before the ~1.5 GB model download, whether to
+customize the animated statusline appearance, and before touching your Pi
+settings. On completion it prints where everything went
 (`~/Library/Application Support/Needle`).
 
 Run `needle` again. **Expect:** a status summary, not the wizard. Setup is
@@ -84,6 +85,21 @@ Inside the same Pi session:
 | `/needle original` | the unpruned text of the last pruned observation |
 | `/needle off` | notice; subsequent tool output arrives untouched, statusline shows off |
 | `/needle on` | statusline returns (may spin while the model reloads) |
+
+Outside Pi, statusline appearance is managed with:
+
+```bash
+needle spinner
+needle spinner show
+needle spinner --list
+needle spinner --preview dots3
+needle spinner set loading --spinner dots3 --color amber
+needle spinner set busy --interval 60
+```
+
+**Expect:** `needle spinner` opens a Cliclack-styled draft editor when run in an
+interactive terminal. `--list`, `--preview`, and `show` are safe before setup;
+saving commands require an existing Needle config.
 
 ## 5. Daemon lifecycle
 

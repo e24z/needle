@@ -10,5 +10,6 @@ pub mod update;
 
 mod lease;
 mod memory;
+mod status_spinners;
 mod ui;
 mod worker;

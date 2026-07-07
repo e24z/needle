@@ -1,4 +1,5 @@
 .venv/
+/pi/node_modules/
 target/
 .pytest_cache/
 .DS_Store

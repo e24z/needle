@@ -1,3 +1,4 @@
+import { defaultStatuslineAppearance } from "./appearance.js";
 import {
 	CACHE_READ_COST_PER_MILLION,
 	CUSTOM_STATE,
@@ -25,6 +26,7 @@ export function createNeedleState(options = {}, defaults = {}) {
 		requestFn: options.requestFn || defaults.requestFn,
 		ensureDaemonFn: options.ensureDaemonFn || defaults.ensureDaemonFn,
 		nowFn: options.nowFn || (() => Date.now()),
+		statusline: defaultStatuslineAppearance(),
 		enablePromise: null,
 		lastStatusPollMs: Number.NEGATIVE_INFINITY,
 		statusPollInFlight: false,

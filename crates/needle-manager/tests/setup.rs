@@ -232,6 +232,11 @@ fn full_setup_provisions_home_and_is_idempotent() {
     );
     assert!(config["model_dir"].as_str().unwrap_or("").contains("model"));
     assert_eq!(config["pi_integrated"], false);
+    assert_eq!(
+        config["statusline"]["states"]["loading"]["spinner"],
+        "dots3"
+    );
+    assert_eq!(config["statusline"]["states"]["busy"]["spinner"], "dots2");
 
     // Second run: every step reports already-done, nothing re-provisions.
     let rerun = needle_setup(&home, &dir, &["--yes"]);
@@ -245,6 +250,84 @@ fn full_setup_provisions_home_and_is_idempotent() {
         stdout.contains("using NEEDLE_MODEL_DIR"),
         "model step not idempotent: {stdout}"
     );
+}
+
+#[test]
+fn spinner_command_updates_existing_config_only() {
+    let dir = scratch("spinner");
+    let home = dir.join("home");
+    std::fs::create_dir_all(&home).expect("create home");
+    std::fs::write(home.join("config.json"), "{}\n").expect("write config");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_needle"))
+        .args([
+            "spinner",
+            "set",
+            "loading",
+            "--spinner",
+            "dots3",
+            "--color",
+            "amber",
+            "--interval",
+            "60",
+        ])
+        .env("NEEDLE_HOME", &home)
+        .env("NEEDLE_PLAIN", "1")
+        .output()
+        .expect("run needle spinner");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(stdout.contains("updated loading"), "stdout: {stdout}");
+
+    let config: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(home.join("config.json")).unwrap())
+            .expect("config parses");
+    assert_eq!(
+        config["statusline"]["states"]["loading"]["spinner"],
+        "dots3"
+    );
+    assert_eq!(config["statusline"]["states"]["loading"]["color"], "amber");
+    assert_eq!(config["statusline"]["states"]["loading"]["interval_ms"], 60);
+
+    let fresh_home = dir.join("fresh-home");
+    let fresh = Command::new(env!("CARGO_BIN_EXE_needle"))
+        .args(["spinner", "set", "loading", "--spinner", "dots3"])
+        .env("NEEDLE_HOME", &fresh_home)
+        .env("NEEDLE_PLAIN", "1")
+        .output()
+        .expect("run needle spinner before setup");
+    assert!(!fresh.status.success(), "fresh spinner should fail");
+    assert!(
+        !fresh_home.join("config.json").exists(),
+        "spinner command created setup marker before setup"
+    );
+
+    let list = Command::new(env!("CARGO_BIN_EXE_needle"))
+        .args(["spinner", "--list"])
+        .env("NEEDLE_HOME", &fresh_home)
+        .env("NEEDLE_PLAIN", "1")
+        .output()
+        .expect("list spinners before setup");
+    let stdout = String::from_utf8_lossy(&list.stdout);
+    assert!(list.status.success(), "stdout: {stdout}");
+    assert!(
+        stdout.contains("dotsCircle"),
+        "spinner list should include the full cli-spinners catalog: {stdout}"
+    );
+
+    let show = Command::new(env!("CARGO_BIN_EXE_needle"))
+        .args(["spinner", "show"])
+        .env("NEEDLE_HOME", &fresh_home)
+        .env("NEEDLE_PLAIN", "1")
+        .output()
+        .expect("show spinners before setup");
+    let stdout = String::from_utf8_lossy(&show.stdout);
+    assert!(show.status.success(), "stdout: {stdout}");
+    assert!(stdout.contains("loading"), "stdout: {stdout}");
 }
 
 #[test]
@@ -448,5 +531,5 @@ fn bare_needle_runs_wizard_when_unconfigured() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("needle setup"), "stdout: {stdout}");
-    assert!(stdout.contains("[1/5] system check"), "stdout: {stdout}");
+    assert!(stdout.contains("[1/6] system check"), "stdout: {stdout}");
 }

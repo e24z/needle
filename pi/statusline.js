@@ -1,11 +1,11 @@
 import {
-	ANIMATION_MS,
-	INTENSITY_CODES,
-	PULSE_FRAMES,
-	SEP,
-	SPIN_FRAMES,
-	STATE_CODES,
-} from "./config.js";
+	PALETTE_CODES,
+	normalizeStatuslineAppearance,
+	parseStatusSpinnerName,
+	statusAnimationMs,
+	statusSpinnerForName,
+} from "./appearance.js";
+import { SEP } from "./config.js";
 import { estimatedSavedTokens, formatCount, formatStoredCostRange } from "./state.js";
 import { parseStatusMode } from "./status-modes.js";
 
@@ -24,8 +24,18 @@ export function decideStatusState(state) {
 export function formatStatus(state, options = {}) {
 	const visual = decideStatusState(state);
 	const now = options.nowMs ?? Date.now();
-	const tick = Math.floor(now / ANIMATION_MS);
-	const indicator = formatIndicator(visual, tick);
+	const statusline = normalizeStatuslineAppearance(options.statusline || state.statusline);
+	if (options.statusSpinnerName) {
+		const parsed = parseStatusSpinnerName(options.statusSpinnerName);
+		if (parsed) {
+			statusline.loading.spinner = parsed;
+			statusline.busy.spinner = parsed;
+		}
+	}
+	const appearance = statusline[visual] || statusline.loading;
+	const spinner = statusSpinnerForName(appearance.spinner);
+	const tick = Math.floor(now / statusAnimationMs(appearance, spinner));
+	const indicator = formatIndicator(appearance, tick, spinner);
 	const calls = Number(state.counters.calls || 0);
 	const saved = Number(state.counters.savedChars || 0);
 	const plural = calls === 1 ? "" : "s";
@@ -90,22 +100,11 @@ function statusFormsForMode({
 	];
 }
 
-function formatIndicator(visual, tick) {
-	if (visual === "loading" || visual === "busy") {
-		return ansi(STATE_CODES[visual], SPIN_FRAMES[tick % SPIN_FRAMES.length]);
-	}
-	if (visual === "resident") {
-		return ansi(STATE_CODES.resident, PULSE_FRAMES[tick % PULSE_FRAMES.length]);
-	}
-	if (visual === "failed") return ansi(STATE_CODES.failed, "✗");
-	return breathe(STATE_CODES.off, "·", tick);
+function formatIndicator(appearance, tick, spinner) {
+	const color = PALETTE_CODES[appearance.color] || PALETTE_CODES.gray;
+	return ansi(color, spinner.frames[tick % spinner.frames.length]);
 }
 
 function ansi(code, text) {
 	return `\x1b[${code}m${text}\x1b[0m`;
-}
-
-function breathe(code, glyph, tick) {
-	const intensity = INTENSITY_CODES[tick % INTENSITY_CODES.length];
-	return ansi(intensity ? `${code};${intensity}` : code, glyph);
 }

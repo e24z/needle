@@ -11,6 +11,7 @@
 
 use crate::config::{self, Config};
 use crate::daemon::needle_home;
+use crate::status_spinners;
 use crate::ui;
 use std::ffi::{OsStr, OsString};
 use std::io;
@@ -42,6 +43,7 @@ pub fn run(options: &SetupOptions) -> io::Result<bool> {
     let pi = step_pi_check();
     ok &= step_worker_env(&home, &mut config, options)?;
     ok &= step_model(&home, &mut config, options)?;
+    ok &= step_statusline_appearance(&mut config, options)?;
     ok &= step_pi_integration(&home, &mut config, options, pi.as_deref())?;
 
     if !options.dry_run {
@@ -58,7 +60,7 @@ pub fn run(options: &SetupOptions) -> io::Result<bool> {
 // --- steps -------------------------------------------------------------------
 
 fn step_system_check() {
-    ui::step(1, 5, "system check");
+    ui::step(1, 6, "system check");
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
     ui::info(format!("os/arch: {os}/{arch}"));
@@ -73,7 +75,7 @@ fn step_system_check() {
 }
 
 fn step_pi_check() -> Option<String> {
-    ui::step(2, 5, "pi check");
+    ui::step(2, 6, "pi check");
     let version = probe(&pi_binary(), &["--version"]);
     match &version {
         Some(version) => ui::info(format!("pi: {version}")),
@@ -83,7 +85,7 @@ fn step_pi_check() -> Option<String> {
 }
 
 fn step_worker_env(home: &Path, config: &mut Config, options: &SetupOptions) -> io::Result<bool> {
-    ui::step(3, 5, "private worker environment");
+    ui::step(3, 6, "private worker environment");
     let venv = home.join("python").join("venv");
     let venv_python = venv.join("bin").join("python");
 
@@ -143,7 +145,7 @@ fn step_worker_env(home: &Path, config: &mut Config, options: &SetupOptions) -> 
 }
 
 fn step_model(home: &Path, config: &mut Config, options: &SetupOptions) -> io::Result<bool> {
-    ui::step(4, 5, "model");
+    ui::step(4, 6, "model");
 
     // An explicit NEEDLE_MODEL_DIR (an already-downloaded snapshot) is
     // recorded and reused because model downloads are expensive.
@@ -181,18 +183,31 @@ fn step_model(home: &Path, config: &mut Config, options: &SetupOptions) -> io::R
         return Ok(false);
     }
 
-    ui::info("download progress will appear below when Hugging Face reports it");
-    let output = ui::activity("downloading model", "model download finished", || {
-        Command::new(&worker_python)
-            .args(["-m", "needle_worker.model_download_cli"])
-            .env("NEEDLE_HOME", home)
-            .stderr(Stdio::inherit())
-            .output()
-    })?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    ui::info("model download progress will appear below");
+    let runtime_dir = home.join("runtime");
+    std::fs::create_dir_all(&runtime_dir)?;
+    let result_path = status_spinners::unique_temp_file(&runtime_dir, "model-download");
+    let status = Command::new(&worker_python)
+        .args(["-m", "needle_worker.model_download_cli", "--result-json"])
+        .arg(&result_path)
+        .env("NEEDLE_HOME", home)
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()?;
+    let result_text = std::fs::read_to_string(&result_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&result_path);
     let response: serde_json::Value =
-        serde_json::from_str(stdout.trim().lines().last().unwrap_or(""))
-            .unwrap_or_else(|_| serde_json::json!({"ok": false, "error": stdout.trim()}));
+        serde_json::from_str(result_text.trim()).unwrap_or_else(|_| {
+            serde_json::json!({
+                "ok": false,
+                "error": if status.success() {
+                    "model download did not write a result"
+                } else {
+                    "model download process failed"
+                }
+            })
+        });
     if response["ok"] != true {
         ui::error(format!(
             "error: model download failed: {}",
@@ -214,13 +229,63 @@ fn step_model(home: &Path, config: &mut Config, options: &SetupOptions) -> io::R
     Ok(true)
 }
 
+fn step_statusline_appearance(config: &mut Config, options: &SetupOptions) -> io::Result<bool> {
+    ui::step(5, 6, "statusline appearance");
+    let catalog = match status_spinners::SpinnerCatalog::load() {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            ui::error(format!("error: spinner catalog unavailable: {error}"));
+            return Ok(false);
+        }
+    };
+    if options.dry_run {
+        ui::info("dry run: would configure default statusline appearance");
+        return Ok(true);
+    }
+
+    // Statusline appearance is user-owned, not release-owned: refresh_install
+    // never clobbers an existing customization.
+    if status_spinners::has_structured_statusline(config) {
+        ui::success("already configured");
+        return Ok(true);
+    }
+
+    let mut draft = status_spinners::default_statusline();
+
+    if options.assume_yes {
+        status_spinners::write_statusline_to_config(config, &draft);
+        ui::success("seed defaults saved (--yes)");
+        return Ok(true);
+    }
+
+    if ui::can_prompt() {
+        ui::info("statusline seed defaults are ready");
+        if ui::confirm("Customize statusline appearance?", false) {
+            if let Some(next) = status_spinners::edit_statusline(&draft, &catalog)? {
+                draft = next;
+            } else {
+                ui::info("kept seed statusline appearance");
+            }
+        }
+    } else {
+        ui::note(
+            "Statusline appearance",
+            status_spinners::statusline_summary(&draft, &catalog),
+        );
+    }
+
+    status_spinners::write_statusline_to_config(config, &draft);
+    ui::success("statusline appearance configured");
+    Ok(true)
+}
+
 fn step_pi_integration(
     home: &Path,
     config: &mut Config,
     options: &SetupOptions,
     pi: Option<&str>,
 ) -> io::Result<bool> {
-    ui::step(5, 5, "pi integration");
+    ui::step(6, 6, "pi integration");
     if pi.is_none() {
         ui::warning("skipped: pi is not installed");
         return Ok(true);

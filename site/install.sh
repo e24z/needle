@@ -127,14 +127,14 @@ if command -v needle >/dev/null 2>&1; then
 fi
 
 if [[ "$run_setup" == 0 ]]; then
-	echo "next: ${installed_needle} setup"
+	echo "next: ${installed_needle} setup --force"
 	exit 0
 fi
 
 if [[ -t 1 && -r /dev/tty && -w /dev/tty ]]; then
 	echo "starting setup wizard..."
-	"$installed_needle" setup < /dev/tty
+	"$installed_needle" setup --force < /dev/tty
 else
 	echo "setup wizard not started: no interactive terminal detected"
-	echo "next: ${installed_needle} setup"
+	echo "next: ${installed_needle} setup --force"
 fi

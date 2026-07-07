@@ -7,9 +7,9 @@
 // `context_focus_question` is required by the tool schema; if it is missing,
 // the extension returns a visible unpruned-output banner.
 
+import { readConfiguredStatuslineAppearance, statusRepaintMs } from "./appearance.js";
 import { ensureDaemon, request } from "./client.mjs";
 import {
-	ANIMATION_MS,
 	BASH_TOOL,
 	HEARTBEAT_MS,
 	READ_TOOL,
@@ -61,6 +61,7 @@ export function installNeedlePiExtension(pi, options = {}) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		state.sessionId = ctx.sessionManager?.getSessionId?.() || `pi-${Date.now()}`;
+		state.statusline = readConfiguredStatuslineAppearance();
 		const restored = restoreState(ctx.sessionManager?.getEntries?.() || []);
 		Object.assign(state.counters, restored.counters);
 		if (restored.statusMode) state.statusMode = restored.statusMode;
@@ -79,7 +80,7 @@ export function installNeedlePiExtension(pi, options = {}) {
 		}, STATUS_POLL_MS);
 		animationTimer = setInterval(() => {
 			renderStatus(ctx, state);
-		}, ANIMATION_MS);
+		}, statusRepaintMs(state.statusline));
 		renderStatus(ctx, state);
 	});
 

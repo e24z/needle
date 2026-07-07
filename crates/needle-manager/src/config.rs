@@ -6,20 +6,55 @@
 
 use crate::daemon::needle_home;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::io;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Config {
     /// Python interpreter of the private worker venv.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub worker_python: Option<PathBuf>,
     /// Directory holding the model snapshot (needle-model.json inside).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model_dir: Option<PathBuf>,
     /// Whether Pi integration was registered via `pi install`.
     #[serde(default)]
     pub pi_integrated: bool,
+    /// Legacy single cli-spinners entry. New config uses per-state spinners.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_spinner: Option<String>,
+    /// Transitional per-state spinner map from early dev builds.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub status_spinners: BTreeMap<String, String>,
+    /// Pi statusline appearance, keyed by visual state.
+    #[serde(default, skip_serializing_if = "StatuslineConfig::is_empty")]
+    pub statusline: StatuslineConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub needle_version: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct StatuslineConfig {
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub states: BTreeMap<String, StatuslineStateConfig>,
+}
+
+impl StatuslineConfig {
+    pub fn is_empty(&self) -> bool {
+        self.states.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct StatuslineStateConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub spinner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    pub interval_ms: Option<u64>,
 }
 
 pub fn config_path() -> PathBuf {

@@ -45,13 +45,17 @@ curl -fsSL https://e24z.github.io/needle/install.sh | bash
 
 The installer copies the binary, then starts the setup wizard immediately when
 it is running in an interactive terminal. The wizard checks the system and Pi,
-creates the private worker venv, downloads the model (~1.5 GB), and registers
-the Pi integration. Every mutation asks first; everything lands under
-`NEEDLE_HOME` (default `~/Library/Application Support/Needle`). If setup cannot
-start because there is no terminal, the installer prints the exact
-`needle setup` command to run later. `needle setup --dry-run` prints the planned
-changes and touches nothing. `needle uninstall` removes the Pi integration;
+creates the private worker venv, downloads the model (~1.5 GB), configures the
+statusline appearance, and registers the Pi integration. Every mutation asks
+first; everything lands under `NEEDLE_HOME` (default
+`~/Library/Application Support/Needle`). If setup cannot start because there is
+no terminal, the installer prints the exact `needle setup` command to run
+later. `needle setup --dry-run` prints the planned changes and touches nothing.
+`needle setup --force` refreshes installed setup assets, including the copied
+Pi package. `needle uninstall` removes the Pi integration;
 `needle uninstall --purge` also removes local state, including the model.
+To update an existing install, rerun the same curl installer; it refreshes the
+binary and setup-owned Pi package without removing the model.
 
 Update an existing tarball-managed install with:
 
@@ -138,6 +142,7 @@ and no daemon.
 ## Development
 
 ```bash
+npm ci --prefix pi                        # Pi extension dependencies and spinner catalog
 cargo build && cargo test                 # runtime
 PYTHONPATH=python python3 tests/test_worker.py    # worker (see tests/ for the full list)
 node tests/test_pi_extension.mjs          # extension behaviors
@@ -149,6 +154,15 @@ NEEDLE_BIN=target/debug/needle node tests/test_pi_client_daemon.mjs
 # run Pi against the dev extension without touching your Pi config
 NEEDLE_BIN=$PWD/target/debug/needle pi --no-extensions -e pi/extension.js \
   --skill pi/skills/needle-goal-hints
+
+# edit Pi statusline appearance
+./target/debug/needle spinner
+./target/debug/needle spinner show
+./target/debug/needle spinner --list
+./target/debug/needle spinner --preview dots3
+./target/debug/needle spinner set loading --spinner dots3 --color amber
+./target/debug/needle spinner set busy --interval 60
+./target/debug/needle spinner reset loading
 
 # build the release artifact (bin + Pi package + worker wheel)
 bash scripts/package-release.sh

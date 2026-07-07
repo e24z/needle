@@ -55,6 +55,8 @@ rm -rf "$root/python/build" "$root/python/needle_worker.egg-info"
 
 cp target/release/needle "$stage/bin/"
 cp -R pi/. "$stage/share/needle/pi/"
+rm -rf "$stage/share/needle/pi/node_modules"
+(cd "$stage/share/needle/pi" && npm ci --omit=dev)
 cp README.md "$stage/"
 
 COPYFILE_DISABLE=1 tar -C "$dist" -czf "${dist}/${asset}" "$package"
