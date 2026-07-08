@@ -290,28 +290,35 @@ fn step_pi_integration(
         return Ok(true);
     }
 
-    if options.refresh_install && current_registered {
-        run_logged(
-            Command::new(pi_binary()).arg("uninstall").arg(&target),
-            &format!("pi uninstall {}", target.display()),
-        )?;
-    }
+    let staged = stage_pi_package(&source, &target)?;
     for registration in stale {
-        run_logged(
+        if let Err(error) = run_logged(
             Command::new(pi_binary())
                 .arg("uninstall")
                 .arg(&registration.source),
             &format!("pi uninstall {}", registration.source),
-        )?;
+        ) {
+            cleanup_path(&staged.staging);
+            return Err(error);
+        }
     }
-    if options.refresh_install && target.exists() {
-        std::fs::remove_dir_all(&target)?;
+    if options.refresh_install && current_registered {
+        if let Err(error) = run_logged(
+            Command::new(pi_binary()).arg("uninstall").arg(&target),
+            &format!("pi uninstall {}", target.display()),
+        ) {
+            cleanup_path(&staged.staging);
+            return Err(error);
+        }
     }
-    copy_dir(&source, &target)?;
-    run_logged(
+    swap_pi_package(&staged, &target)?;
+    if let Err(error) = run_logged(
         Command::new(pi_binary()).arg("install").arg(&target),
         "pi install",
-    )?;
+    ) {
+        return Err(with_setup_rerun_hint(error));
+    }
+    cleanup_path(&staged.backup);
     config.pi_integrated = true;
     ui::success(format!("registered: {}", target.display()));
     Ok(true)
@@ -644,6 +651,86 @@ fn append_output_section(message: &mut String, label: &str, bytes: &[u8]) {
     }
 }
 
+struct StagedPiPackage {
+    staging: PathBuf,
+    backup: PathBuf,
+}
+
+fn stage_pi_package(source: &Path, target: &Path) -> io::Result<StagedPiPackage> {
+    let parent = target.parent().ok_or_else(|| {
+        io::Error::other(format!("invalid Pi package target: {}", target.display()))
+    })?;
+    std::fs::create_dir_all(parent)?;
+    let staging = unique_child(parent, ".needle-pi-new");
+    let backup = unique_child(parent, ".needle-pi-previous");
+    if let Err(error) = copy_dir(source, &staging) {
+        cleanup_path(&staging);
+        return Err(error);
+    }
+    Ok(StagedPiPackage { staging, backup })
+}
+
+fn swap_pi_package(staged: &StagedPiPackage, target: &Path) -> io::Result<()> {
+    let mut backed_up = false;
+    let mut committed = false;
+    let result = (|| -> io::Result<()> {
+        if path_exists(target) {
+            std::fs::rename(target, &staged.backup)?;
+            backed_up = true;
+        }
+        std::fs::rename(&staged.staging, target)?;
+        committed = true;
+        Ok(())
+    })();
+
+    if let Err(error) = result {
+        rollback_pi_package_swap(staged, target, backed_up, committed);
+        return Err(error);
+    }
+    Ok(())
+}
+
+fn rollback_pi_package_swap(
+    staged: &StagedPiPackage,
+    target: &Path,
+    backed_up: bool,
+    committed: bool,
+) {
+    if committed {
+        cleanup_path(target);
+    }
+    if backed_up {
+        let _ = std::fs::rename(&staged.backup, target);
+    }
+    cleanup_path(&staged.staging);
+}
+
+fn with_setup_rerun_hint(error: io::Error) -> io::Error {
+    io::Error::new(
+        error.kind(),
+        format!("{error}\nHint: rerun `needle setup` to restore Pi registration."),
+    )
+}
+
+fn unique_child(parent: &Path, label: &str) -> PathBuf {
+    parent.join(format!("{label}-{}-{}", std::process::id(), now_nanos()))
+}
+
+fn cleanup_path(path: &Path) {
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return;
+    };
+    if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        let _ = std::fs::remove_dir_all(path);
+    } else {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+fn path_exists(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
+}
+
 fn copy_dir(source: &Path, target: &Path) -> io::Result<()> {
     std::fs::create_dir_all(target)?;
     for entry in std::fs::read_dir(source)? {
@@ -656,6 +743,13 @@ fn copy_dir(source: &Path, target: &Path) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+fn now_nanos() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0)
 }
 
 fn now_iso8601() -> String {
