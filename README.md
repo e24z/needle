@@ -53,6 +53,19 @@ start because there is no terminal, the installer prints the exact
 changes and touches nothing. `needle uninstall` removes the Pi integration;
 `needle uninstall --purge` also removes local state, including the model.
 
+Update an existing tarball-managed install with:
+
+```bash
+needle update
+```
+
+`needle update --dry-run` prints the release artifact and target prefix without
+changing anything. The update command replaces the installed `bin/needle` and
+`share/needle` payload, then runs `needle setup` so Pi registration and the
+private worker environment point at the new payload. Use
+`needle update --no-setup` only when you want to refresh the files and run setup
+later.
+
 Requires an Apple Silicon Mac (the model runs on MLX) and Pi. See
 [TESTING.md](TESTING.md) for a full walkthrough with expected results.
 
@@ -95,7 +108,7 @@ numbers. The current evidence is narrower:
 
 | claim | current evidence |
 | --- | --- |
-| Release artifact installs | `scripts/package-release.sh` builds the macOS Apple Silicon tarball with the Rust binary, Pi package, goal-hints skill, and worker wheel. `site/install.sh --archive-url ... --prefix ...` installs that tarball, starts setup when an interactive terminal is available, and the installed binary reports `needle 0.2.1`. |
+| Release artifact installs and updates | `scripts/package-release.sh` builds the macOS Apple Silicon tarball with the Rust binary, Pi package, goal-hints skill, and worker wheel. `site/install.sh --archive-url ... --prefix ...` installs that tarball, starts setup when an interactive terminal is available, and the installed binary reports `needle 0.2.1`. `needle update --archive-url ... --prefix ...` replaces `bin/needle` and `share/needle`, then can hand off to the newly installed `needle setup`. |
 | Setup is recoverable | Rust setup tests cover dry-run, full setup into a throwaway `NEEDLE_HOME`, idempotent rerun, stale Pi registration replacement, and bare `needle` entering the wizard on an unconfigured home. |
 | Runtime contract is covered | `cargo test` covers daemon/session behavior, leases, status, prune/original recovery, frame limits, setup, and uninstall paths. |
 | Pi integration is covered | Node tests cover tool overrides, required `context_focus_question`, daemon client behavior, status controls, and visible failure banners. |

@@ -17,25 +17,35 @@ fn scratch(label: &str) -> PathBuf {
 
 /// Minimal installable package that provides `import needle_worker`.
 fn fake_worker_source(dir: &Path) -> PathBuf {
-    let source = dir.join("worker-src");
+    fake_worker_source_with_version(dir, "default", "0.0.1")
+}
+
+fn fake_worker_source_with_version(dir: &Path, label: &str, version: &str) -> PathBuf {
+    let source = dir.join(format!("worker-src-{label}"));
     let package = source.join("needle_worker");
     std::fs::create_dir_all(&package).expect("create fake worker package");
     std::fs::write(
         source.join("pyproject.toml"),
-        r#"[build-system]
+        format!(
+            r#"[build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "needle-worker"
-version = "0.0.1"
+version = "{version}"
 
 [tool.setuptools]
 packages = ["needle_worker"]
-"#,
+"#
+        ),
     )
     .expect("write pyproject");
-    std::fs::write(package.join("__init__.py"), "").expect("write __init__");
+    std::fs::write(
+        package.join("__init__.py"),
+        format!(r#"VERSION = "{version}""#),
+    )
+    .expect("write __init__");
     source
 }
 
@@ -59,6 +69,38 @@ case "$1" in
     echo "User packages:"
     echo "  $PI_OLD_SOURCE"
     echo "    $PI_OLD_RESOLVED"
+    echo "  $PI_CURRENT_SOURCE"
+    echo "    $PI_CURRENT_RESOLVED"
+    ;;
+  install|uninstall|remove)
+    echo "$@" >> "$PI_CALLS"
+    ;;
+  *)
+    echo "$@" >> "$PI_CALLS"
+    ;;
+esac
+"#,
+    )
+    .expect("write fake pi");
+    let mut perms = std::fs::metadata(&script)
+        .expect("stat fake pi")
+        .permissions();
+    perms.set_mode(0o755);
+    std::fs::set_permissions(&script, perms).expect("chmod fake pi");
+    script
+}
+
+fn fake_pi_with_current_package(dir: &Path) -> PathBuf {
+    let script = dir.join("fake-pi-current.sh");
+    std::fs::write(
+        &script,
+        r#"#!/bin/sh
+case "$1" in
+  --version)
+    echo "0.73.1"
+    ;;
+  list)
+    echo "User packages:"
     echo "  $PI_CURRENT_SOURCE"
     echo "    $PI_CURRENT_RESOLVED"
     ;;
@@ -106,6 +148,22 @@ fn needle_setup_without_model_override(
         .env("NEEDLE_DEV_PI_BIN", "/nonexistent/pi")
         .output()
         .expect("run needle setup")
+}
+
+fn installed_worker_version(venv_python: &Path) -> String {
+    let output = Command::new(venv_python)
+        .args([
+            "-c",
+            "import importlib.metadata; print(importlib.metadata.version('needle-worker'))",
+        ])
+        .output()
+        .expect("query worker version");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
 #[test]
@@ -250,6 +308,125 @@ fn setup_replaces_stale_needle_pi_registration() {
         serde_json::from_str(&std::fs::read_to_string(home.join("config.json")).unwrap())
             .expect("config parses");
     assert_eq!(config["pi_integrated"], true);
+}
+
+#[test]
+fn refresh_install_reinstalls_existing_worker_venv() {
+    let dir = scratch("refresh-worker");
+    let home = dir.join("home");
+    let model = fake_model_dir(&dir);
+
+    let first = Command::new(env!("CARGO_BIN_EXE_needle"))
+        .arg("setup")
+        .arg("--yes")
+        .env("NEEDLE_HOME", &home)
+        .env(
+            "NEEDLE_DEV_WORKER_SOURCE",
+            fake_worker_source_with_version(&dir, "old", "0.0.1"),
+        )
+        .env("NEEDLE_MODEL_DIR", &model)
+        .env("NEEDLE_DEV_PI_BIN", "/nonexistent/pi")
+        .output()
+        .expect("run initial setup");
+    let stdout = String::from_utf8_lossy(&first.stdout);
+    assert!(
+        first.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&first.stderr)
+    );
+
+    let venv_python = home.join("python").join("venv").join("bin").join("python");
+    assert_eq!(installed_worker_version(&venv_python), "0.0.1");
+
+    let refresh = Command::new(env!("CARGO_BIN_EXE_needle"))
+        .args(["setup", "--refresh-install", "--yes"])
+        .env("NEEDLE_HOME", &home)
+        .env(
+            "NEEDLE_DEV_WORKER_SOURCE",
+            fake_worker_source_with_version(&dir, "new", "0.0.2"),
+        )
+        .env("NEEDLE_MODEL_DIR", &model)
+        .env("NEEDLE_DEV_PI_BIN", "/nonexistent/pi")
+        .output()
+        .expect("run refresh setup");
+    let stdout = String::from_utf8_lossy(&refresh.stdout);
+    assert!(
+        refresh.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&refresh.stderr)
+    );
+    assert!(
+        stdout.contains("will refresh existing venv"),
+        "refresh warning missing: {stdout}"
+    );
+    assert_eq!(installed_worker_version(&venv_python), "0.0.2");
+}
+
+#[test]
+fn refresh_install_replaces_current_pi_package_copy() {
+    let dir = scratch("refresh-pi");
+    let home = dir.join("home");
+    let current = home.join("pi");
+    let calls = dir.join("pi-calls.txt");
+    let pi_source = dir.join("pi-source");
+    std::fs::create_dir_all(&pi_source).expect("create pi source");
+    std::fs::write(
+        pi_source.join("package.json"),
+        r#"{"name":"needle","pi":{"extensions":["./extension.js"]}}"#,
+    )
+    .expect("write package");
+    std::fs::write(pi_source.join("extension.js"), "").expect("write extension");
+    std::fs::write(pi_source.join("new.txt"), "new").expect("write new marker");
+
+    std::fs::create_dir_all(&current).expect("create current pi target");
+    std::fs::write(current.join("stale.txt"), "stale").expect("write stale marker");
+    std::fs::create_dir_all(&home).expect("create home");
+    std::fs::write(
+        home.join("config.json"),
+        serde_json::json!({
+            "pi_integrated": true
+        })
+        .to_string(),
+    )
+    .expect("write config");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_needle"))
+        .args(["setup", "--refresh-install", "--yes"])
+        .env("NEEDLE_HOME", &home)
+        .env("NEEDLE_DEV_WORKER_SOURCE", fake_worker_source(&dir))
+        .env("NEEDLE_MODEL_DIR", fake_model_dir(&dir))
+        .env("NEEDLE_DEV_PI_PACKAGE", &pi_source)
+        .env("NEEDLE_DEV_PI_BIN", fake_pi_with_current_package(&dir))
+        .env("PI_CALLS", &calls)
+        .env("PI_CURRENT_SOURCE", &current)
+        .env("PI_CURRENT_RESOLVED", &current)
+        .output()
+        .expect("run refresh setup");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("will refresh the current Needle Pi package"),
+        "refresh warning missing: {stdout}"
+    );
+    assert!(
+        !current.join("stale.txt").exists(),
+        "stale Pi file survived"
+    );
+    assert!(current.join("new.txt").exists(), "new Pi file missing");
+    let pi_calls = std::fs::read_to_string(&calls).expect("pi calls");
+    assert!(
+        pi_calls.contains(&format!("uninstall {}", current.display())),
+        "current package was not uninstalled: {pi_calls}"
+    );
+    assert!(
+        pi_calls.contains(&format!("install {}", current.display())),
+        "current package was not installed: {pi_calls}"
+    );
 }
 
 #[test]

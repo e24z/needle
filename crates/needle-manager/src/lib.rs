@@ -6,6 +6,7 @@ pub mod protocol;
 pub mod runtime;
 pub mod setup;
 pub mod uninstall;
+pub mod update;
 
 mod lease;
 mod memory;

@@ -22,6 +22,9 @@ pub struct SetupOptions {
     pub dry_run: bool,
     /// Answer yes to every prompt (still honors dry_run).
     pub assume_yes: bool,
+    /// Reinstall setup-owned payloads even when the existing install imports or
+    /// is already registered. Used after the release payload has been updated.
+    pub refresh_install: bool,
 }
 
 pub fn run(options: &SetupOptions) -> io::Result<bool> {
@@ -84,7 +87,7 @@ fn step_worker_env(home: &Path, config: &mut Config, options: &SetupOptions) -> 
     let venv = home.join("python").join("venv");
     let venv_python = venv.join("bin").join("python");
 
-    if worker_env_ready(&venv_python) {
+    if worker_env_ready(&venv_python) && !options.refresh_install {
         ui::success(format!("already provisioned: {}", venv_python.display()));
         config.worker_python = Some(venv_python);
         return Ok(true);
@@ -97,8 +100,14 @@ fn step_worker_env(home: &Path, config: &mut Config, options: &SetupOptions) -> 
         return Ok(false);
     };
     ui::info(format!("worker source: {}", source.display()));
+    if options.refresh_install && venv.exists() {
+        ui::warning(format!("will refresh existing venv: {}", venv.display()));
+    }
     ui::info(format!("will create venv: {}", venv.display()));
     if options.dry_run {
+        if options.refresh_install && venv.exists() {
+            ui::info("dry run: would remove the existing worker venv");
+        }
         ui::info("dry run: would run `python3 -m venv` and `pip install`");
         config.worker_python = Some(venv_python);
         return Ok(true);
@@ -111,6 +120,9 @@ fn step_worker_env(home: &Path, config: &mut Config, options: &SetupOptions) -> 
         return Ok(false);
     }
 
+    if options.refresh_install && venv.exists() {
+        std::fs::remove_dir_all(&venv)?;
+    }
     run_logged(
         Command::new(python3()).args(["-m", "venv"]).arg(&venv),
         "create venv",
@@ -237,12 +249,20 @@ fn step_pi_integration(
         })
         .collect::<Vec<_>>();
 
-    if config.pi_integrated && current_registered && stale.is_empty() && target.exists() {
+    if config.pi_integrated
+        && current_registered
+        && stale.is_empty()
+        && target.exists()
+        && !options.refresh_install
+    {
         ui::success("already registered with pi");
         return Ok(true);
     }
 
     ui::info(format!("package source: {}", source.display()));
+    if options.refresh_install && current_registered {
+        ui::warning("will refresh the current Needle Pi package");
+    }
     for registration in &stale {
         ui::warning(format!(
             "will remove stale Needle Pi package: {}",
@@ -256,6 +276,12 @@ fn step_pi_integration(
     ));
     ui::warning("`pi install` modifies your Pi settings (~/.pi)");
     if options.dry_run {
+        if options.refresh_install && target.exists() {
+            ui::info("dry run: would replace the existing Pi package copy");
+        }
+        if options.refresh_install && current_registered {
+            ui::info("dry run: would run `pi uninstall` for the current package");
+        }
         ui::info("dry run: would copy the package and run `pi install`");
         return Ok(true);
     }
@@ -264,6 +290,12 @@ fn step_pi_integration(
         return Ok(true);
     }
 
+    if options.refresh_install && current_registered {
+        run_logged(
+            Command::new(pi_binary()).arg("uninstall").arg(&target),
+            &format!("pi uninstall {}", target.display()),
+        )?;
+    }
     for registration in stale {
         run_logged(
             Command::new(pi_binary())
@@ -271,6 +303,9 @@ fn step_pi_integration(
                 .arg(&registration.source),
             &format!("pi uninstall {}", registration.source),
         )?;
+    }
+    if options.refresh_install && target.exists() {
+        std::fs::remove_dir_all(&target)?;
     }
     copy_dir(&source, &target)?;
     run_logged(
