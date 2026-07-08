@@ -63,7 +63,7 @@ struct UninstallArgs {
 
 #[derive(Args)]
 struct UpdateArgs {
-    /// Release version to install, or "latest".
+    /// Release version to install ("latest" or vX.Y.Z; a bare X.Y.Z is accepted).
     #[arg(long, default_value = "latest")]
     version: String,
     /// Install prefix. Defaults to the running release binary's prefix.
@@ -75,6 +75,9 @@ struct UpdateArgs {
     /// Print intended changes without touching anything.
     #[arg(long)]
     dry_run: bool,
+    /// Reinstall even when already on the requested version.
+    #[arg(long)]
+    force: bool,
     /// Answer yes to update prompts, and pass --yes to setup.
     #[arg(long)]
     yes: bool,
@@ -210,6 +213,7 @@ fn run_update(args: UpdateArgs) -> ExitCode {
         prefix: args.prefix,
         archive_url: args.archive_url,
         dry_run: args.dry_run,
+        force: args.force,
         assume_yes: args.yes,
         run_setup: !args.no_setup,
     };

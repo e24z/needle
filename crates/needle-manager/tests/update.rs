@@ -59,6 +59,7 @@ echo "needle {version}"
 
     let archive = dir.join(format!("needle-{version}.tar.gz"));
     let output = Command::new("tar")
+        .env("COPYFILE_DISABLE", "1")
         .arg("-czf")
         .arg(&archive)
         .arg("-C")
@@ -229,6 +230,28 @@ fn update_dry_run_touches_nothing() {
             .exists(),
         "dry run changed share payload"
     );
+}
+
+#[test]
+fn update_dry_run_reports_already_up_to_date_for_current_version() {
+    let output = Command::new(env!("CARGO_BIN_EXE_needle"))
+        .arg("update")
+        .arg("--version")
+        .arg(env!("CARGO_PKG_VERSION"))
+        .arg("--dry-run")
+        .output()
+        .expect("run update dry-run");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "stdout: {stdout}");
+    assert!(
+        stdout.contains(&format!(
+            "already up to date: needle {}",
+            env!("CARGO_PKG_VERSION")
+        )),
+        "stdout: {stdout}"
+    );
+    assert!(!stdout.contains("would download"), "stdout: {stdout}");
 }
 
 #[test]

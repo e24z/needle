@@ -57,5 +57,9 @@ cp target/release/needle "$stage/bin/"
 cp -R pi/. "$stage/share/needle/pi/"
 cp README.md "$stage/"
 
-tar -C "$dist" -czf "${dist}/${asset}" "$package"
+COPYFILE_DISABLE=1 tar -C "$dist" -czf "${dist}/${asset}" "$package"
+(
+	cd "$dist"
+	shasum -a 256 "$asset" > "${asset}.sha256"
+)
 echo "${dist}/${asset}"

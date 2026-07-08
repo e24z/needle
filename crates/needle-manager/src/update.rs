@@ -6,10 +6,14 @@
 //! their package manager.
 
 use crate::ui;
-use std::io;
+use flate2::read::GzDecoder;
+use sha2::{Digest, Sha256};
+use std::fs::File;
+use std::io::{self, Read};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use tar::EntryType;
 
 const REPO: &str = "e24z/needle";
 const INSTALL_DIR_NAME: &str = "needle";
@@ -19,6 +23,7 @@ pub struct UpdateOptions {
     pub prefix: Option<PathBuf>,
     pub archive_url: Option<String>,
     pub dry_run: bool,
+    pub force: bool,
     /// Answer yes to update prompts. When setup runs, this is forwarded to
     /// `needle setup --yes`.
     pub assume_yes: bool,
@@ -27,6 +32,20 @@ pub struct UpdateOptions {
 
 pub fn run(options: &UpdateOptions) -> io::Result<bool> {
     ui::intro("needle update");
+
+    if !options.force {
+        if let Some(target_version) = requested_release_tag(options)? {
+            if same_release_version(&target_version, env!("CARGO_PKG_VERSION")) {
+                ui::info(format!("current: needle {}", env!("CARGO_PKG_VERSION")));
+                ui::success(format!(
+                    "already up to date: needle {}",
+                    env!("CARGO_PKG_VERSION")
+                ));
+                ui::outro("needle update complete.");
+                return Ok(true);
+            }
+        }
+    }
 
     let archive_url = archive_url(options)?;
     let prefix = match &options.prefix {
@@ -98,17 +117,100 @@ fn archive_url(options: &UpdateOptions) -> io::Result<String> {
     }
 
     let host = host_triple()?;
+    Ok(archive_url_for_host(&options.version, host))
+}
+
+fn archive_url_for_host(version: &str, host: &str) -> String {
     let asset = format!("needle-{host}.tar.gz");
-    if options.version == "latest" {
-        Ok(format!(
-            "https://github.com/{REPO}/releases/latest/download/{asset}"
-        ))
+    if is_latest_version(version) {
+        format!("https://github.com/{REPO}/releases/latest/download/{asset}")
     } else {
-        Ok(format!(
+        let tag = normalize_release_tag(version);
+        format!(
             "https://github.com/{REPO}/releases/download/{}/{asset}",
-            options.version
-        ))
+            tag
+        )
     }
+}
+
+fn is_latest_version(version: &str) -> bool {
+    version.eq_ignore_ascii_case("latest")
+}
+
+fn normalize_release_tag(version: &str) -> String {
+    if version.starts_with('v') || version.starts_with('V') {
+        format!("v{}", &version[1..])
+    } else {
+        format!("v{version}")
+    }
+}
+
+fn requested_release_tag(options: &UpdateOptions) -> io::Result<Option<String>> {
+    if options.archive_url.is_some() {
+        return Ok(None);
+    }
+    if is_latest_version(&options.version) {
+        return resolve_latest_release_tag().map(Some);
+    }
+    Ok(Some(normalize_release_tag(&options.version)))
+}
+
+fn resolve_latest_release_tag() -> io::Result<String> {
+    let url = format!("https://github.com/{REPO}/releases/latest");
+    let mut command = Command::new("curl");
+    command.args(["-fsSI", &url]);
+    let output = ui::activity(
+        "resolve latest release",
+        "resolve latest release: done",
+        || command.output(),
+    )?;
+    if !output.status.success() {
+        return Err(io::Error::other(format_command_failure(
+            "resolve latest release",
+            &output,
+        )));
+    }
+    let headers = String::from_utf8_lossy(&output.stdout);
+    parse_latest_release_tag(&headers).ok_or_else(|| {
+        io::Error::other(
+            "could not resolve latest Needle release tag from GitHub redirect; \
+             pass --version vX.Y.Z or --archive-url URL",
+        )
+    })
+}
+
+fn parse_latest_release_tag(headers: &str) -> Option<String> {
+    headers.lines().filter_map(tag_from_location_header).last()
+}
+
+fn tag_from_location_header(line: &str) -> Option<String> {
+    let (name, value) = line.split_once(':')?;
+    if !name.trim().eq_ignore_ascii_case("location") {
+        return None;
+    }
+    tag_from_location(value.trim())
+}
+
+fn tag_from_location(location: &str) -> Option<String> {
+    let location = location.trim_end_matches('\r');
+    let location = location.split(['?', '#']).next().unwrap_or(location);
+    location
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_string)
+}
+
+fn same_release_version(tag: &str, version: &str) -> bool {
+    strip_leading_v(tag).eq_ignore_ascii_case(strip_leading_v(version))
+}
+
+fn strip_leading_v(value: &str) -> &str {
+    value
+        .strip_prefix('v')
+        .or_else(|| value.strip_prefix('V'))
+        .unwrap_or(value)
 }
 
 fn host_triple() -> io::Result<&'static str> {
@@ -159,7 +261,10 @@ fn install_from_archive(archive_url: &str, prefix: &Path, tmp: &Path) -> io::Res
     let extract_dir = tmp.join("extract");
     std::fs::create_dir_all(&extract_dir)?;
 
-    fetch_archive(archive_url, &archive)?;
+    let source = fetch_archive(archive_url, &archive)?;
+    if matches!(source, ArchiveSource::Network) {
+        verify_archive_checksum(archive_url, &archive)?;
+    }
     validate_archive(&archive)?;
     extract_archive(&archive, &extract_dir)?;
     let root = find_release_root(&extract_dir)?;
@@ -181,64 +286,104 @@ fn install_from_archive(archive_url: &str, prefix: &Path, tmp: &Path) -> io::Res
     Ok(())
 }
 
-fn fetch_archive(source: &str, destination: &Path) -> io::Result<()> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ArchiveSource {
+    Local,
+    Network,
+}
+
+fn fetch_archive(source: &str, destination: &Path) -> io::Result<ArchiveSource> {
     if let Some(path) = source.strip_prefix("file://") {
         std::fs::copy(path, destination)?;
-        return Ok(());
+        return Ok(ArchiveSource::Local);
     }
     let source_path = Path::new(source);
     if source_path.exists() {
         std::fs::copy(source_path, destination)?;
-        return Ok(());
+        return Ok(ArchiveSource::Local);
     }
 
     let mut command = Command::new("curl");
     command.args(["-fsSL", source, "-o"]).arg(destination);
-    run_command(&mut command, "download release artifact")
+    run_command(&mut command, "download release artifact")?;
+    Ok(ArchiveSource::Network)
+}
+
+fn verify_archive_checksum(archive_url: &str, archive: &Path) -> io::Result<()> {
+    let checksum_url = format!("{archive_url}.sha256");
+    let mut command = Command::new("curl");
+    command.args(["-fsSL", &checksum_url]);
+    let output = ui::activity(
+        "download release checksum",
+        "download release checksum: done",
+        || command.output(),
+    )?;
+    if !output.status.success() {
+        return Err(io::Error::other(format!(
+            "release has no checksum asset at {checksum_url}; cannot verify downloaded artifact\n{}",
+            format_command_failure("download release checksum", &output)
+        )));
+    }
+
+    let expected = parse_sha256_checksum(&String::from_utf8_lossy(&output.stdout))?;
+    let actual = sha256_file(archive)?;
+    verify_sha256_digest(&expected, &actual)
+}
+
+fn parse_sha256_checksum(text: &str) -> io::Result<String> {
+    text.split_whitespace()
+        .next()
+        .map(str::to_string)
+        .ok_or_else(|| io::Error::other("checksum asset did not contain a SHA-256 digest"))
+}
+
+fn verify_sha256_digest(expected: &str, actual: &str) -> io::Result<()> {
+    if expected.eq_ignore_ascii_case(actual) {
+        return Ok(());
+    }
+    Err(io::Error::other(format!(
+        "release artifact checksum mismatch: expected {expected}, got {actual}"
+    )))
+}
+
+fn sha256_file(path: &Path) -> io::Result<String> {
+    let mut file = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0; 16 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
 }
 
 fn extract_archive(archive: &Path, destination: &Path) -> io::Result<()> {
-    let mut command = Command::new("tar");
-    command.arg("-xzf").arg(archive).arg("-C").arg(destination);
-    run_command(&mut command, "unpack release artifact")
+    let file = File::open(archive)?;
+    let decoder = GzDecoder::new(file);
+    let mut archive = tar::Archive::new(decoder);
+    ui::activity(
+        "unpack release artifact",
+        "unpack release artifact: done",
+        || archive.unpack(destination),
+    )
 }
 
 fn validate_archive(archive: &Path) -> io::Result<()> {
-    let names = tar_output(
-        Command::new("tar").arg("-tzf").arg(archive),
-        "inspect release archive",
-    )?;
-    let verbose = tar_output(
-        Command::new("tar").arg("-tvzf").arg(archive),
-        "inspect release archive metadata",
-    )?;
-
-    reject_unsupported_archive_types(&verbose)?;
-    validate_archive_paths(&names)
-}
-
-fn reject_unsupported_archive_types(listing: &str) -> io::Result<()> {
-    for line in listing.lines().filter(|line| !line.trim().is_empty()) {
-        match line.as_bytes().first().copied() {
-            Some(b'-' | b'd') => {}
-            Some(kind) => {
-                return Err(io::Error::other(format!(
-                    "release archive contains unsupported entry type {:?}: {line}",
-                    kind as char
-                )));
-            }
-            None => {}
-        }
-    }
-    Ok(())
-}
-
-fn validate_archive_paths(names: &str) -> io::Result<()> {
+    let file = File::open(archive)?;
+    let decoder = GzDecoder::new(file);
+    let mut archive = tar::Archive::new(decoder);
     let mut root: Option<String> = None;
     let mut saw_entry = false;
-    for name in names.lines().filter(|line| !line.trim().is_empty()) {
+    for entry in archive.entries()? {
+        let entry = entry?;
+        let path = entry.path()?;
+        let name = path.display().to_string();
+        validate_archive_entry_type(entry.header().entry_type(), &name)?;
         saw_entry = true;
-        let entry_root = validate_archive_path(name)?;
+        let entry_root = validate_archive_path(&path)?;
         match &root {
             Some(root) if root != &entry_root => {
                 return Err(io::Error::other(format!(
@@ -256,8 +401,17 @@ fn validate_archive_paths(names: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn validate_archive_path(name: &str) -> io::Result<String> {
-    let path = Path::new(name);
+fn validate_archive_entry_type(entry_type: EntryType, name: &str) -> io::Result<()> {
+    if matches!(entry_type, EntryType::Regular | EntryType::Directory) {
+        return Ok(());
+    }
+    Err(io::Error::other(format!(
+        "release archive contains unsupported entry type for {name}: {entry_type:?}"
+    )))
+}
+
+fn validate_archive_path(path: &Path) -> io::Result<String> {
+    let name = path.display();
     if path.is_absolute() {
         return Err(io::Error::other(format!(
             "release archive contains absolute path: {name}"
@@ -285,14 +439,6 @@ fn validate_archive_path(name: &str) -> io::Result<String> {
         }
     }
     Ok(root)
-}
-
-fn tar_output(command: &mut Command, what: &str) -> io::Result<String> {
-    let output = command.output()?;
-    if !output.status.success() {
-        return Err(io::Error::other(format_command_failure(what, &output)));
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 fn find_release_root(extract_dir: &Path) -> io::Result<PathBuf> {
@@ -544,4 +690,65 @@ fn now_nanos() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn archive_urls_are_pinned_for_latest_and_version_tags() {
+        let host = "aarch64-apple-darwin";
+        assert_eq!(
+            archive_url_for_host("latest", host),
+            "https://github.com/e24z/needle/releases/latest/download/needle-aarch64-apple-darwin.tar.gz"
+        );
+        assert_eq!(
+            archive_url_for_host("v0.2.1", host),
+            "https://github.com/e24z/needle/releases/download/v0.2.1/needle-aarch64-apple-darwin.tar.gz"
+        );
+        assert_eq!(
+            archive_url_for_host("0.2.1", host),
+            "https://github.com/e24z/needle/releases/download/v0.2.1/needle-aarch64-apple-darwin.tar.gz"
+        );
+    }
+
+    #[test]
+    fn checksum_parsing_uses_first_token_and_comparison_is_case_insensitive() {
+        let digest = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        assert_eq!(
+            parse_sha256_checksum(&format!("{digest}  needle-aarch64-apple-darwin.tar.gz\n"))
+                .unwrap(),
+            digest
+        );
+        verify_sha256_digest(&digest.to_uppercase(), digest).unwrap();
+        let error = verify_sha256_digest(digest, "abcdef").unwrap_err();
+        assert!(
+            error.to_string().contains("checksum mismatch"),
+            "error: {error}"
+        );
+    }
+
+    #[test]
+    fn latest_tag_parser_takes_last_location_header_case_insensitively() {
+        let headers = "\
+HTTP/2 301\r
+Location: https://github.com/e24z/needle/releases/tag/v0.2.0\r
+\r
+HTTP/2 302\r
+location: https://github.com/e24z/needle/releases/tag/v0.2.1?ignored=1\r
+";
+        assert_eq!(
+            parse_latest_release_tag(headers),
+            Some("v0.2.1".to_string())
+        );
+    }
+
+    #[test]
+    fn release_version_comparison_strips_leading_v_case_insensitively() {
+        assert!(same_release_version("v0.2.1", "0.2.1"));
+        assert!(same_release_version("V0.2.1", "0.2.1"));
+        assert!(same_release_version("v0.2.1", "0.2.1"));
+        assert!(!same_release_version("v0.2.2", "0.2.1"));
+    }
 }
