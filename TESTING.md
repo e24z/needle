@@ -29,7 +29,27 @@ idempotent.
 If the installer says no interactive terminal was detected, run `needle setup`
 manually. That should start the same wizard.
 
-## 2. Pruning in a real Pi session
+## 2. Update
+
+```bash
+needle update --dry-run
+```
+
+**Expect:** the command reports the GitHub release artifact, the target prefix,
+and says no changes were made.
+
+Then:
+
+```bash
+needle update
+```
+
+**Expect:** the command asks before replacing the installed `bin/needle` and
+`share/needle` payload, then runs the setup wizard to refresh the Pi package
+and worker environment. Setup should be idempotent; existing model files should
+not be downloaded again.
+
+## 3. Pruning in a real Pi session
 
 ```bash
 cd <some repo of yours> && pi
@@ -54,7 +74,7 @@ Then a failing command: ask Pi to run something that exits non-zero (e.g.
 **Expect:** the exit status / error is intact in the observation. Pruning
 never eats exit codes.
 
-## 3. Controls
+## 4. Controls
 
 Inside the same Pi session:
 
@@ -65,7 +85,7 @@ Inside the same Pi session:
 | `/needle off` | notice; subsequent tool output arrives untouched, statusline shows off |
 | `/needle on` | statusline returns (may spin while the model reloads) |
 
-## 4. Daemon lifecycle
+## 5. Daemon lifecycle
 
 Quit Pi, then:
 
@@ -77,7 +97,7 @@ needle status
 The last session unloads the model and exits. `ps aux | grep needle` should
 show nothing.
 
-## 5. Uninstall
+## 6. Uninstall
 
 ```bash
 needle uninstall          # keeps the venv/model under NEEDLE_HOME

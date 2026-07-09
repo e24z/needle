@@ -32,6 +32,8 @@ enum Command {
     Daemon(DaemonArgs),
     /// Report daemon mode and backend status.
     Status(StatusArgs),
+    /// Update a tarball-managed Needle install.
+    Update(UpdateArgs),
     /// Remove Pi integration and Needle-owned runtime state.
     Uninstall(UninstallArgs),
 }
@@ -44,6 +46,9 @@ struct SetupArgs {
     /// Answer yes to every prompt.
     #[arg(long)]
     yes: bool,
+    /// Reinstall release-owned setup payloads even if they already look ready.
+    #[arg(long, hide = true)]
+    refresh_install: bool,
 }
 
 #[derive(Args)]
@@ -54,6 +59,31 @@ struct UninstallArgs {
     /// Answer yes to every prompt.
     #[arg(long)]
     yes: bool,
+}
+
+#[derive(Args)]
+struct UpdateArgs {
+    /// Release version to install ("latest" or vX.Y.Z; a bare X.Y.Z is accepted).
+    #[arg(long, default_value = "latest")]
+    version: String,
+    /// Install prefix. Defaults to the running release binary's prefix.
+    #[arg(long)]
+    prefix: Option<PathBuf>,
+    /// Explicit release archive URL or local archive path.
+    #[arg(long)]
+    archive_url: Option<String>,
+    /// Print intended changes without touching anything.
+    #[arg(long)]
+    dry_run: bool,
+    /// Reinstall even when already on the requested version.
+    #[arg(long)]
+    force: bool,
+    /// Answer yes to update prompts, and pass --yes to setup.
+    #[arg(long)]
+    yes: bool,
+    /// Replace the release payload but do not run setup afterward.
+    #[arg(long)]
+    no_setup: bool,
 }
 
 #[derive(Args)]
@@ -102,6 +132,7 @@ pub fn run() -> ExitCode {
         Some(Command::Prune(args)) => run_prune(args),
         Some(Command::Daemon(args)) => run_daemon(args),
         Some(Command::Status(args)) => run_status(args),
+        Some(Command::Update(args)) => run_update(args),
         Some(Command::Uninstall(args)) => run_uninstall(args),
         None => run_bare(),
     }
@@ -142,6 +173,7 @@ fn run_bare() -> ExitCode {
     run_setup(SetupArgs {
         dry_run: false,
         yes: false,
+        refresh_install: false,
     })
 }
 
@@ -149,6 +181,7 @@ fn run_setup(args: SetupArgs) -> ExitCode {
     let options = crate::setup::SetupOptions {
         dry_run: args.dry_run,
         assume_yes: args.yes,
+        refresh_install: args.refresh_install,
     };
     match crate::setup::run(&options) {
         Ok(true) => ExitCode::SUCCESS,
@@ -169,6 +202,26 @@ fn run_uninstall(args: UninstallArgs) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             ui::error(format!("needle: uninstall failed: {error}"));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_update(args: UpdateArgs) -> ExitCode {
+    let options = crate::update::UpdateOptions {
+        version: args.version,
+        prefix: args.prefix,
+        archive_url: args.archive_url,
+        dry_run: args.dry_run,
+        force: args.force,
+        assume_yes: args.yes,
+        run_setup: !args.no_setup,
+    };
+    match crate::update::run(&options) {
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::FAILURE,
+        Err(error) => {
+            ui::error(format!("needle: update failed: {error}"));
             ExitCode::FAILURE
         }
     }
