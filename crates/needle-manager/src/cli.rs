@@ -1,6 +1,7 @@
 use crate::daemon::{self, DaemonConfig};
 use crate::protocol::{PruneResult, wire_name};
 use crate::runtime::Runtime;
+use crate::status_spinners;
 use crate::ui;
 use clap::{Args, Parser, Subcommand};
 use serde_json::json;
@@ -32,6 +33,8 @@ enum Command {
     Daemon(DaemonArgs),
     /// Report daemon mode and backend status.
     Status(StatusArgs),
+    /// Manage the Pi statusline spinner.
+    Spinner(SpinnerArgs),
     /// Update a tarball-managed Needle install.
     Update(UpdateArgs),
     /// Remove Pi integration and Needle-owned runtime state.
@@ -46,7 +49,10 @@ struct SetupArgs {
     /// Answer yes to every prompt.
     #[arg(long)]
     yes: bool,
-    /// Reinstall release-owned setup payloads even if they already look ready.
+    /// Refresh installed assets even when setup already looks complete.
+    #[arg(long)]
+    force: bool,
+    /// Hidden alias for --force, used by `needle update`.
     #[arg(long, hide = true)]
     refresh_install: bool,
 }
@@ -107,6 +113,52 @@ struct StatusArgs {
 }
 
 #[derive(Args)]
+struct SpinnerArgs {
+    #[command(subcommand)]
+    command: Option<SpinnerCommand>,
+    /// List supported spinner names.
+    #[arg(long)]
+    list: bool,
+    /// Animate one spinner without saving anything.
+    #[arg(long, value_name = "NAME")]
+    preview: Option<String>,
+    /// Reset all statusline states to seed defaults and save.
+    #[arg(long)]
+    reset: bool,
+}
+
+#[derive(Subcommand)]
+enum SpinnerCommand {
+    /// Show the current statusline appearance.
+    Show,
+    /// Update one state from flags.
+    Set(SpinnerSetArgs),
+    /// Reset all states, or one state when supplied.
+    Reset(SpinnerResetArgs),
+}
+
+#[derive(Args)]
+struct SpinnerSetArgs {
+    /// Statusline state: loading, busy, resident, off, or failed.
+    state: String,
+    /// cli-spinners entry name.
+    #[arg(long)]
+    spinner: Option<String>,
+    /// Palette colour name.
+    #[arg(long)]
+    color: Option<String>,
+    /// Interval in milliseconds, or "default".
+    #[arg(long)]
+    interval: Option<String>,
+}
+
+#[derive(Args)]
+struct SpinnerResetArgs {
+    /// Optional state to reset. Omit to reset every state.
+    state: Option<String>,
+}
+
+#[derive(Args)]
 struct PathsArgs {
     /// Print the paths as JSON.
     #[arg(long)]
@@ -132,6 +184,7 @@ pub fn run() -> ExitCode {
         Some(Command::Prune(args)) => run_prune(args),
         Some(Command::Daemon(args)) => run_daemon(args),
         Some(Command::Status(args)) => run_status(args),
+        Some(Command::Spinner(args)) => run_spinner(args),
         Some(Command::Update(args)) => run_update(args),
         Some(Command::Uninstall(args)) => run_uninstall(args),
         None => run_bare(),
@@ -173,6 +226,7 @@ fn run_bare() -> ExitCode {
     run_setup(SetupArgs {
         dry_run: false,
         yes: false,
+        force: false,
         refresh_install: false,
     })
 }
@@ -181,7 +235,7 @@ fn run_setup(args: SetupArgs) -> ExitCode {
     let options = crate::setup::SetupOptions {
         dry_run: args.dry_run,
         assume_yes: args.yes,
-        refresh_install: args.refresh_install,
+        refresh_install: args.force || args.refresh_install,
     };
     match crate::setup::run(&options) {
         Ok(true) => ExitCode::SUCCESS,
@@ -266,6 +320,166 @@ fn run_status(args: StatusArgs) -> ExitCode {
             ExitCode::SUCCESS
         }
     }
+}
+
+fn run_spinner(args: SpinnerArgs) -> ExitCode {
+    let catalog = match status_spinners::SpinnerCatalog::load() {
+        Ok(catalog) => catalog,
+        Err(error) => {
+            ui::error(format!("needle: failed to load spinner catalog: {error}"));
+            return ExitCode::FAILURE;
+        }
+    };
+
+    if args.list {
+        status_spinners::print_spinner_list(&catalog);
+        return ExitCode::SUCCESS;
+    }
+
+    if let Some(name) = args.preview {
+        let Some(entry) = catalog.get(&name) else {
+            ui::error(format!("needle: unknown spinner `{name}`"));
+            return ExitCode::FAILURE;
+        };
+        status_spinners::preview_spinner(entry, &name, Duration::from_millis(1600));
+        return ExitCode::SUCCESS;
+    }
+
+    if matches!(args.command, Some(SpinnerCommand::Show)) {
+        let config = crate::config::load().unwrap_or_default();
+        let draft = status_spinners::normalized_statusline(&config, &catalog);
+        let body = status_spinners::statusline_summary(&draft, &catalog);
+        if ui::fancy() {
+            ui::note("Statusline appearance", body);
+        } else {
+            println!("{body}");
+        }
+        return ExitCode::SUCCESS;
+    }
+
+    let configured = crate::config::is_configured();
+    let mut config = crate::config::load().unwrap_or_default();
+
+    if !configured {
+        ui::error(
+            "needle: run `needle setup` before saving statusline appearance; `needle spinner --list`, `needle spinner --preview NAME`, and `needle spinner show` work without setup",
+        );
+        return ExitCode::FAILURE;
+    }
+
+    let mut draft = status_spinners::normalized_statusline(&config, &catalog);
+    let outcome = match args.command {
+        Some(SpinnerCommand::Set(set)) => apply_spinner_set(&mut draft, &catalog, set),
+        Some(SpinnerCommand::Reset(reset)) => {
+            if let Some(state) = reset.state {
+                if !status_spinners::is_status_state(&state) {
+                    Err(format!("unknown statusline state `{state}`"))
+                } else {
+                    status_spinners::reset_state(&mut draft, &state);
+                    Ok(format!("reset {state}"))
+                }
+            } else {
+                status_spinners::reset_all(&mut draft);
+                Ok("reset all states".to_string())
+            }
+        }
+        Some(SpinnerCommand::Show) => unreachable!(),
+        None if args.reset => {
+            status_spinners::reset_all(&mut draft);
+            Ok("reset all states".to_string())
+        }
+        None if ui::can_prompt() => match status_spinners::edit_statusline(&draft, &catalog) {
+            Ok(Some(next)) => {
+                draft = next;
+                Ok("updated statusline appearance".to_string())
+            }
+            Ok(None) => {
+                ui::info("statusline appearance unchanged");
+                return ExitCode::SUCCESS;
+            }
+            Err(error) => Err(format!("spinner editor failed: {error}")),
+        },
+        None => {
+            let body = status_spinners::statusline_summary(&draft, &catalog);
+            println!("{body}");
+            ui::info("run in an interactive terminal to edit, or use `needle spinner set --help`");
+            return ExitCode::SUCCESS;
+        }
+    };
+
+    let message = match outcome {
+        Ok(message) => message,
+        Err(error) => {
+            ui::error(format!("needle: {error}"));
+            return ExitCode::FAILURE;
+        }
+    };
+
+    status_spinners::write_statusline_to_config(&mut config, &draft);
+    match crate::config::save(&config) {
+        Ok(()) => {
+            ui::success(message);
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            ui::error(format!(
+                "needle: failed to save statusline appearance: {error}"
+            ));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn apply_spinner_set(
+    draft: &mut status_spinners::StatuslineDraft,
+    catalog: &status_spinners::SpinnerCatalog,
+    set: SpinnerSetArgs,
+) -> Result<String, String> {
+    if !status_spinners::is_status_state(&set.state) {
+        return Err(format!("unknown statusline state `{}`", set.state));
+    }
+    if set.spinner.is_none() && set.color.is_none() && set.interval.is_none() {
+        return Err("set needs at least one of --spinner, --color, or --interval".to_string());
+    }
+
+    if let Some(spinner) = set.spinner {
+        if !catalog.contains(&spinner) {
+            return Err(format!("unknown spinner `{spinner}`"));
+        }
+        status_spinners::set_spinner(draft, &set.state, &spinner, catalog);
+    }
+
+    if let Some(color) = set.color {
+        if status_spinners::palette_color(&color).is_none() {
+            return Err(format!("unknown colour `{color}`"));
+        }
+        if let Some(appearance) = draft.get_mut(&set.state) {
+            appearance.color = color;
+        }
+    }
+
+    if let Some(interval) = set.interval {
+        let parsed = if interval == "default" {
+            None
+        } else {
+            let value = interval.parse::<u64>().map_err(|_| {
+                format!("invalid interval `{interval}`; use milliseconds or default")
+            })?;
+            status_spinners::valid_interval_ms(value).ok_or_else(|| {
+                format!(
+                    "interval must be {}..{}ms",
+                    status_spinners::MIN_INTERVAL_MS,
+                    status_spinners::MAX_INTERVAL_MS
+                )
+            })?;
+            Some(value)
+        };
+        if let Some(appearance) = draft.get_mut(&set.state) {
+            appearance.interval_ms = parsed;
+        }
+    }
+
+    Ok(format!("updated {}", set.state))
 }
 
 fn run_prune(args: PruneArgs) -> ExitCode {

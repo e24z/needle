@@ -17,6 +17,7 @@ from needle_worker.model_download import (  # noqa: E402
     read_model_provenance,
     write_model_provenance,
 )
+from needle_worker import model_download_cli  # noqa: E402
 from needle_worker import paths as naming  # noqa: E402
 
 
@@ -505,6 +506,39 @@ def test_code_pruner_backend_uses_resolved_backbone_snapshot_for_network_loads()
     assert "backbone_resolved_revision" in source
 
 
+def test_model_download_cli_writes_result_json() -> None:
+    old_download = model_download_cli.download_model_snapshot
+
+    class _Result:
+        path = "/tmp/needle-model"
+        repo = "example/repo"
+        resolved_revision = "resolved-sha"
+        downloaded = True
+
+    def fake_download_model_snapshot(**_kwargs):  # noqa: ANN001
+        return _Result()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        result_path = Path(tmp) / "result.json"
+        model_download_cli.download_model_snapshot = fake_download_model_snapshot
+        try:
+            code = model_download_cli.main(
+                ["--repo", "example/repo", "--result-json", str(result_path)]
+            )
+        finally:
+            model_download_cli.download_model_snapshot = old_download
+
+        assert code == 0
+        data = json.loads(result_path.read_text(encoding="utf-8"))
+        assert data == {
+            "ok": True,
+            "path": "/tmp/needle-model",
+            "repo": "example/repo",
+            "resolved_revision": "resolved-sha",
+            "downloaded": True,
+        }
+
+
 def main() -> int:
     test_model_download_uses_resolved_commit_and_writes_provenance()
     test_runtime_lazy_download_uses_same_revision_and_provenance_schema()
@@ -519,6 +553,7 @@ def main() -> int:
     test_existing_local_model_with_different_explicit_sha_downloads()
     test_revision_specific_snapshot_path_keeps_stale_files_out_of_new_revisions()
     test_code_pruner_backend_uses_resolved_backbone_snapshot_for_network_loads()
+    test_model_download_cli_writes_result_json()
     print("test_model_download OK")
     return 0
 

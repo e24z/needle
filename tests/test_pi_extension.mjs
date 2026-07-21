@@ -8,6 +8,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 
+import cliSpinners from "../pi/node_modules/cli-spinners/index.js";
 import {
 	decideStatusState,
 	extractText,
@@ -20,6 +21,10 @@ import { request as clientRequest } from "../pi/client.mjs";
 
 const BIG_TEXT = "keep drop\n".repeat(40).trim(); // ~400 chars, above MIN_CHARS
 const ENVELOPE = "\n\n[Showing lines 1-40 of 400. Full output: /tmp/pi-bash-x]";
+
+function statusIndicator(line) {
+	return line.replace(/\x1b\[[0-9;]*m/g, "").split(" ")[0];
+}
 
 function fakePi() {
 	const pi = {
@@ -723,6 +728,39 @@ function testStatuslineStates() {
 	assert.ok(!failed.includes("/needle off"), `failed state uses status message for off-ramp: ${failed}`);
 }
 
+function testStatuslineUsesCliSpinnerFrames() {
+	const counters = { calls: 0, savedChars: 0 };
+	const base = { needleOn: true, backendStatus: "loading", busyPrunes: 0, counters };
+	const frames = cliSpinners.dots3.frames;
+	const interval = cliSpinners.dots3.interval;
+	assert.deepEqual(frames, ["⠋", "⠙", "⠚", "⠞", "⠖", "⠦", "⠴", "⠲", "⠳", "⠓"]);
+
+	const seen = frames.map((_, index) =>
+		statusIndicator(formatStatus(base, {
+			columns: 80,
+			nowMs: index * interval,
+			statusline: {
+				loading: { spinner: "dots3", color: "amber", intervalMs: null },
+			},
+		})),
+	);
+	assert.deepEqual(seen, frames);
+
+	const busyFrames = cliSpinners.arc.frames;
+	const busy = formatStatus(
+		{ ...base, busyPrunes: 1 },
+		{
+			columns: 80,
+			nowMs: 50,
+			statusline: {
+				busy: { spinner: "arc", color: "cyan", intervalMs: 50 },
+			},
+		},
+	);
+	assert.equal(statusIndicator(busy), busyFrames[1], "busy state uses its own configured spinner");
+	assert.ok(busy.includes("\x1b[38;5;87m"), "busy state colours only the glyph with palette cyan");
+}
+
 function testStatuslineModes() {
 	const counters = { calls: 2, savedChars: 4000 };
 	const base = { needleOn: true, backendStatus: "resident", busyPrunes: 0, counters };
@@ -901,6 +939,7 @@ async function main() {
 	await testNeedleOnPostsTranscriptStatusOnFailure();
 	testSplitEnvelope();
 	testStatuslineStates();
+	testStatuslineUsesCliSpinnerFrames();
 	testStatuslineModes();
 	await testStatuslineShortcutCyclesMode();
 	testSchemaHelperIdempotent();

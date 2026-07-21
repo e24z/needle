@@ -10,7 +10,7 @@ pub(crate) fn fancy() -> bool {
     io::stderr().is_terminal() && std::env::var_os("NEEDLE_PLAIN").is_none()
 }
 
-fn can_prompt() -> bool {
+pub(crate) fn can_prompt() -> bool {
     fancy() && io::stdin().is_terminal()
 }
 

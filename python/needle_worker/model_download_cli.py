@@ -25,6 +25,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--revision", default=os.environ.get("NEEDLE_MODEL_REVISION") or None
     )
+    parser.add_argument(
+        "--result-json",
+        help="Write the final JSON result to this path instead of stdout.",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -35,11 +39,10 @@ def main(argv: list[str] | None = None) -> int:
             force=False,
         )
     except Exception as exc:  # noqa: BLE001 - the wizard needs the error text.
-        json.dump({"ok": False, "error": str(exc)}, sys.stdout)
-        print()
+        write_result({"ok": False, "error": str(exc)}, args.result_json)
         return 1
 
-    json.dump(
+    write_result(
         {
             "ok": True,
             "path": result.path,
@@ -47,10 +50,19 @@ def main(argv: list[str] | None = None) -> int:
             "resolved_revision": result.resolved_revision,
             "downloaded": result.downloaded,
         },
-        sys.stdout,
+        args.result_json,
     )
-    print()
     return 0
+
+
+def write_result(payload: dict[str, object], path: str | None) -> None:
+    if path:
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle)
+            handle.write("\n")
+        return
+    json.dump(payload, sys.stdout)
+    print()
 
 
 if __name__ == "__main__":

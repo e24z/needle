@@ -25,6 +25,9 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install Pi extension dependencies and spinner catalog
+        run: npm ci --prefix pi
+
       - name: Check Rust workspace
         run: |
           cargo check
@@ -67,6 +70,17 @@ jobs:
           "${prefix}/bin/needle" --version
           test -d "${prefix}/share/needle/wheels"
           test -d "${prefix}/share/needle/pi"
+
+          PI_PACKAGE="${prefix}/share/needle/pi" node --input-type=module <<'NODE'
+          import { pathToFileURL } from 'node:url';
+
+          const spinners = await import(
+            pathToFileURL(`${process.env.PI_PACKAGE}/node_modules/cli-spinners/index.js`)
+          );
+          if (!Array.isArray(spinners.default?.dots3?.frames)) {
+            throw new Error("installed Pi package cannot import cli-spinners dots3");
+          }
+          NODE
 
           bash site/install.sh \
             --archive-url "file://${archive}" \

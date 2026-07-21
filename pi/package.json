@@ -10,6 +10,11 @@
   "peerDependencies": {
     "@mariozechner/pi-coding-agent": "*"
   },
+  "peerDependenciesMeta": {
+    "@mariozechner/pi-coding-agent": {
+      "optional": true
+    }
+  },
   "pi": {
     "extensions": [
       "./extension.js"
@@ -17,5 +22,8 @@
     "skills": [
       "./skills/needle-goal-hints/SKILL.md"
     ]
+  },
+  "dependencies": {
+    "cli-spinners": "3.4.0"
   }
 }
